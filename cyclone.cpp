@@ -25,7 +25,8 @@ const int  MSG_APPENDENTRIES_REPONSE   = 4;
 
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 4194304;
-unsigned char cyclone_buffer[MSG_MAXSIZE];
+static unsigned char cyclone_buffer[MSG_MAXSIZE];
+static raft_server_t *raft_handle;
 
 typedef struct
 {
@@ -57,7 +58,7 @@ typedef struct raft_pstate_st {
 POBJ_LAYOUT_ROOT(raft_persistent_state, raft_pstate_t);
 POBJ_LAYOUT_END(raft_persistent_state);
 
-PMEMobjpool *pop_raft_state;
+static PMEMobjpool *pop_raft_state;
 
 void CIRCULAR_COPY_FROM_LOG(unsigned char *dst,
 			    unsigned long offset,
@@ -114,9 +115,10 @@ unsigned long RECEDE_LOG_PTR(unsigned long ptr, unsigned long size)
 int append_to_raft_log(unsigned char *data, int size)
 {
   int status = 0;
+  TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
   TX_BEGIN(pop_raft_state){
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
     TOID(struct circular_log) log = D_RW(root)->log;
+    TX_ADD(log);
     unsigned long space_needed = size + 2*sizeof(int);
     unsigned long space_available;
     if(D_RO(log)->log_head < D_RO(log)->log_tail) {
@@ -154,9 +156,10 @@ int append_to_raft_log(unsigned char *data, int size)
 static int remove_head_raft_log()
 {
   int result = 0;
+  TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
   TX_BEGIN(pop_raft_state){
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
     TOID(struct circular_log) log = D_RW(root)->log;
+    TX_ADD(log);
     if(D_RO(log)->log_head != D_RO(log)->log_tail) {
       int size;
       CIRCULAR_COPY_FROM_LOG((unsigned char *)&size, D_RO(log)->log_head, sizeof(int)); 
@@ -171,9 +174,10 @@ static int remove_head_raft_log()
 static int remove_tail_raft_log()
 {
   int result = 0;
+  TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
   TX_BEGIN(pop_raft_state){
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
     TOID(struct circular_log) log = D_RW(root)->log;
+    TX_ADD(log);
     if(D_RO(log)->log_head != D_RO(log)->log_tail) {
       int size;
       unsigned long new_tail = D_RO(log)->log_tail;
@@ -268,8 +272,9 @@ static int __persist_vote(raft_server_t* raft,
 			  const int voted_for)
 {
   int status = 0;
+  TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
   TX_BEGIN(pop_raft_state) {
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
+    TX_ADD(root);
     TX_SET(root, voted_for, voted_for);
   }TX_ONABORT {
     status = -1;
@@ -285,8 +290,9 @@ static int __persist_term(raft_server_t* raft,
 			  const int current_term)
 {
   int status = 0;
+  TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
   TX_BEGIN(pop_raft_state) {
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
+    TX_ADD(root);
     TX_SET(root, term, current_term);
   } TX_ONABORT {
     status = -1;
@@ -425,13 +431,17 @@ void cyclone_boot()
   void *zmq_context;
   std::stringstream key;
   std::stringstream addr;
-
+  
+  
   boost::property_tree::read_ini("cyclone.ini", pt);
   std::string path_log  = pt.get<std::string>("storage.logpath");
   std::string path_raft = pt.get<std::string>("storage.raftpath");
   RAFT_LOGSIZE          = pt.get<unsigned long>("storage.logsize");
   replicas              = pt.get<int>("network.replicas");
   me                    = pt.get<int>("network.me");
+
+  raft_handle = raft_new();
+  raft_set_callbacks(raft_handle, &raft_funcs, NULL);
   
   /* Setup raft state */
   pop_raft_state = pmemobj_open(path_raft.c_str(),
@@ -441,22 +451,29 @@ void cyclone_boot()
 				    "RAFT_STATE",
 				    PMEMOBJ_MIN_POOL,
 				    0666);
+    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
     TX_BEGIN(pop_raft_state) {
-      TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-      TX_ADD(root); /* we are going to operate on the root object */
+      TX_ADD(root);
       TOID(struct circular_log) log = TX_ALLOC(struct circular_log,
 					       sizeof(struct circular_log) +
 					       RAFT_LOGSIZE);
-      D_RW(log)->log_head = 0;
-      D_RW(log)->log_tail = 0;
-      D_RW(root)->log     = log; 
+      D_RW(log)->term      = 0;
+      D_RW(log)->voted_for = -1;
+      D_RW(log)->log_head  = 0;
+      D_RW(log)->log_tail  = 0;
+      D_RW(root)->log      = log; 
       // All set.
     } TX_ONABORT {
       BOOST_LOG_TRIVIAL(fatal)
 	<< "Failed to initialize raft persistent state !";
       exit(-1);
     } TX_END
-	
+  }
+  else {
+    TOID(struct circular_log) log = D_RO(root)->log;
+    TX_ADD(log);
+    raft_vote(raft_handle, D_RO(log)->voted_for);
+    raft_set_current_term(raft_handle, D_RO(log)->term);
   }
 
   if(pop_raft_state == NULL) {
