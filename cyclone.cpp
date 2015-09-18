@@ -481,9 +481,9 @@ void cyclone_boot()
     unsigned long ptr = D_RO(log)->log_head;
     raft_entry_t ety;
     while(ptr != D_RO(log)->log_tail) {
-      ptr = read_from_log(&ety, ptr);
+      ptr = read_from_log((unsigned char *)&ety, ptr);
       ety.data.buf = malloc(ety.data.len);
-      ptr = read_from_log(ety.data.buf, ptr);
+      ptr = read_from_log((unsigned char *)ety.data.buf, ptr);
       raft_append_entry(raft_handle, &ety);
     }
   }
