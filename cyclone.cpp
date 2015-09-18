@@ -192,6 +192,16 @@ static int remove_tail_raft_log()
   return result;
 }
 
+static int read_from_log(unsigned char *dst, int offset)
+{
+  int size;
+  CIRCULAR_COPY_FROM_LOG((unsigned char *)&size, offset, sizeof(int));
+  offset = ADVANCE_LOG_PTR(offset, sizeof(int));
+  CIRCULAR_COPY_FROM_LOG(dst, offset, size);
+  offset = ADVANCE_LOG_PTR(offset, size + sizeof(int));
+  return offset;
+}
+
 static void do_zmq_send(void *socket,
 			unsigned char *data,
 			unsigned long size,
@@ -468,6 +478,14 @@ void cyclone_boot()
     TOID(struct circular_log) log = D_RO(root)->log;
     raft_vote(raft_handle, D_RO(root)->voted_for);
     raft_set_current_term(raft_handle, D_RO(root)->term);
+    unsigned long ptr = D_RO(log)->log_head;
+    raft_entry_t ety;
+    while(ptr != D_RO(log)->log_tail) {
+      ptr = read_from_log(&ety, ptr);
+      ety.data.buf = malloc(ety.data.len);
+      ptr = read_from_log(ety.data.buf, ptr);
+      raft_append_entry(raft_handle, &ety);
+    }
   }
 
   if(pop_raft_state == NULL) {
