@@ -275,7 +275,7 @@ static int __persist_vote(raft_server_t* raft,
   TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
   TX_BEGIN(pop_raft_state) {
     TX_ADD(root);
-    TX_SET(root, voted_for, voted_for);
+    D_RW(root)->voted_for = voted_for;
   }TX_ONABORT {
     status = -1;
   } TX_END
@@ -293,7 +293,7 @@ static int __persist_term(raft_server_t* raft,
   TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
   TX_BEGIN(pop_raft_state) {
     TX_ADD(root);
-    TX_SET(root, term, current_term);
+    D_RW(root)->term = current_term;
   } TX_ONABORT {
     status = -1;
   } TX_END
@@ -447,33 +447,27 @@ void cyclone_boot()
   pop_raft_state = pmemobj_open(path_raft.c_str(),
 				  "RAFT_STATE");
   if (pop_raft_state == NULL) {
+    // TBD: figure out how to make this atomic
     pop_raft_state = pmemobj_create(path_raft.c_str(),
 				    "RAFT_STATE",
 				    PMEMOBJ_MIN_POOL,
 				    0666);
     TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    TX_BEGIN(pop_raft_state) {
-      TX_ADD(root);
-      TOID(struct circular_log) log = TX_ALLOC(struct circular_log,
-					       sizeof(struct circular_log) +
-					       RAFT_LOGSIZE);
-      D_RW(log)->term      = 0;
-      D_RW(log)->voted_for = -1;
-      D_RW(log)->log_head  = 0;
-      D_RW(log)->log_tail  = 0;
-      D_RW(root)->log      = log; 
-      // All set.
-    } TX_ONABORT {
-      BOOST_LOG_TRIVIAL(fatal)
-	<< "Failed to initialize raft persistent state !";
-      exit(-1);
-    } TX_END
+    D_RW(root)->term      = 0;
+    D_RW(root)->voted_for = -1;
+    TOID(struct circular_log) log = TX_ALLOC(struct circular_log,
+					     sizeof(struct circular_log) +
+					     RAFT_LOGSIZE);
+    D_RW(log)->log_head  = 0;
+    D_RW(log)->log_tail  = 0;
+    D_RW(root)->log      = log; 
+    // All set.
   }
   else {
+    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
     TOID(struct circular_log) log = D_RO(root)->log;
-    TX_ADD(log);
-    raft_vote(raft_handle, D_RO(log)->voted_for);
-    raft_set_current_term(raft_handle, D_RO(log)->term);
+    raft_vote(raft_handle, D_RO(root)->voted_for);
+    raft_set_current_term(raft_handle, D_RO(root)->term);
   }
 
   if(pop_raft_state == NULL) {
