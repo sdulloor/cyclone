@@ -108,6 +108,7 @@ unsigned long RECEDE_LOG_PTR(unsigned long ptr, unsigned long size)
   else {
     ptr = ptr - size;
   }
+  return ptr;
 }
 
 int append_to_raft_log(unsigned char *data, int size)
