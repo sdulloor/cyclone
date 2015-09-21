@@ -31,7 +31,7 @@ static raft_server_t *raft_handle;
 typedef struct
 {
   int msg_type;
-  int me;
+  int source;
   union
   {
     msg_requestvote_t rv;
@@ -230,7 +230,7 @@ static int __send_requestvote(raft_server_t* raft,
 {
   raft_node_t* node = raft_get_node(raft, nodeidx);
   msg_t msg;
-  msg.me          = me;
+  msg.source          = me;
   msg.msg_type    = MSG_REQUESTVOTE;
   msg.rv          = *m;
   do_zmq_send(zmq_req_sockets[nodeidx], 
@@ -249,6 +249,7 @@ static int __send_appendentries(raft_server_t* raft,
   unsigned char *ptr = cyclone_buffer;
   msg_t msg;
   msg.msg_type         = MSG_APPENDENTRIES;
+  msg.source           = me;
   msg.ae.term          = m->term;
   msg.ae.prev_log_idx  = m->prev_log_idx;
   msg.ae.prev_log_term = m->prev_log_term;
@@ -436,14 +437,51 @@ static void cyclone_connect_endpoint(void *socket, const char *endpoint)
 }
 
 
-void cyclone_boot() 
+
+/* Handle incoming message and send appropriate response */
+static int handle_incoming(unsigned char *buf, unsigned long size)
+{
+  msg_t *msg = (msg_t *)msg;
+  msg_t resp;
+  unsigned char *payload     = buf + sizeof(msg_t);
+  unsigned long payload_size = size - sizeof(msg_t); 
+  int e; // TBD: need to handle errors
+  switch (msg->type) {
+  case MSG_REQUESTVOTE:
+    resp.type = MSG_REQUESTVOTE_RESPONSE;
+    e = raft_recv_requestvote(raft_handle, msg->source, &m.rv, &resp.rvr);
+    /* send response */
+    resp.source = me;
+    do_zmq_send(zmq_rep_socket, &resp, sizeof(msg_t), "REQVOTE RESP");
+    break;
+  case MSG_REQUESTVOTE_RESPONSE:
+    e = raft_recv_requestvote_response(raft_handle, msg->source, &msg->rvr);
+    break;
+  case MSG_APPENDENTRIES:
+    resp.type = MSG_APPENDENTRIES_RESPONSE;
+    e = raft_recv_appendentries(raft_handle, msg->source, &msg->ae, &resp->aer);
+    resp.source = me;
+    do_zmq_send(zmq_rep_socket, &resp, sizeof(msg_t), "APPENDENTRIES RESP");
+    break;
+  case MSG_APPENDENTRIES_RESPONSE:
+    e = raft_recv_appendentries_response(raft_handle, msg->source, &msg->aer);
+    break;
+  default:
+    printf("unknown msg\n");
+    exit(0);
+  }
+  return 0;
+}
+
+
+void cyclone_boot(char *config_path) 
 {
   void *zmq_context;
   std::stringstream key;
   std::stringstream addr;
   
   
-  boost::property_tree::read_ini("cyclone.ini", pt);
+  boost::property_tree::read_ini(config_path, pt);
   std::string path_log  = pt.get<std::string>("storage.logpath");
   std::string path_raft = pt.get<std::string>("storage.raftpath");
   RAFT_LOGSIZE          = pt.get<unsigned long>("storage.logsize");
