@@ -18,10 +18,10 @@ static int me;
 unsigned long RAFT_LOGSIZE;
 
 /* Message types */
-const int  MSG_REQUESTVOTE             = 1;
-const int  MSG_REQUESTVOTE_RESPONSE    = 2;
-const int  MSG_APPENDENTRIES           = 3;
-const int  MSG_APPENDENTRIES_REPONSE   = 4;
+const int  MSG_REQUESTVOTE              = 1;
+const int  MSG_REQUESTVOTE_RESPONSE     = 2;
+const int  MSG_APPENDENTRIES            = 3;
+const int  MSG_APPENDENTRIES_RESPONSE   = 4;
 
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 4194304;
@@ -446,22 +446,22 @@ static int handle_incoming(unsigned char *buf, unsigned long size)
   unsigned char *payload     = buf + sizeof(msg_t);
   unsigned long payload_size = size - sizeof(msg_t); 
   int e; // TBD: need to handle errors
-  switch (msg->type) {
+  switch (msg->msg_type) {
   case MSG_REQUESTVOTE:
-    resp.type = MSG_REQUESTVOTE_RESPONSE;
-    e = raft_recv_requestvote(raft_handle, msg->source, &m.rv, &resp.rvr);
+    resp.msg_type = MSG_REQUESTVOTE_RESPONSE;
+    e = raft_recv_requestvote(raft_handle, msg->source, &msg->rv, &resp.rvr);
     /* send response */
     resp.source = me;
-    do_zmq_send(zmq_rep_socket, &resp, sizeof(msg_t), "REQVOTE RESP");
+    do_zmq_send(zmq_rep_socket, (unsigned char *)&resp, sizeof(msg_t), "REQVOTE RESP");
     break;
   case MSG_REQUESTVOTE_RESPONSE:
     e = raft_recv_requestvote_response(raft_handle, msg->source, &msg->rvr);
     break;
   case MSG_APPENDENTRIES:
-    resp.type = MSG_APPENDENTRIES_RESPONSE;
-    e = raft_recv_appendentries(raft_handle, msg->source, &msg->ae, &resp->aer);
+    resp.msg_type = MSG_APPENDENTRIES_RESPONSE;
+    e = raft_recv_appendentries(raft_handle, msg->source, &msg->ae, &resp.aer);
     resp.source = me;
-    do_zmq_send(zmq_rep_socket, &resp, sizeof(msg_t), "APPENDENTRIES RESP");
+    do_zmq_send(zmq_rep_socket, (unsigned char *)&resp, sizeof(msg_t), "APPENDENTRIES RESP");
     break;
   case MSG_APPENDENTRIES_RESPONSE:
     e = raft_recv_appendentries_response(raft_handle, msg->source, &msg->aer);
