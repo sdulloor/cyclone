@@ -27,6 +27,13 @@ const int  MSG_APPENDENTRIES_RESPONSE   = 4;
 const int MSG_MAXSIZE  = 4194304;
 static unsigned char cyclone_buffer[MSG_MAXSIZE];
 static raft_server_t *raft_handle;
+static msg_entry_t client_req_entry;
+static msg_entry_response_t client_req_resp;
+static volatile bool client_req_complete;
+int cyclone_req_complete()
+{
+  return client_req_complete ? 1:0;
+}
 
 typedef struct
 {
@@ -311,16 +318,14 @@ static int __persist_term(raft_server_t* raft,
   return status;
 }
 
-/** Raft callback for applying an entry to the finite state machine */
+cyclone_callback_t cyclone_cb;
+
 static int __applylog(raft_server_t* raft,
 		      void *udata,
 		      const unsigned char *data,
 		      const int len)
 {
-  // TBD -- determine callback from cyclone
-  // Note application must be idempotent i.e.
-  // Multiple applications of the same log entry can happen
-  
+  cyclone_cb(data, len);
   return 0;
 }
 
@@ -465,6 +470,8 @@ static int handle_incoming(unsigned char *buf, unsigned long size)
     break;
   case MSG_APPENDENTRIES_RESPONSE:
     e = raft_recv_appendentries_response(raft_handle, msg->source, &msg->aer);
+    client_req_complete =
+      (raft_msg_entry_response_committed(raft_handle, &client_req_resp) == 1);
     break;
   default:
     printf("unknown msg\n");
@@ -473,13 +480,31 @@ static int handle_incoming(unsigned char *buf, unsigned long size)
   return 0;
 }
 
+int cyclone_is_leader()
+{
+  return (raft_get_current_leader(raft_handle) == me) ? 1:0;
+}
 
-void cyclone_boot(char *config_path) 
+int cyclone_add_entry(const unsigned char *data, const int size)
+{
+  if(!cyclone_is_leader()) {
+    return -1;
+  }
+  client_req_complete = false;
+  client_req_entry.id = rand();
+  client_req_entry.data.buf = data;
+  client_req_entry.data.len = size;
+  int e = raft_recv_entry(raft_handle, me, &client_req_entry, &client_req_resp);
+  return e;
+}
+
+void cyclone_boot(char *config_path, cyclone_callback_t cyclone_callback) 
 {
   void *zmq_context;
   std::stringstream key;
   std::stringstream addr;
-  
+
+  cyclone_cb = cyclone_callback;
   
   boost::property_tree::read_ini(config_path, pt);
   std::string path_log  = pt.get<std::string>("storage.logpath");
