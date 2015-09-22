@@ -7,20 +7,21 @@
 #include <boost/log/trivial.hpp>
 #include <zmq.h>
 #include <raft.h>
-#include<boost/thread.hpp>
+#include <boost/thread.hpp>
 #include <boost/asio/io_service.hpp>
 #include <boost/bind.hpp>
+#include <boost/lockfree/queue.hpp>
 #include "libcyclone.hpp"
 
 static boost::property_tree::ptree pt;
-static void **zmq_req_sockets;
-static void *zmq_rep_socket;
+static zmq_pollitem_t* zmq_sockets;
 static int replicas;
 static int me;
 
-boost::asio::io_service ioService;
-boost::asio::io_service::work work(ioService);
-boost::thread_group threadpool;
+static boost::asio::io_service ioService;
+static boost::asio::io_service::work work(ioService);
+static boost::thread_group threadpool;
+static boost::thread *monitor_thread;
 
 /* size of the RAFT log */
 unsigned long RAFT_LOGSIZE;
@@ -33,12 +34,15 @@ const int  MSG_APPENDENTRIES_RESPONSE   = 4;
 
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 4194304;
-static unsigned char cyclone_buffer[MSG_MAXSIZE];
+static unsigned char cyclone_buffer_out[MSG_MAXSIZE];
+static unsigned char cyclone_buffer_in[MSG_MAXSIZE];
 static raft_server_t *raft_handle;
 /* Outstanding client request */
 static msg_entry_t client_req_entry;
 static msg_entry_response_t client_req_resp;
 static cyclone_req_t * volatile client_req;
+
+
 
 typedef struct
 {
@@ -235,6 +239,29 @@ static void do_zmq_send(void *socket,
   }
 }
 
+static unsigned long do_zmq_recv(void *socket,
+				 unsigned char *data,
+				 unsigned long size,
+				 const char *context)
+{
+  int rc;
+  while (true) {
+    rc = zmq_recv(socket, data, size, 0);
+    if (rc == -1) {
+      if (errno != EAGAIN) {
+	BOOST_LOG_TRIVIAL(fatal) << "SLIPSTORE: Unable to receive";
+	perror(context);
+	exit(-1);
+      }
+      // Retry
+    }
+    else {
+      break;
+    }
+  }
+  return (unsigned long) rc;
+}
+
 /** Raft callback for sending request vote message */
 static int __send_requestvote(raft_server_t* raft,
 			      void *user_data,
@@ -242,11 +269,12 @@ static int __send_requestvote(raft_server_t* raft,
 			      msg_requestvote_t* m)
 {
   raft_node_t* node = raft_get_node(raft, nodeidx);
+  void *socket      = raft_node_get_udata(node);
   msg_t msg;
   msg.source          = me;
   msg.msg_type    = MSG_REQUESTVOTE;
   msg.rv          = *m;
-  do_zmq_send(zmq_req_sockets[nodeidx], 
+  do_zmq_send(socket, 
 	      (unsigned char *)&msg, 
 	      sizeof(msg_t), 
 	      "__send_requestvote");
@@ -259,7 +287,9 @@ static int __send_appendentries(raft_server_t* raft,
 				int nodeidx,
 				msg_appendentries_t* m)
 {
-  unsigned char *ptr = cyclone_buffer;
+  raft_node_t* node = raft_get_node(raft, nodeidx);
+  void *socket      = raft_node_get_udata(node);
+  unsigned char *ptr = cyclone_buffer_out;
   msg_t msg;
   msg.msg_type         = MSG_APPENDENTRIES;
   msg.source           = me;
@@ -271,18 +301,16 @@ static int __send_appendentries(raft_server_t* raft,
   memcpy(ptr, &msg, sizeof(msg));
   ptr = ptr + sizeof(msg);
   for(int i=0;i<m->n_entries;i++) {
-    memcpy(ptr, &m->entries[i].id, sizeof(m->entries[i].id));
-    ptr += sizeof(m->entries[i].id);
-    memcpy(ptr, &m->entries[i].term, sizeof(m->entries[i].term));
-    ptr += sizeof(m->entries[i].term);
-    memcpy(ptr, &m->entries[i].data.len, sizeof(m->entries[i].data.len));
-    ptr += sizeof(m->entries[i].data.len);
+    memcpy(ptr, &m->entries[i], sizeof(msg_entry_t));
+    ptr += sizeof(msg_entry_t);
+  }
+  for(int i=0;i<m->n_entries;i++) {
     memcpy(ptr, m->entries[i].data.buf, m->entries[i].data.len);
     ptr += m->entries[i].data.len;
   }
-  do_zmq_send(zmq_req_sockets[nodeidx], 
-	      cyclone_buffer, 
-	      ptr - cyclone_buffer, 
+  do_zmq_send(socket, 
+	      cyclone_buffer_out, 
+	      ptr - cyclone_buffer_out, 
 	      "__send_requestvote");
   return 0;
 }
@@ -448,11 +476,15 @@ static void cyclone_connect_endpoint(void *socket, const char *endpoint)
 
 
 /* Handle incoming message and send appropriate response */
-static int handle_incoming(unsigned char *buf, unsigned long size)
+static void handle_incoming(void *socket)
 {
-  msg_t *msg = (msg_t *)msg;
+  unsigned long size = do_zmq_recv(socket,
+				   cyclone_buffer_in,
+				   MSG_MAXSIZE,
+				   "Incoming");
+  msg_t *msg = (msg_t *)cyclone_buffer_in;
   msg_t resp;
-  unsigned char *payload     = buf + sizeof(msg_t);
+  unsigned char *payload     = cyclone_buffer_in + sizeof(msg_t);
   unsigned long payload_size = size - sizeof(msg_t); 
   int e; // TBD: need to handle errors
   switch (msg->msg_type) {
@@ -461,16 +493,24 @@ static int handle_incoming(unsigned char *buf, unsigned long size)
     e = raft_recv_requestvote(raft_handle, msg->source, &msg->rv, &resp.rvr);
     /* send response */
     resp.source = me;
-    do_zmq_send(zmq_rep_socket, (unsigned char *)&resp, sizeof(msg_t), "REQVOTE RESP");
+    do_zmq_send(zmq_sockets[replicas]->socket,
+		(unsigned char *)&resp, sizeof(msg_t), "REQVOTE RESP");
     break;
   case MSG_REQUESTVOTE_RESPONSE:
     e = raft_recv_requestvote_response(raft_handle, msg->source, &msg->rvr);
     break;
   case MSG_APPENDENTRIES:
     resp.msg_type = MSG_APPENDENTRIES_RESPONSE;
+    msg->ae.entries = (msg_entry_t *)payload;
+    char *ptr = (char *)(payload + msg->ae.n_entries*sizeof(msg_entry_t));
+    for(int i=0;i<msg->ae.n_entries;i++) {
+      msg->ae.entries[i].data.buf = ptr;
+      ptr += msg->ae.entries[i].data.len;
+    }
     e = raft_recv_appendentries(raft_handle, msg->source, &msg->ae, &resp.aer);
     resp.source = me;
-    do_zmq_send(zmq_rep_socket, (unsigned char *)&resp, sizeof(msg_t), "APPENDENTRIES RESP");
+    do_zmq_send(zmq_sockets[replicas]->socket,
+		(unsigned char *)&resp, sizeof(msg_t), "APPENDENTRIES RESP");
     break;
   case MSG_APPENDENTRIES_RESPONSE:
     e = raft_recv_appendentries_response(raft_handle, msg->source, &msg->aer);
@@ -487,8 +527,28 @@ static int handle_incoming(unsigned char *buf, unsigned long size)
     printf("unknown msg\n");
     exit(0);
   }
-  return 0;
 }
+
+class monitor_incoming {
+  volatile bool terminate;
+
+  monitor_incoming()
+    :terminate(false)
+  {}
+  
+  void operator ()()
+  {
+    while(!terminate) {
+      int e = zmq_poll(zmq_sockets, replicas + 1, 5000);
+      for(int i=0;i<=replicas;i++) {
+	if(zmq_sockets[i]->revents & ZMQ_POLLIN) {
+	  
+	  (void)handle_incoming(
+	}
+      }
+    }
+  }
+} *monitor_obj;
 
 int cyclone_is_leader()
 {
@@ -534,6 +594,36 @@ void cyclone_boot(char *config_path, cyclone_callback_t cyclone_callback)
   raft_handle = raft_new();
   raft_set_callbacks(raft_handle, &raft_funcs, NULL);
   
+
+    /* setup connections */
+  zmq_context  = zmq_init(1); // One thread should be enough ?
+  zmq_sockets = new zmq_pollitem_t[replicas + 1];
+  for(int i=0;i<replicas;i++) {
+    zmq_sockets[i]->socket = zmq_socket(zmq_context, ZMQ_REQ);
+    zmq_sockets[i]->events = ZMQ_POLLIN;
+    key.str("");key.clear();
+    addr.str("");addr.clear();
+    key << "machines.addr" << me;
+    addr << "tcp://";
+    addr << pt.get<std::string>(key.str().c_str());
+    cyclone_connect_endpoint(zmq_sockets[i]->socket, addr.str().c_str());
+    raft_add_peer(raft_handle, zmq_sockets[i]->socket, i == me ? 1:0);
+  }
+  zmq_sockets[replicas]->socket = zmq_socket(zmq_context, ZMQ_REP);
+  zmq_sockets[replicas]->events = ZMQ_POLLIN;
+  key.str("");key.clear();
+  addr.str("");addr.clear();
+  key << "machines.iface" << me;
+  addr << "tcp://";
+  addr << pt.get<std::string>(key.str().c_str());
+  cyclone_bind_endpoint(zmq_sockets[replicas]->socket, addr.str().c_str());
+
+  /* Launch cyclone service */
+  threadpool.create_thread(boost::bind(&boost::asio::io_service::run,
+				       &ioService));
+  monitor_obj    = new monitor_incoming();
+  monitor_thread = new boost::thread(boost::ref(*monitor_obj));
+    
   /* Setup raft state */
   pop_raft_state = pmemobj_open(path_raft.c_str(),
 				  "RAFT_STATE");
@@ -573,37 +663,15 @@ void cyclone_boot(char *config_path, cyclone_callback_t cyclone_callback)
     perror(path_raft.c_str());
     exit(1);
   }
-  
-  
-  /* setup connections */
-  zmq_context  = zmq_init(1); // One thread should be enough ?
-  zmq_req_sockets = new void*[replicas];
-  for(int i=0;i<replicas;i++) {
-    zmq_req_sockets[i] = zmq_socket(zmq_context, ZMQ_REQ);
-    key.str("");key.clear();
-    addr.str("");addr.clear();
-    key << "machines.addr" << me;
-    addr << "tcp://";
-    addr << pt.get<std::string>(key.str().c_str());
-    cyclone_connect_endpoint(zmq_req_sockets[i], addr.str().c_str());
-  }
-  zmq_rep_socket = zmq_socket(zmq_context, ZMQ_REP);
-  key.str("");key.clear();
-  addr.str("");addr.clear();
-  key << "machines.iface" << me;
-  addr << "tcp://";
-  addr << pt.get<std::string>(key.str().c_str());
-  cyclone_bind_endpoint(zmq_rep_socket, addr.str().c_str());
-
-  /* Launch cyclone service */
-  threadpool.create_thread(boost::bind(&boost::asio::io_service::run,
-				       &ioService));
-  
 }
 
 void cyclone_shutdown()
 {
   /* Shutdown */
+  ioService.stop();
+  threadpool.join_all();
+  monitor_obj->terminate = true;
+  monitor_thread->join();
   for(int i=0;i<replicas;i++) {
     zmq_close(zmq_req_sockets[i]);
   }
