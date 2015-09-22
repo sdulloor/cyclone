@@ -485,6 +485,7 @@ static void handle_incoming(void *socket)
 				   "Incoming");
   msg_t *msg = (msg_t *)cyclone_buffer_in;
   msg_t resp;
+  unsigned long rep;
   unsigned char *payload     = cyclone_buffer_in + sizeof(msg_t);
   unsigned long payload_size = size - sizeof(msg_t); 
   int e; // TBD: need to handle errors
@@ -537,8 +538,8 @@ static void handle_incoming(void *socket)
     if(client_req->request_complete == 1) {
       client_req = NULL;
     }
-    unsigned long rep = 0;
-    do_zmq_send(socket, &rep, sizeof(unsigned long), "CLIENT REP");
+    rep = 0;
+    do_zmq_send(socket, (unsigned char *)&rep, sizeof(unsigned long), "CLIENT REP");
     break;
   default:
     printf("unknown msg\n");
@@ -585,8 +586,9 @@ int cyclone_add_entry(cyclone_req_t *req)
 	      (unsigned char *)&msg, 
 	      sizeof(msg_t), 
 	      "__send_requestvote");
+  unsigned long rep;
   do_zmq_recv(zmq_sockets[me].socket,
-	      (unsigned long)&rep,
+	      (unsigned char *)&rep,
 	      sizeof(unsigned long),
 	      "client rep");
   return 0;
