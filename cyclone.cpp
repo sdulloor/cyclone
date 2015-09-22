@@ -31,6 +31,7 @@ const int  MSG_REQUESTVOTE              = 1;
 const int  MSG_REQUESTVOTE_RESPONSE     = 2;
 const int  MSG_APPENDENTRIES            = 3;
 const int  MSG_APPENDENTRIES_RESPONSE   = 4;
+const int  MSG_CLIENT_REQ               = 5;
 
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 4194304;
@@ -524,6 +525,21 @@ static void handle_incoming(void *socket)
       }
     }
     break;
+  case MSG_CLIENT_REQ:
+    client_req_entry.id = rand();
+    client_req_entry.data.buf = client_req->data;
+    client_req_entry.data.len = client_req->size;
+    // TBD: Handle error
+    (void)raft_recv_entry(raft_handle, me, &client_req_entry, &client_req_resp);
+    client_req->request_complete =
+      (raft_msg_entry_response_committed(raft_handle, &client_req_resp) == 1)
+      ? 1:0;
+    if(client_req->request_complete == 1) {
+      client_req = NULL;
+    }
+    unsigned long rep = 0;
+    do_zmq_send(socket, &rep, sizeof(unsigned long), "CLIENT REP");
+    break;
   default:
     printf("unknown msg\n");
     exit(0);
@@ -542,8 +558,7 @@ struct monitor_incoming {
       int e = zmq_poll(zmq_sockets, replicas + 1, 5000);
       for(int i=0;i<=replicas;i++) {
 	if(zmq_sockets[i].revents & ZMQ_POLLIN) {
-	  ioService.post(boost::bind(&handle_incoming, 
-				     zmq_sockets[i].socket));
+	  handle_incoming(zmq_sockets[i].socket);
 	}
       }
     }
@@ -555,24 +570,25 @@ int cyclone_is_leader()
   return (raft_get_current_leader(raft_handle) == me) ? 1:0;
 }
 
-void _cyclone_add_entry(cyclone_req_t *req)
-{
-  client_req_entry.id = rand();
-  client_req_entry.data.buf = req->data;
-  client_req_entry.data.len = req->size;
-  client_req = req;
-  req->request_complete = 0;
-  __sync_synchronize();
-  // TBD: Handle error
-  (void)raft_recv_entry(raft_handle, me, &client_req_entry, &client_req_resp);
-}
-
 int cyclone_add_entry(cyclone_req_t *req)
 {
+  msg_t msg;
   if(!cyclone_is_leader()) {
     return -1;
   }
-  ioService.post(boost::bind(&_cyclone_add_entry, req));
+  client_req = req;
+  req->request_complete = 0;
+  __sync_synchronize();
+  msg.source      = me;
+  msg.msg_type    = MSG_CLIENT_REQ;
+  do_zmq_send(zmq_sockets[me].socket, 
+	      (unsigned char *)&msg, 
+	      sizeof(msg_t), 
+	      "__send_requestvote");
+  do_zmq_recv(zmq_sockets[me].socket,
+	      (unsigned long)&rep,
+	      sizeof(unsigned long),
+	      "client rep");
   return 0;
 }
 
@@ -595,9 +611,11 @@ void cyclone_boot(char *config_path, cyclone_callback_t cyclone_callback)
   raft_set_callbacks(raft_handle, &raft_funcs, NULL);
   
 
-    /* setup connections */
+  /* setup connections */
   zmq_context  = zmq_init(1); // One thread should be enough ?
   zmq_sockets = new zmq_pollitem_t[replicas + 1];
+
+  // REQ sockets
   for(int i=0;i<replicas;i++) {
     zmq_sockets[i].socket = zmq_socket(zmq_context, ZMQ_REQ);
     zmq_sockets[i].events = ZMQ_POLLIN;
@@ -609,6 +627,8 @@ void cyclone_boot(char *config_path, cyclone_callback_t cyclone_callback)
     cyclone_connect_endpoint(zmq_sockets[i].socket, addr.str().c_str());
     raft_add_peer(raft_handle, zmq_sockets[i].socket, i == me ? 1:0);
   }
+  
+  // REP socket
   zmq_sockets[replicas].socket = zmq_socket(zmq_context, ZMQ_REP);
   zmq_sockets[replicas].events = ZMQ_POLLIN;
   key.str("");key.clear();
