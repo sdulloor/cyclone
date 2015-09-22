@@ -7,6 +7,7 @@
 #include <boost/log/trivial.hpp>
 #include <zmq.h>
 #include <raft.h>
+#include "libcyclone.hpp"
 
 static boost::property_tree::ptree pt;
 static void **zmq_req_sockets;
@@ -66,6 +67,7 @@ POBJ_LAYOUT_ROOT(raft_persistent_state, raft_pstate_t);
 POBJ_LAYOUT_END(raft_persistent_state);
 
 static PMEMobjpool *pop_raft_state;
+cyclone_callback_t cyclone_cb;
 
 void CIRCULAR_COPY_FROM_LOG(unsigned char *dst,
 			    unsigned long offset,
@@ -318,8 +320,6 @@ static int __persist_term(raft_server_t* raft,
   return status;
 }
 
-cyclone_callback_t cyclone_cb;
-
 static int __applylog(raft_server_t* raft,
 		      void *udata,
 		      const unsigned char *data,
@@ -485,7 +485,7 @@ int cyclone_is_leader()
   return (raft_get_current_leader(raft_handle) == me) ? 1:0;
 }
 
-int cyclone_add_entry(const unsigned char *data, const int size)
+int cyclone_add_entry(unsigned char *data, const int size)
 {
   if(!cyclone_is_leader()) {
     return -1;
