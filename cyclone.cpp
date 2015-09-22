@@ -7,6 +7,9 @@
 #include <boost/log/trivial.hpp>
 #include <zmq.h>
 #include <raft.h>
+#include<boost/thread.hpp>
+#include <boost/asio/io_service.hpp>
+#include <boost/bind.hpp>
 #include "libcyclone.hpp"
 
 static boost::property_tree::ptree pt;
@@ -14,6 +17,10 @@ static void **zmq_req_sockets;
 static void *zmq_rep_socket;
 static int replicas;
 static int me;
+
+boost::asio::io_service ioService;
+boost::asio::io_service::work work(ioService);
+boost::thread_group threadpool;
 
 /* size of the RAFT log */
 unsigned long RAFT_LOGSIZE;
@@ -28,13 +35,10 @@ const int  MSG_APPENDENTRIES_RESPONSE   = 4;
 const int MSG_MAXSIZE  = 4194304;
 static unsigned char cyclone_buffer[MSG_MAXSIZE];
 static raft_server_t *raft_handle;
+/* Outstanding client request */
 static msg_entry_t client_req_entry;
 static msg_entry_response_t client_req_resp;
-static volatile bool client_req_complete;
-int cyclone_req_complete()
-{
-  return client_req_complete ? 1:0;
-}
+static cyclone_req_t * volatile client_req;
 
 typedef struct
 {
@@ -470,8 +474,14 @@ static int handle_incoming(unsigned char *buf, unsigned long size)
     break;
   case MSG_APPENDENTRIES_RESPONSE:
     e = raft_recv_appendentries_response(raft_handle, msg->source, &msg->aer);
-    client_req_complete =
-      (raft_msg_entry_response_committed(raft_handle, &client_req_resp) == 1);
+    if(client_req != NULL) {
+      client_req->req_complete =
+	(raft_msg_entry_response_committed(raft_handle, &client_req_resp) == 1)
+	? 1:0;
+      if(client_req->req_complete == 1) {
+	client_req = NULL;
+      }
+    }
     break;
   default:
     printf("unknown msg\n");
@@ -485,17 +495,24 @@ int cyclone_is_leader()
   return (raft_get_current_leader(raft_handle) == me) ? 1:0;
 }
 
-int cyclone_add_entry(unsigned char *data, const int size)
+void _cyclone_add_entry(cyclone_req_t *req)
+{
+  client_req_entry.id = rand();
+  client_req_entry.data.buf = req->data;
+  client_req_entry.data.len = req->size;
+  client_req = req;
+  __sync_synchronize();
+  // TBD: Handle error
+  (void)raft_recv_entry(raft_handle, me, &client_req_entry, &client_req_resp);
+}
+
+int cyclone_add_entry(cyclone_req_t *req)
 {
   if(!cyclone_is_leader()) {
     return -1;
   }
-  client_req_complete = false;
-  client_req_entry.id = rand();
-  client_req_entry.data.buf = data;
-  client_req_entry.data.len = size;
-  int e = raft_recv_entry(raft_handle, me, &client_req_entry, &client_req_resp);
-  return e;
+  ioService.post(boost::bind(&_cyclone_add_entry, req));
+  return 0;
 }
 
 void cyclone_boot(char *config_path, cyclone_callback_t cyclone_callback) 
@@ -577,6 +594,14 @@ void cyclone_boot(char *config_path, cyclone_callback_t cyclone_callback)
   addr << pt.get<std::string>(key.str().c_str());
   cyclone_bind_endpoint(zmq_rep_socket, addr.str().c_str());
 
+  /* Launch cyclone service */
+  threadpool.create_thread(boost::bind(&boost::asio::io_service::run,
+				       &ioService));
+  
+}
+
+void cyclone_shutdown()
+{
   /* Shutdown */
   for(int i=0;i<replicas;i++) {
     zmq_close(zmq_req_sockets[i]);
@@ -585,5 +610,3 @@ void cyclone_boot(char *config_path, cyclone_callback_t cyclone_callback)
   delete[] zmq_req_sockets;
   pmemobj_close(pop_raft_state);
 }
-
-
