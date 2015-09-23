@@ -33,6 +33,9 @@ const int  MSG_APPENDENTRIES            = 3;
 const int  MSG_APPENDENTRIES_RESPONSE   = 4;
 const int  MSG_CLIENT_REQ               = 5;
 
+const unsigned long PERIODICITY_USEC    = 500000UL;        
+
+
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 4194304;
 static unsigned char cyclone_buffer_out[MSG_MAXSIZE];
@@ -555,8 +558,17 @@ struct monitor_incoming {
   
   void operator ()()
   {
+    rtc_clock timer;
     while(!terminate) {
-      int e = zmq_poll(zmq_sockets, replicas + 1, 5000);
+      timer.start();
+      int e = zmq_poll(zmq_sockets, replicas + 1, PERIODICITY_USEC);
+      timer.stop();
+      // Handle periodic events
+      if(timer.elapsed_time() >= PERIODICITY_USEC) {
+	raft_periodic(raft_handle, timer.elapsed_time());
+	timer.reset();
+      }
+      // Handle any outstanding requests
       for(int i=0;i<=replicas;i++) {
 	if(zmq_sockets[i].revents & ZMQ_POLLIN) {
 	  handle_incoming(zmq_sockets[i].socket);
