@@ -4,7 +4,7 @@
 #include<boost/log/trivial.hpp>
 
 //! Real time clock
-class rtc_clock:public clock {
+class rtc_clock {
   unsigned long start_time;
   unsigned long elapsed_useconds;
   unsigned long get_current_rtc()

@@ -11,6 +11,7 @@
 #include <boost/asio/io_service.hpp>
 #include <boost/bind.hpp>
 #include <boost/lockfree/queue.hpp>
+#include "clock.hpp"
 #include "libcyclone.hpp"
 
 static boost::property_tree::ptree pt;
