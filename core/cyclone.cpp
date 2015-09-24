@@ -618,7 +618,6 @@ void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback)
   cyclone_cb = cyclone_callback;
   
   boost::property_tree::read_ini(config_path, pt);
-  std::string path_log  = pt.get<std::string>("storage.logpath");
   std::string path_raft = pt.get<std::string>("storage.raftpath");
   RAFT_LOGSIZE          = pt.get<unsigned long>("storage.logsize");
   replicas              = pt.get<int>("network.replicas");
