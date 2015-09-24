@@ -6,7 +6,9 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/log/trivial.hpp>
 #include <zmq.h>
+extern "C" {
 #include <raft.h>
+}
 #include <boost/thread.hpp>
 #include <boost/asio/io_service.hpp>
 #include <boost/bind.hpp>
@@ -607,7 +609,7 @@ int cyclone_add_entry(cyclone_req_t *req)
   return 0;
 }
 
-void cyclone_boot(char *config_path, cyclone_callback_t cyclone_callback) 
+void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback) 
 {
   void *zmq_context;
   std::stringstream key;

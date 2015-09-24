@@ -1,8 +1,9 @@
 // Basic test driver for cyclone
 #include<stdio.h>
-#include<libcylone.hpp>
+#include<stdlib.h>
+#include<libcyclone.hpp>
 
-void cyclone_cb(ocnst unsigned char *data, const int len)
+void cyclone_cb(const unsigned char *data, const int len)
 {
   if(len != 8) {
     fprintf(stderr, "ERROR\n");
@@ -14,7 +15,7 @@ void cyclone_cb(ocnst unsigned char *data, const int len)
   }
 }
 
-int main(int argc, void *argv)
+int main(int argc, char *argv[])
 {
   if(argc != 2) {
     printf("Usage %s node_id\n", argv[0]);
