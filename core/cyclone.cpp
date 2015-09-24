@@ -670,15 +670,24 @@ void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback)
 				    PMEMOBJ_MIN_POOL,
 				    0666);
     TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    D_RW(root)->term      = 0;
-    D_RW(root)->voted_for = -1;
-    TOID(struct circular_log) log = TX_ALLOC(struct circular_log,
-					     sizeof(struct circular_log) +
-					     RAFT_LOGSIZE);
-    D_RW(log)->log_head  = 0;
-    D_RW(log)->log_tail  = 0;
-    D_RW(root)->log      = log; 
+    TX_BEGIN(pop_raft_state) {
+      D_RW(root)->term      = 0;
+      D_RW(root)->voted_for = -1;
+      TOID(struct circular_log) log = TX_ALLOC(struct circular_log,
+					       sizeof(struct circular_log) +
+					       RAFT_LOGSIZE);
+      if(TOID_IS_NULL(log)) {
+	pmemobj_tx_abort(-1);
+      }
+      D_RW(log)->log_head  = 0;
+      D_RW(log)->log_tail  = 0;
+      D_RW(root)->log      = log; 
     // All set.
+    } TX_ONABORT {
+      BOOST_LOG_TRIVIAL(fatal) << "Unable to allocate log";
+      exit(-1);
+    } 
+    TX_END
   }
   else {
     TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);

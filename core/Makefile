@@ -1,7 +1,7 @@
 all: libcyclone.so
 
 CXXFLAGS = -O3 -fPIC -DBOOST_LOG_DYN_LINK
-
+#CXXFLAGS = -g -fPIC -DBOOST_LOG_DYN_LINK
 libcyclone.so:libcyclone.o
 	$(CXX) -shared -Wl,-soname,libcyclone.so -o libcyclone.so libcyclone.o \
 	-lc -lcraft -lpmemobj -lpmemlog -lzmq -lboost_thread -lboost_log
