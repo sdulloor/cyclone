@@ -662,23 +662,28 @@ void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback)
     
   /* Setup raft state */
   pop_raft_state = pmemobj_open(path_raft.c_str(),
-				  "RAFT_STATE");
+				"raft_persistent_state");
   if (pop_raft_state == NULL) {
     // TBD: figure out how to make this atomic
     pop_raft_state = pmemobj_create(path_raft.c_str(),
-				    "RAFT_STATE",
+				    POBJ_LAYOUT_NAME(raft_persistent_state),
 				    PMEMOBJ_MIN_POOL,
 				    0666);
+    if(pop_raft_state == NULL) {
+      BOOST_LOG_TRIVIAL(fatal)
+	<< "Unable to creat pmemobj pool:"
+	<< strerror(errno);
+      exit(-1);
+    }
     TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
     TX_BEGIN(pop_raft_state) {
+      TX_ADD(root);
       D_RW(root)->term      = 0;
       D_RW(root)->voted_for = -1;
       TOID(struct circular_log) log = TX_ALLOC(struct circular_log,
 					       sizeof(struct circular_log) +
 					       RAFT_LOGSIZE);
-      if(TOID_IS_NULL(log)) {
-	pmemobj_tx_abort(-1);
-      }
+      TX_ADD(log);
       D_RW(log)->log_head  = 0;
       D_RW(log)->log_tail  = 0;
       D_RW(root)->log      = log; 
