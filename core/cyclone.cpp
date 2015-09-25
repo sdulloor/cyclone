@@ -36,7 +36,7 @@ const int  MSG_APPENDENTRIES            = 3;
 const int  MSG_APPENDENTRIES_RESPONSE   = 4;
 const int  MSG_CLIENT_REQ               = 5;
 
-const unsigned long PERIODICITY_USEC    = 500000UL;        
+const unsigned long PERIODICITY_MSEC    = 500UL;        
 
 
 /* Cyclone max message size */
@@ -234,9 +234,9 @@ static void do_zmq_send(void *socket,
     int rc = zmq_send(socket, data, size, 0);
     if (rc == -1) {
       if (errno != EAGAIN) {
-	BOOST_LOG_TRIVIAL(fatal) << "SLIPSTORE: Unable to transmit";
+	BOOST_LOG_TRIVIAL(warning) << "CYCLONE: Unable to transmit";
 	perror(context);
-	exit(-1);
+	//Communcation failures are acceptable
       }
       // Retry
     }
@@ -256,7 +256,7 @@ static unsigned long do_zmq_recv(void *socket,
     rc = zmq_recv(socket, data, size, 0);
     if (rc == -1) {
       if (errno != EAGAIN) {
-	BOOST_LOG_TRIVIAL(fatal) << "SLIPSTORE: Unable to receive";
+	BOOST_LOG_TRIVIAL(fatal) << "CYCLONE: Unable to receive";
 	perror(context);
 	exit(-1);
       }
@@ -564,10 +564,12 @@ struct monitor_incoming {
     rtc_clock timer;
     while(!terminate) {
       timer.start();
-      int e = zmq_poll(zmq_sockets, replicas + 1, PERIODICITY_USEC);
+      BOOST_LOG_TRIVIAL(info) << "Enter poll";
+      int e = zmq_poll(zmq_sockets, replicas + 1, PERIODICITY_MSEC);
       timer.stop();
       // Handle periodic events
-      if(timer.elapsed_time() >= PERIODICITY_USEC) {
+      BOOST_LOG_TRIVIAL(info) << "Exit poll";
+      if(timer.elapsed_time()/1000 >= PERIODICITY_MSEC) {
 	raft_periodic(raft_handle, timer.elapsed_time());
 	timer.reset();
       }
@@ -584,7 +586,7 @@ struct monitor_incoming {
 int cyclone_is_leader()
 {
   int leader = raft_get_current_leader(raft_handle);
-  BOOST_LOG_TRIVIAL(info) << "leader = " << leader;
+  //BOOST_LOG_TRIVIAL(info) << "leader = " << leader;
   return (leader == me) ? 1:0;
 }
 
@@ -707,7 +709,7 @@ void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback)
       raft_append_entry(raft_handle, &ety);
     }
   }
-  raft_set_election_timeout(raft_handle, PERIODICITY_USEC);
+  raft_set_election_timeout(raft_handle, PERIODICITY_MSEC);
   /* Launch cyclone service */
   threadpool.create_thread(boost::bind(&boost::asio::io_service::run,
 				       &ioService));
