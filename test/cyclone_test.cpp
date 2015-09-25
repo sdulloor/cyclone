@@ -1,6 +1,7 @@
 // Basic test driver for cyclone
 #include<stdio.h>
 #include<stdlib.h>
+#include<unistd.h>
 #include<libcyclone.hpp>
 
 void cyclone_cb(const unsigned char *data, const int len)
@@ -13,6 +14,7 @@ void cyclone_cb(const unsigned char *data, const int len)
 	    *(const unsigned int *)data,
 	    *(const unsigned int *)(data + 4));
   }
+  __sync_synchronize();
 }
 
 int main(int argc, char *argv[])
@@ -41,6 +43,7 @@ int main(int argc, char *argv[])
     fprintf(stderr, "PROPOSE %d:%d\n",
 	    *(const unsigned int *)entry,
 	    *(const unsigned int *)(entry + 4));
+    sleep(5);
     ctr++;
   }
 }

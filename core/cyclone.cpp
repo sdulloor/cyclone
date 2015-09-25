@@ -17,8 +17,8 @@ extern "C" {
 #include "libcyclone.hpp"
 
 static boost::property_tree::ptree pt;
-static void* zmq_push_sockets;
-static void* zmq_pull_sockets;
+static void** zmq_push_sockets;
+static void** zmq_pull_sockets;
 static int replicas;
 static int me;
 
@@ -438,7 +438,7 @@ static int __raft_logentry_pop(raft_server_t* raft,
 /** Raft callback for displaying debugging information */
 void __raft_log(raft_server_t* raft, void *udata, const char *buf)
 {
-  BOOST_LOG_TRIVIAL(debug) << "CYCLONE::RAFT " << buf;
+  //BOOST_LOG_TRIVIAL(debug) << "CYCLONE::RAFT " << buf;
 }
 
 
@@ -503,7 +503,7 @@ static void handle_incoming(void *socket)
     e = raft_recv_requestvote(raft_handle, msg->source, &msg->rv, &resp.rvr);
     /* send response */
     resp.source = me;
-    do_zmq_send(zmq_push_sockets[msg->source].socket,
+    do_zmq_send(zmq_push_sockets[msg->source],
 		(unsigned char *)&resp, sizeof(msg_t), "REQVOTE RESP");
     break;
   case MSG_REQUESTVOTE_RESPONSE:
@@ -519,7 +519,7 @@ static void handle_incoming(void *socket)
     }
     e = raft_recv_appendentries(raft_handle, msg->source, &msg->ae, &resp.aer);
     resp.source = me;
-    do_zmq_send(zmq_push_sockets[msg->source].socket,
+    do_zmq_send(zmq_push_sockets[msg->source],
 		(unsigned char *)&resp, sizeof(msg_t), "APPENDENTRIES RESP");
     break;
   case MSG_APPENDENTRIES_RESPONSE:
@@ -568,11 +568,11 @@ struct monitor_incoming {
     }
     while(!terminate) {
       timer.start();
-      BOOST_LOG_TRIVIAL(info) << "Enter poll";
-      int e = zmq_poll(items, replicas + 1, PERIODICITY_MSEC);
+      //BOOST_LOG_TRIVIAL(info) << "Enter poll";
+      int e = zmq_poll(items, replicas + 1, PERIODICITY_MSEC/2);
       timer.stop();
       // Handle periodic events
-      BOOST_LOG_TRIVIAL(info) << "Exit poll";
+      //BOOST_LOG_TRIVIAL(info) << "Exit poll";
       if(timer.elapsed_time()/1000 >= PERIODICITY_MSEC) {
 	raft_periodic(raft_handle, timer.elapsed_time());
 	timer.reset();
@@ -605,7 +605,7 @@ int cyclone_add_entry(cyclone_req_t *req)
   __sync_synchronize();
   msg.source      = me;
   msg.msg_type    = MSG_CLIENT_REQ;
-  do_zmq_send(zmq_push_sockets[me].socket, 
+  do_zmq_send(zmq_push_sockets[me], 
 	      (unsigned char *)&msg, 
 	      sizeof(msg_t), 
 	      "__send_requestvote");
@@ -645,7 +645,7 @@ void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback)
 
   // PUSH sockets
   for(int i=0;i<replicas;i++) {
-    zmq_push_sockets[i].socket = zmq_socket(zmq_context, ZMQ_PUSH);
+    zmq_push_sockets[i] = zmq_socket(zmq_context, ZMQ_PUSH);
     key.str("");key.clear();
     addr.str("");addr.clear();
     key << "network.addr" << i;
@@ -653,21 +653,21 @@ void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback)
     addr << pt.get<std::string>(key.str().c_str());
     unsigned long port = baseport + i*replicas + me;
     addr << ":" << port;
-    cyclone_connect_endpoint(zmq_sockets[i].socket, addr.str().c_str());
-    raft_add_peer(raft_handle, zmq_push_sockets[i].socket, i == me ? 1:0);
+    cyclone_connect_endpoint(zmq_push_sockets[i], addr.str().c_str());
+    raft_add_peer(raft_handle, zmq_push_sockets[i], i == me ? 1:0);
   }
 
   // PULL sockets
   for(int i=0;i<replicas;i++) {
-    zmq_pull_sockets[i].socket = zmq_socket(zmq_context, ZMQ_PULL);
+    zmq_pull_sockets[i] = zmq_socket(zmq_context, ZMQ_PULL);
     key.str("");key.clear();
     addr.str("");addr.clear();
     key << "network.iface" << i;
     addr << "tcp://";
     addr << pt.get<std::string>(key.str().c_str());
-    unsigned long port = baseport + i*replicas + i;
+    unsigned long port = baseport + me*replicas + i;
     addr << ":" << port;
-    cyclone_bind_endpoint(zmq_sockets[i].socket, addr.str().c_str());
+    cyclone_bind_endpoint(zmq_pull_sockets[i], addr.str().c_str());
   }
   
   /* Setup raft state */
@@ -730,8 +730,10 @@ void cyclone_shutdown()
   monitor_obj->terminate = true;
   monitor_thread->join();
   for(int i=0;i<=replicas;i++) {
-    zmq_close(zmq_sockets[i].socket);
+    zmq_close(zmq_push_sockets[i]);
+    zmq_close(zmq_pull_sockets[i]);
   }
-  delete[] zmq_sockets;
+  delete[] zmq_push_sockets;
+  delete[] zmq_pull_sockets;
   pmemobj_close(pop_raft_state);
 }
