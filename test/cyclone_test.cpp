@@ -38,6 +38,9 @@ int main(int argc, char *argv[])
     if(cyclone_add_entry(&req) != 0) {
       continue;
     }
+    fprintf(stderr, "PROPOSE %d:%d\n",
+	    *(const unsigned int *)entry,
+	    *(const unsigned int *)(entry + 4));
     ctr++;
   }
 }

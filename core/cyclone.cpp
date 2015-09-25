@@ -644,7 +644,7 @@ void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback)
     zmq_sockets[i].events = ZMQ_POLLIN;
     key.str("");key.clear();
     addr.str("");addr.clear();
-    key << "network.addr" << me;
+    key << "network.addr" << i;
     addr << "tcp://";
     addr << pt.get<std::string>(key.str().c_str());
     cyclone_connect_endpoint(zmq_sockets[i].socket, addr.str().c_str());
