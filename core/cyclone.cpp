@@ -609,6 +609,13 @@ int cyclone_add_entry(cyclone_req_t *req)
   return 0;
 }
 
+void init_log(PMEMobjpool *pop, void *ptr, void *arg)
+{
+  struct circular_log *log = (struct circular_log *)ptr;
+  log->log_head  = 0;
+  log->log_tail  = 0;
+}
+
 void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback) 
 {
   void *zmq_context;
@@ -676,23 +683,19 @@ void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback)
       exit(-1);
     }
     TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    TX_BEGIN(pop_raft_state) {
-      TX_ADD(root);
-      D_RW(root)->term      = 0;
-      D_RW(root)->voted_for = -1;
-      TOID(struct circular_log) log = TX_ALLOC(struct circular_log,
-					       sizeof(struct circular_log) +
-					       RAFT_LOGSIZE);
-      TX_ADD(log);
-      D_RW(log)->log_head  = 0;
-      D_RW(log)->log_tail  = 0;
-      D_RW(root)->log      = log; 
-    // All set.
-    } TX_ONABORT {
-      BOOST_LOG_TRIVIAL(fatal) << "Unable to allocate log";
+    D_RW(root)->term      = 0;
+    D_RW(root)->voted_for = -1;
+    TOID(struct circular_log) log;
+    POBJ_ALLOC(pop_raft_state, &log, struct circular_log,
+	       sizeof(struct circular_log) + RAFT_LOGSIZE,
+	       init_log, NULL);
+    if(TOID_IS_NULL(log)) {
+      BOOST_LOG_TRIVIAL(fatal) 
+	<< "Unable to allocate log:"
+	<< strerror(errno);
       exit(-1);
-    } 
-    TX_END
+    }
+    D_RW(root)->log      = log; 
   }
   else {
     TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
