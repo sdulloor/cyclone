@@ -536,18 +536,26 @@ static void handle_incoming(void *socket)
     }
     break;
   case MSG_CLIENT_REQ:
-    client_req_entry.id = rand();
-    client_req_entry.data.buf = client_req->data;
-    client_req_entry.data.len = client_req->size;
-    // TBD: Handle error
-    (void)raft_recv_entry(raft_handle, me, &client_req_entry, &client_req_resp);
-    e = raft_msg_entry_response_committed(raft_handle,
-					  &client_req_resp);
-    if(e != 0) {
-      client_req->response_code = e;
+    if(!cyclone_is_leader()) {
+      client_req->response_code = -1;
       __sync_synchronize();
       client_req->request_complete = 1;
       client_req = NULL;
+    }
+    else {
+      client_req_entry.id = rand();
+      client_req_entry.data.buf = client_req->data;
+      client_req_entry.data.len = client_req->size;
+      // TBD: Handle error
+      (void)raft_recv_entry(raft_handle, me, &client_req_entry, &client_req_resp);
+      e = raft_msg_entry_response_committed(raft_handle,
+					    &client_req_resp);
+      if(e != 0) {
+	client_req->response_code = e;
+	__sync_synchronize();
+	client_req->request_complete = 1;
+	client_req = NULL;
+      }
     }
     break;
   default:
@@ -601,9 +609,6 @@ int cyclone_is_leader()
 int cyclone_add_entry(cyclone_req_t *req)
 {
   msg_t msg;
-  if(!cyclone_is_leader()) {
-    return -1;
-  }
   client_req = req;
   req->request_complete = 0;
   __sync_synchronize();
