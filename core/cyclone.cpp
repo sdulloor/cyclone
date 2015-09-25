@@ -525,10 +525,10 @@ static void handle_incoming(void *socket)
   case MSG_APPENDENTRIES_RESPONSE:
     e = raft_recv_appendentries_response(raft_handle, msg->source, &msg->aer);
     if(client_req != NULL) {
-      int status = raft_msg_entry_response_committed(raft_handle,
-						     &client_req_resp);
-      if(status != 0) {
-	client_req->response_code = status;
+      e = raft_msg_entry_response_committed(raft_handle,
+					    &client_req_resp);
+      if(e != 0) {
+	client_req->response_code = e;
 	__sync_synchronize();
 	client_req->request_complete = 1;
 	client_req = NULL;
@@ -541,10 +541,10 @@ static void handle_incoming(void *socket)
     client_req_entry.data.len = client_req->size;
     // TBD: Handle error
     (void)raft_recv_entry(raft_handle, me, &client_req_entry, &client_req_resp);
-    int status = raft_msg_entry_response_committed(raft_handle,
-						   &client_req_resp);
-    if(status != 0) {
-      client_req->response_code = status;
+    e = raft_msg_entry_response_committed(raft_handle,
+					  &client_req_resp);
+    if(e != 0) {
+      client_req->response_code = e;
       __sync_synchronize();
       client_req->request_complete = 1;
       client_req = NULL;
