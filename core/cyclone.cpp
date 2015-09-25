@@ -583,7 +583,9 @@ struct monitor_incoming {
 
 int cyclone_is_leader()
 {
-  return (raft_get_current_leader(raft_handle) == me) ? 1:0;
+  int leader = raft_get_current_leader(raft_handle);
+  BOOST_LOG_TRIVIAL(info) << "leader = " << leader;
+  return (leader == me) ? 1:0;
 }
 
 int cyclone_add_entry(cyclone_req_t *req)
@@ -661,12 +663,6 @@ void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback)
   addr << pt.get<std::string>(key.str().c_str());
   cyclone_bind_endpoint(zmq_sockets[replicas].socket, addr.str().c_str());
 
-  /* Launch cyclone service */
-  threadpool.create_thread(boost::bind(&boost::asio::io_service::run,
-				       &ioService));
-  monitor_obj    = new monitor_incoming();
-  monitor_thread = new boost::thread(boost::ref(*monitor_obj));
-    
   /* Setup raft state */
   pop_raft_state = pmemobj_open(path_raft.c_str(),
 				"raft_persistent_state");
@@ -711,11 +707,12 @@ void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback)
       raft_append_entry(raft_handle, &ety);
     }
   }
-
-  if(pop_raft_state == NULL) {
-    perror(path_raft.c_str());
-    exit(1);
-  }
+  raft_set_election_timeout(raft_handle, PERIODICITY_USEC);
+  /* Launch cyclone service */
+  threadpool.create_thread(boost::bind(&boost::asio::io_service::run,
+				       &ioService));
+  monitor_obj    = new monitor_incoming();
+  monitor_thread = new boost::thread(boost::ref(*monitor_obj));
 }
 
 void cyclone_shutdown()
