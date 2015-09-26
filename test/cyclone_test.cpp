@@ -10,7 +10,7 @@ void cyclone_cb(const unsigned char *data, const int len)
     fprintf(stderr, "ERROR\n");
   }
   else {
-    fprintf(stderr, "LOG %d:%d\n",
+    fprintf(stderr, "APPLY %d:%d\n",
 	    *(const unsigned int *)data,
 	    *(const unsigned int *)(data + 4));
   }
@@ -40,10 +40,17 @@ int main(int argc, char *argv[])
     if(cyclone_add_entry(&req) != 0) {
       continue;
     }
-    fprintf(stderr, "PROPOSE %d:%d\n",
-	    *(const unsigned int *)entry,
-	    *(const unsigned int *)(entry + 4));
-    sleep(5);
+    while(req.request_complete != 1);
+    if(req.response_code == 1) {
+      fprintf(stderr, "LOG %d:%d\n",
+	      *(const unsigned int *)entry,
+	      *(const unsigned int *)(entry + 4));
+    }
+    else {
+      fprintf(stderr, "REJECT %d:%d\n",
+	      *(const unsigned int *)entry,
+	      *(const unsigned int *)(entry + 4));
+    }
     ctr++;
   }
 }

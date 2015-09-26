@@ -6,6 +6,7 @@ int cyclone_is_leader(); // returns 1 if true
 typedef struct cyclone_req_st {
   unsigned char *data;
   int size;
+  volatile int response_code; // 1 = success, -1 = fail
   volatile int request_complete; // set to 1 when complete
 } cyclone_req_t;
 
