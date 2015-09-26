@@ -27,7 +27,6 @@ int main(int argc, char *argv[])
   unsigned char entry[8];
   unsigned int ctr = 1;
   cyclone_boot("cyclone_test.ini", &cyclone_cb);
-  
   while(true) {
     if(cyclone_is_leader() == 0)
       continue;
@@ -36,12 +35,12 @@ int main(int argc, char *argv[])
 
     void *cookie;
     do {
-      sleep(1);
+      usleep(1000000);
       cookie = cyclone_add_entry(entry, 8);
     } while(cookie == NULL);
     int result;
     do {
-      sleep(1);
+      usleep(1000000);
       result = cyclone_check_status(cookie);
     } while(result == 0);
     free(cookie);

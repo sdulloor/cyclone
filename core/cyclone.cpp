@@ -584,16 +584,16 @@ struct monitor_incoming {
       timer.start();
       int e = zmq_poll(items, replicas, PERIODICITY_MSEC);
       timer.stop();
-      // Handle periodic events
-      if(timer.elapsed_time()/1000 >= PERIODICITY_MSEC) {
-	raft_periodic(raft_handle, timer.elapsed_time());
-	timer.reset();
-      }
       // Handle any outstanding requests
       for(int i=0;i<=replicas;i++) {
 	if(items[i].revents & ZMQ_POLLIN) {
 	  handle_incoming(zmq_pull_sockets[i]);
 	}
+      }
+      // Handle periodic events -- - AFTER any incoming requests
+      if(timer.elapsed_time()/1000 >= PERIODICITY_MSEC) {
+	raft_periodic(raft_handle, timer.elapsed_time());
+	timer.reset();
       }
     }
   }
