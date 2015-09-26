@@ -38,7 +38,7 @@ const int  MSG_APPENDENTRIES_RESPONSE   = 4;
 const int  MSG_CLIENT_REQ               = 5;
 const int  MSG_CLIENT_STATUS            = 6;
 
-const unsigned long PERIODICITY_MSEC    = 100UL;        
+const unsigned long PERIODICITY_MSEC    = 10UL;        
 
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 4194304;
@@ -592,7 +592,7 @@ struct monitor_incoming {
       }
       // Handle periodic events -- - AFTER any incoming requests
       if(timer.elapsed_time()/1000 >= PERIODICITY_MSEC) {
-	raft_periodic(raft_handle, timer.elapsed_time());
+	raft_periodic(raft_handle, timer.elapsed_time()/1000);
 	timer.reset();
       }
     }
@@ -666,7 +666,8 @@ void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback)
   
   raft_handle = raft_new();
   raft_set_callbacks(raft_handle, &raft_funcs, NULL);
-  
+  raft_set_election_timeout(raft_handle, 1000);
+  //raft_set_request_timeout(raft_handle, 200);
 
   /* setup connections */
   zmq_context  = zmq_init(1); // One thread should be enough ?

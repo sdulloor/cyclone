@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
 
     void *cookie;
     do {
-      usleep(1000000);
+      usleep(30000);
       cookie = cyclone_add_entry(entry, 8);
     } while(cookie == NULL);
     int result;
