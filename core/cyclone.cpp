@@ -514,7 +514,10 @@ static void handle_incoming(void *socket)
     msg->ae.entries = (msg_entry_t *)payload;
     ptr = (char *)(payload + msg->ae.n_entries*sizeof(msg_entry_t));
     for(int i=0;i<msg->ae.n_entries;i++) {
-      msg->ae.entries[i].data.buf = ptr;
+      msg->ae.entries[i].data.buf = malloc(msg->ae.entries[i].data.len);
+      memcpy(msg->ae.entries[i].data.buf, 
+	     ptr, 
+	     msg->ae.entries[i].data.len);
       ptr += msg->ae.entries[i].data.len;
     }
     e = raft_recv_appendentries(raft_handle, msg->source, &msg->ae, &resp.aer);
