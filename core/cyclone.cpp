@@ -36,7 +36,7 @@ const int  MSG_REQUESTVOTE_RESPONSE     = 2;
 const int  MSG_APPENDENTRIES            = 3;
 const int  MSG_APPENDENTRIES_RESPONSE   = 4;
 const int  MSG_CLIENT_REQ               = 5;
-const int  MSG_CLIENT_RESP              = 6;
+const int  MSG_CLIENT_STATUS            = 6;
 
 const unsigned long PERIODICITY_MSEC    = 100UL;        
 
@@ -534,29 +534,29 @@ static void handle_incoming(void *socket)
   case MSG_CLIENT_REQ:
     if(!cyclone_is_leader()) {
       client_rep = NULL;
-      do_zmq_send(zmq_push_sockets[me],
-		  &client_rep,
+      do_zmq_send(zmq_pull_sockets[me],
+		  (unsigned char *)&client_rep,
 		  sizeof(void *),
 		  "CLIENT COOKIE SEND");
     }
     else {
-      client_req_entry.id = rand();
-      client_req_entry.data.buf = msg->client.ptr;
-      client_req_entry.data.len = msg->client.size;
+      client_req.id = rand();
+      client_req.data.buf = msg->client.ptr;
+      client_req.data.len = msg->client.size;
       // TBD: Handle error
       client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
-      (void)raft_recv_entry(raft_handle, me, &client_req_entry, &client_rep);
-      do_zmq_send(zmq_push_sockets[me],
-		  &client_rep,
+      (void)raft_recv_entry(raft_handle, me, &client_req, client_rep);
+      do_zmq_send(zmq_pull_sockets[me],
+		  (unsigned char *)&client_rep,
 		  sizeof(void *),
 		  "CLIENT COOKIE SEND");
     }
     break;
   case MSG_CLIENT_STATUS:
-    int result = raft_msg_entry_response_committed
+    e = raft_msg_entry_response_committed
       (raft_handle, (const msg_entry_response_t *)msg->client.ptr);
-    do_zmq_send(zmq_push_sockets[me],
-		&client_rep,
+    do_zmq_send(zmq_pull_sockets[me],
+		(unsigned char *)&client_rep,
 		sizeof(void *),
 		"CLIENT COOKIE SEND");
     break;
@@ -582,11 +582,9 @@ struct monitor_incoming {
     }
     while(!terminate) {
       timer.start();
-      //BOOST_LOG_TRIVIAL(info) << "Enter poll";
-      int e = zmq_poll(items, replicas + 1, PERIODICITY_MSEC);
+      int e = zmq_poll(items, replicas, PERIODICITY_MSEC);
       timer.stop();
       // Handle periodic events
-      //BOOST_LOG_TRIVIAL(info) << "Exit poll";
       if(timer.elapsed_time()/1000 >= PERIODICITY_MSEC) {
 	raft_periodic(raft_handle, timer.elapsed_time());
 	timer.reset();
@@ -604,7 +602,6 @@ struct monitor_incoming {
 int cyclone_is_leader()
 {
   int leader = raft_get_current_leader(raft_handle);
-  //BOOST_LOG_TRIVIAL(info) << "leader = " << leader;
   return (leader == me) ? 1:0;
 }
 
@@ -620,9 +617,10 @@ void* cyclone_add_entry(void *data, int size)
 	      (unsigned char *)&msg, 
 	      sizeof(msg_t), 
 	      "client req");
-  do_zmq_recv(zmq_pull_sockets[me],
+  do_zmq_recv(zmq_push_sockets[me],
 	      (unsigned char *)&cookie,
-	      sizeof(void *));
+	      sizeof(void *),
+	      "CLIENT REQ recv");
   return cookie;
 }
 
@@ -635,11 +633,12 @@ int cyclone_check_status(void *cookie)
   int result;
   do_zmq_send(zmq_push_sockets[me], 
 	      (unsigned char *)&msg, 
-	      sizeof(void *), 
+	      sizeof(msg_t), 
 	      "client status");
-  do_zmq_recv(zmq_pull_sockets[me],
+  do_zmq_recv(zmq_push_sockets[me],
 	      (unsigned char *)&result,
-	      sizeof(int));
+	      sizeof(int),
+	      "CLIENT STATUS RECV");
   return result;
 }
 
@@ -676,7 +675,12 @@ void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback)
 
   // PUSH sockets
   for(int i=0;i<replicas;i++) {
-    zmq_push_sockets[i] = zmq_socket(zmq_context, ZMQ_PUSH);
+    if(i != me) {
+      zmq_push_sockets[i] = zmq_socket(zmq_context, ZMQ_PUSH);
+    }
+    else {
+      zmq_push_sockets[i] = zmq_socket(zmq_context, ZMQ_REQ);
+    }
     key.str("");key.clear();
     addr.str("");addr.clear();
     key << "network.addr" << i;
@@ -690,7 +694,12 @@ void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback)
 
   // PULL sockets
   for(int i=0;i<replicas;i++) {
-    zmq_pull_sockets[i] = zmq_socket(zmq_context, ZMQ_PULL);
+    if(i != me) {
+      zmq_pull_sockets[i] = zmq_socket(zmq_context, ZMQ_PULL);
+    }
+    else {
+      zmq_pull_sockets[i] = zmq_socket(zmq_context, ZMQ_REP);
+    }
     key.str("");key.clear();
     addr.str("");addr.clear();
     key << "network.iface" << i;

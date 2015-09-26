@@ -44,7 +44,7 @@ int main(int argc, char *argv[])
       sleep(1);
       result = cyclone_check_status(cookie);
     } while(result == 0);
-    
+    free(cookie);
     if(result == 1) {
       fprintf(stderr, "LOG %d:%d\n",
 	      *(const unsigned int *)entry,
