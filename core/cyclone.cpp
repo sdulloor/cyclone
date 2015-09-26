@@ -556,8 +556,8 @@ static void handle_incoming(void *socket)
     e = raft_msg_entry_response_committed
       (raft_handle, (const msg_entry_response_t *)msg->client.ptr);
     do_zmq_send(zmq_pull_sockets[me],
-		(unsigned char *)&client_rep,
-		sizeof(void *),
+		(unsigned char *)&e,
+		sizeof(int),
 		"CLIENT COOKIE SEND");
     break;
   default:
