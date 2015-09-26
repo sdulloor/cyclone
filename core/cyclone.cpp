@@ -37,8 +37,7 @@ const int  MSG_APPENDENTRIES            = 3;
 const int  MSG_APPENDENTRIES_RESPONSE   = 4;
 const int  MSG_CLIENT_REQ               = 5;
 
-const unsigned long PERIODICITY_MSEC    = 500UL;        
-
+const unsigned long PERIODICITY_MSEC    = 100UL;        
 
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 4194304;
@@ -531,19 +530,21 @@ static void handle_incoming(void *socket)
       e = raft_msg_entry_response_committed(raft_handle,
 					    &client_req_resp);
       if(e != 0) {
+	cyclone_req_t *creq = client_req;
 	client_req->response_code = e;
-	__sync_synchronize();
-	client_req->request_complete = 1;
 	client_req = NULL;
+	__sync_synchronize(); // note: ordering is important
+	creq->request_complete = 1;
       }
     }
     break;
   case MSG_CLIENT_REQ:
     if(!cyclone_is_leader()) {
+      cyclone_req_t *creq = client_req;
       client_req->response_code = -1;
-      __sync_synchronize();
-      client_req->request_complete = 1;
       client_req = NULL;
+      __sync_synchronize(); // note: ordering is important
+      creq->request_complete = 1;
     }
     else {
       client_req_entry.id = rand();
@@ -584,7 +585,7 @@ struct monitor_incoming {
     while(!terminate) {
       timer.start();
       //BOOST_LOG_TRIVIAL(info) << "Enter poll";
-      int e = zmq_poll(items, replicas + 1, PERIODICITY_MSEC/2);
+      int e = zmq_poll(items, replicas + 1, PERIODICITY_MSEC);
       timer.stop();
       // Handle periodic events
       //BOOST_LOG_TRIVIAL(info) << "Exit poll";
@@ -726,7 +727,6 @@ void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback)
       raft_append_entry(raft_handle, &ety);
     }
   }
-  raft_set_election_timeout(raft_handle, PERIODICITY_MSEC);
   /* Launch cyclone service */
   threadpool.create_thread(boost::bind(&boost::asio::io_service::run,
 				       &ioService));
