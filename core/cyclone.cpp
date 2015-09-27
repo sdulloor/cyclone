@@ -36,6 +36,7 @@ const int  MSG_REQUESTVOTE_RESPONSE     = 2;
 const int  MSG_APPENDENTRIES            = 3;
 const int  MSG_APPENDENTRIES_RESPONSE   = 4;
 const int  MSG_CLIENT_REQ               = 5;
+const int  MSG_CLIENT_RESP              = 6;
 
 const unsigned long PERIODICITY_MSEC    = 100UL;        
 
@@ -44,12 +45,11 @@ const int MSG_MAXSIZE  = 4194304;
 static unsigned char cyclone_buffer_out[MSG_MAXSIZE];
 static unsigned char cyclone_buffer_in[MSG_MAXSIZE];
 static raft_server_t *raft_handle;
-/* Outstanding client request */
-static msg_entry_t client_req_entry;
-static msg_entry_response_t client_req_resp;
-static cyclone_req_t * volatile client_req;
 
-
+typedef struct client_io_st {
+  void *ptr;
+  int size;
+} client_t;
 
 typedef struct
 {
@@ -61,6 +61,7 @@ typedef struct
     msg_requestvote_response_t rvr;
     msg_appendentries_t ae;
     msg_appendentries_response_t aer;
+    client_t client;
   };
 } msg_t;
 
@@ -496,6 +497,9 @@ static void handle_incoming(void *socket)
   unsigned long payload_size = size - sizeof(msg_t); 
   int e; // TBD: need to handle errors
   char *ptr;
+  msg_entry_t client_req;
+  msg_entry_response_t *client_rep;
+  
   switch (msg->msg_type) {
   case MSG_REQUESTVOTE:
     resp.msg_type = MSG_REQUESTVOTE_RESPONSE;
@@ -526,41 +530,35 @@ static void handle_incoming(void *socket)
     break;
   case MSG_APPENDENTRIES_RESPONSE:
     e = raft_recv_appendentries_response(raft_handle, msg->source, &msg->aer);
-    if(client_req != NULL) {
-      e = raft_msg_entry_response_committed(raft_handle,
-					    &client_req_resp);
-      if(e != 0) {
-	cyclone_req_t *creq = client_req;
-	client_req->response_code = e;
-	client_req = NULL;
-	__sync_synchronize(); // note: ordering is important
-	creq->request_complete = 1;
-      }
-    }
     break;
   case MSG_CLIENT_REQ:
     if(!cyclone_is_leader()) {
-      cyclone_req_t *creq = client_req;
-      client_req->response_code = -1;
-      client_req = NULL;
-      __sync_synchronize(); // note: ordering is important
-      creq->request_complete = 1;
+      client_rep = NULL;
+      do_zmq_send(zmq_push_sockets[me],
+		  &client_rep,
+		  sizeof(void *),
+		  "CLIENT COOKIE SEND");
     }
     else {
       client_req_entry.id = rand();
-      client_req_entry.data.buf = client_req->data;
-      client_req_entry.data.len = client_req->size;
+      client_req_entry.data.buf = msg->client.ptr;
+      client_req_entry.data.len = msg->client.size;
       // TBD: Handle error
-      (void)raft_recv_entry(raft_handle, me, &client_req_entry, &client_req_resp);
-      e = raft_msg_entry_response_committed(raft_handle,
-					    &client_req_resp);
-      if(e != 0) {
-	client_req->response_code = e;
-	__sync_synchronize();
-	client_req->request_complete = 1;
-	client_req = NULL;
-      }
+      client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
+      (void)raft_recv_entry(raft_handle, me, &client_req_entry, &client_rep);
+      do_zmq_send(zmq_push_sockets[me],
+		  &client_rep,
+		  sizeof(void *),
+		  "CLIENT COOKIE SEND");
     }
+    break;
+  case MSG_CLIENT_STATUS:
+    int result = raft_msg_entry_response_committed
+      (raft_handle, (const msg_entry_response_t *)msg->client.ptr);
+    do_zmq_send(zmq_push_sockets[me],
+		&client_rep,
+		sizeof(void *),
+		"CLIENT COOKIE SEND");
     break;
   default:
     printf("unknown msg\n");
@@ -610,19 +608,39 @@ int cyclone_is_leader()
   return (leader == me) ? 1:0;
 }
 
-int cyclone_add_entry(cyclone_req_t *req)
+void* cyclone_add_entry(void *data, int size)
 {
   msg_t msg;
-  client_req = req;
-  req->request_complete = 0;
-  __sync_synchronize();
+  void *cookie;
   msg.source      = me;
   msg.msg_type    = MSG_CLIENT_REQ;
+  msg.client.ptr  = data;
+  msg.client.size = size;
   do_zmq_send(zmq_push_sockets[me], 
 	      (unsigned char *)&msg, 
 	      sizeof(msg_t), 
-	      "__send_requestvote");
-  return 0;
+	      "client req");
+  do_zmq_recv(zmq_pull_sockets[me],
+	      (unsigned char *)&cookie,
+	      sizeof(void *));
+  return cookie;
+}
+
+int cyclone_check_status(void *cookie)
+{
+  msg_t msg;
+  msg.source      = me;
+  msg.msg_type    = MSG_CLIENT_STATUS;
+  msg.client.ptr  = cookie;
+  int result;
+  do_zmq_send(zmq_push_sockets[me], 
+	      (unsigned char *)&msg, 
+	      sizeof(void *), 
+	      "client status");
+  do_zmq_recv(zmq_pull_sockets[me],
+	      (unsigned char *)&result,
+	      sizeof(int));
+  return result;
 }
 
 void init_log(PMEMobjpool *pop, void *ptr, void *arg)

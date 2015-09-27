@@ -26,7 +26,6 @@ int main(int argc, char *argv[])
   unsigned int node_id = atoi(argv[1]);
   unsigned char entry[8];
   unsigned int ctr = 1;
-  cyclone_req_t req;
   cyclone_boot("cyclone_test.ini", &cyclone_cb);
   
   while(true) {
@@ -34,14 +33,19 @@ int main(int argc, char *argv[])
       continue;
     *(unsigned int *)entry = node_id;
     *(unsigned int *)(entry + 4) = ctr;
-    req.data = entry;
-    req.size = 8;
-    req.request_complete = 0;
-    if(cyclone_add_entry(&req) != 0) {
-      continue;
-    }
-    while(req.request_complete != 1);
-    if(req.response_code == 1) {
+
+    void *cookie;
+    do {
+      sleep(1);
+      cookie = cyclone_add_entry(entry, 8);
+    } while(cookie == NULL);
+    int result;
+    do {
+      sleep(1);
+      result = cyclone_check_status(cookie);
+    } while(result == 0);
+    
+    if(result == 1) {
       fprintf(stderr, "LOG %d:%d\n",
 	      *(const unsigned int *)entry,
 	      *(const unsigned int *)(entry + 4));
