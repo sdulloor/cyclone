@@ -1,6 +1,5 @@
 // Asynchronous fault tolerant pmem log replication with cyclone
 #include <string>
-#include <libpmemlog.h>
 #include <libpmemobj.h>
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
@@ -13,6 +12,7 @@ extern "C" {
 #include <boost/asio/io_service.hpp>
 #include <boost/bind.hpp>
 #include <boost/lockfree/queue.hpp>
+#include "pmem_layout.h"
 #include "circular_log.h"
 #include "clock.hpp"
 #include "libcyclone.hpp"
@@ -66,15 +66,6 @@ typedef struct
   };
 } msg_t;
 
-POBJ_LAYOUT_BEGIN(raft_persistent_state);
-POBJ_LAYOUT_TOID(raft_persistent_state, struct circular_log)
-typedef struct raft_pstate_st {
-  int term;
-  int voted_for;
-  TOID(struct circular_log) log;
-} raft_pstate_t;
-POBJ_LAYOUT_ROOT(raft_persistent_state, raft_pstate_t);
-POBJ_LAYOUT_END(raft_persistent_state);
 
 static PMEMobjpool *pop_raft_state;
 cyclone_callback_t cyclone_cb;
@@ -83,9 +74,8 @@ int append_to_raft_log(unsigned char *data, int size)
 {
   int status = 0;
   TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-  TOID(struct circular_log) log = D_RO(root)->log;
+  log_t log = D_RO(root)->log;
   TX_BEGIN(pop_raft_state){
-    TOID(struct circular_log) log = D_RO(root)->log;
     TX_ADD(log);
     unsigned long space_needed = size + 2*sizeof(int);
     unsigned long space_available;
@@ -103,7 +93,7 @@ int append_to_raft_log(unsigned char *data, int size)
     }
     unsigned long new_tail = D_RO(log)->log_tail;
     copy_to_circular_log(log,
-			 LOGSIZE,
+			 RAFT_LOGSIZE,
 			 D_RO(log)->log_tail,
 			 (unsigned char *)&size,
 			 sizeof(int));
@@ -132,7 +122,7 @@ static int remove_head_raft_log()
   int result = 0;
   TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
   TX_BEGIN(pop_raft_state){
-    TOID(struct circular_log) log = D_RO(root)->log;
+    log_t log = D_RO(root)->log;
     TX_ADD(log);
     if(D_RO(log)->log_head != D_RO(log)->log_tail) {
       int size;
@@ -155,7 +145,7 @@ static int remove_tail_raft_log()
   int result = 0;
   TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
   TX_BEGIN(pop_raft_state){
-    TOID(struct circular_log) log = D_RO(root)->log;
+    log_t log = D_RO(root)->log;
     TX_ADD(log);
     if(D_RO(log)->log_head != D_RO(log)->log_tail) {
       int size;
@@ -172,7 +162,7 @@ static int remove_tail_raft_log()
   return result;
 }
 
-static int read_from_log(TOID(struct circular log) log,
+static int read_from_log(log_t log,
 			 unsigned char *dst,
 			 int offset)
 {
@@ -690,7 +680,7 @@ void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback)
     TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
     D_RW(root)->term      = 0;
     D_RW(root)->voted_for = -1;
-    TOID(struct circular_log) log;
+    log_t log;
     POBJ_ALLOC(pop_raft_state, &log, struct circular_log,
 	       sizeof(struct circular_log) + RAFT_LOGSIZE,
 	       init_log, NULL);
@@ -704,15 +694,15 @@ void cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback)
   }
   else {
     TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    TOID(struct circular_log) log = D_RO(root)->log;
+    log_t log = D_RO(root)->log;
     raft_vote(raft_handle, D_RO(root)->voted_for);
     raft_set_current_term(raft_handle, D_RO(root)->term);
     unsigned long ptr = D_RO(log)->log_head;
     raft_entry_t ety;
     while(ptr != D_RO(log)->log_tail) {
-      ptr = read_from_log((unsigned char *)&ety, ptr);
+      ptr = read_from_log(log, (unsigned char *)&ety, ptr);
       ety.data.buf = malloc(ety.data.len);
-      ptr = read_from_log((unsigned char *)ety.data.buf, ptr);
+      ptr = read_from_log(log, (unsigned char *)ety.data.buf, ptr);
       raft_append_entry(raft_handle, &ety);
     }
   }

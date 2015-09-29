@@ -1,13 +1,8 @@
 #ifndef _CIRCULAR_LOG_
 #define _CIRCULAR_LOG_
-struct circular_log
-{
-  unsigned long log_head;
-  unsigned long log_tail;
-  unsigned char data[0];
-};
-
-void copy_from_circular_log(TOID(struct circular log) log,
+#include<libpmemobj.h>
+#include "pmem_layout.h"
+void copy_from_circular_log(log_t log,
 			    unsigned long LOGSIZE,
 			    unsigned char *dst,
 			    unsigned long offset,
@@ -23,13 +18,13 @@ void copy_from_circular_log(TOID(struct circular log) log,
   }
 }
 
-void copy_to_circular_log(TOID(struct circular log) log,
+void copy_to_circular_log(log_t log,
 			  unsigned long LOGSIZE,
 			  unsigned long offset,
 			  unsigned char *src,
 			  unsigned long size)
 {
-  unsigned long chunk1 = (offset + size) > RAFT_LOGSIZE ?
+  unsigned long chunk1 = (offset + size) > LOGSIZE ?
     (LOGSIZE - offset):size;
   unsigned long chunk2 = size - chunk1;
   TX_MEMCPY(D_RW(log)->data + offset, src, chunk1);
