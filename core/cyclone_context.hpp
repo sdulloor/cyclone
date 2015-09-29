@@ -18,6 +18,22 @@ extern "C" {
 #include "circular_log.h"
 #include "clock.hpp"
 
+
+/* Message types */
+const int  MSG_REQUESTVOTE              = 1;
+const int  MSG_REQUESTVOTE_RESPONSE     = 2;
+const int  MSG_APPENDENTRIES            = 3;
+const int  MSG_APPENDENTRIES_RESPONSE   = 4;
+const int  MSG_CLIENT_REQ               = 5;
+const int  MSG_CLIENT_STATUS            = 6;
+
+/* Timer */
+const unsigned long PERIODICITY_MSEC    = 10UL;        
+
+/* Cyclone max message size */
+const int MSG_MAXSIZE  = 4194304;
+
+
 /* Message format */
 typedef struct client_io_st {
   void *ptr;

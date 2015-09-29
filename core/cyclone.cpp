@@ -3,21 +3,6 @@
 #include "cyclone_context.hpp"
 
 
-/* Message types */
-const int  MSG_REQUESTVOTE              = 1;
-const int  MSG_REQUESTVOTE_RESPONSE     = 2;
-const int  MSG_APPENDENTRIES            = 3;
-const int  MSG_APPENDENTRIES_RESPONSE   = 4;
-const int  MSG_CLIENT_REQ               = 5;
-const int  MSG_CLIENT_STATUS            = 6;
-
-/* Timer */
-const unsigned long PERIODICITY_MSEC    = 10UL;        
-
-/* Cyclone max message size */
-const int MSG_MAXSIZE  = 4194304;
-
-
 /** Raft callback for sending request vote message */
 static int __send_requestvote(raft_server_t* raft,
 			      void *user_data,
