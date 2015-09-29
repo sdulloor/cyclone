@@ -289,7 +289,7 @@ struct cyclone_monitor {
       int e = cyclone_poll(poll_items, cyclone_handle->replicas, (unsigned long)PERIODICITY_MSEC);
       timer.stop();
       // Handle any outstanding requests
-      for(int i=0;i<=cyclone_handle->replicas;i++) {
+      for(int i=0;i<cyclone_handle->replicas;i++) {
 	if(cyclone_socket_has_data(poll_items, i)) {
 	  unsigned long sz = cyclone_rx(cyclone_handle->zmq_pull_sockets[i],
 					cyclone_handle->cyclone_buffer_in,
