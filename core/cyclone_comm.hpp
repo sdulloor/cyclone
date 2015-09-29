@@ -46,43 +46,27 @@ static unsigned long cyclone_rx(void *socket,
   return (unsigned long) rc;
 }
 
-struct cyclone_monitor {
-  volatile bool terminate;
-  cyclone_t *cyclone_handle;
-  cyclone_monitor()
-  :terminate(false)
-  {}
-  
-  void operator ()()
-  {
-    rtc_clock timer;
-    zmq_pollitem_t *items = new zmq_pollitem_t[cyclone_handle->replicas];
-    for(int i=0;i<cyclone_handle->replicas;i++) {
-      items[i].socket = cyclone_handle->zmq_pull_sockets[i];
-      items[i].events = ZMQ_POLLIN;
-    }
-    while(!terminate) {
-      timer.start();
-      int e = zmq_poll(items, cyclone_handle->replicas, (unsigned long)PERIODICITY_MSEC);
-      timer.stop();
-      // Handle any outstanding requests
-      for(int i=0;i<=cyclone_handle->replicas;i++) {
-	if(items[i].revents & ZMQ_POLLIN) {
-	  unsigned long sz = do_zmq_recv(cyclone_handle->zmq_pull_sockets[i],
-					 cyclone_handle->cyclone_buffer_in,
-					 MSG_MAXSIZE,
-					 "Incoming");
-	  cyclone_handle->handle_incoming(sz);
-	}
-      }
-      int elapsed_time = timer.elapsed_time()/1000;
-      // Handle periodic events -- - AFTER any incoming requests
-      if(elapsed_time >= PERIODICITY_MSEC) {
-	raft_periodic(cyclone_handle->raft_handle, elapsed_time);
-	timer.reset();
-      }
-    }
+static void * setup_cyclone_inpoll(void **sockets, int cnt)
+{
+  zmq_pollitem_t *items = new zmq_pollitem_t[cnt];
+  for(int i=0;i<cnt;i++) {
+    items[i].socket = sockets[i];
+    items[i].events = ZMQ_POLLIN;
   }
-};
+  return items;
+}
+
+static int cyclone_poll(void * poll_handle, int cnt, int msec_timeout)
+{
+  zmq_pollitem_t *items = (zmq_pollitem_t *)poll_handle;
+  int e = zmq_poll(items, cnt, msec_timeout);
+  return e;
+}
+
+static int cyclone_socket_has_data(void *poll_handle, int index)
+{
+  zmq_pollitem_t *items = (zmq_pollitem_t *)poll_handle;
+  return ((items[index].revents & ZMQ_POLLIN) != 0) ? 1:0;
+}
 
 #endif

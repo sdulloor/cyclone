@@ -1,6 +1,5 @@
 // Asynchronous fault tolerant pmem log replication with cyclone
 #include "libcyclone.hpp"
-#include "cyclone_comm.hpp"
 #include "cyclone_context.hpp"
 
 

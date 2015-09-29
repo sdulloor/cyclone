@@ -17,7 +17,7 @@ extern "C" {
 #include "pmem_layout.h"
 #include "circular_log.h"
 #include "clock.hpp"
-
+#include "cyclone_comm.hpp"
 
 /* Message types */
 const int  MSG_REQUESTVOTE              = 1;
@@ -209,7 +209,7 @@ typedef struct cyclone_st {
       /* send response */
       resp.source = me;
       cyclone_tx(zmq_push_sockets[msg->source],
-		  (unsigned char *)&resp, sizeof(msg_t), "REQVOTE RESP");
+		 (unsigned char *)&resp, sizeof(msg_t), "REQVOTE RESP");
       break;
     case MSG_REQUESTVOTE_RESPONSE:
       e = raft_recv_requestvote_response(raft_handle, msg->source, &msg->rvr);
@@ -267,8 +267,45 @@ typedef struct cyclone_st {
       exit(0);
     }
   }
-
 }cyclone_t;
 
+
+struct cyclone_monitor {
+  volatile bool terminate;
+  cyclone_t *cyclone_handle;
+  void *poll_items;
+
+  cyclone_monitor()
+  :terminate(false)
+  {}
+  
+  void operator ()()
+  {
+    rtc_clock timer;
+    void *poll_items = setup_cyclone_inpoll(cyclone_handle->zmq_pull_sockets, 
+				      cyclone_handle->replicas);
+    while(!terminate) {
+      timer.start();
+      int e = cyclone_poll(poll_items, cyclone_handle->replicas, (unsigned long)PERIODICITY_MSEC);
+      timer.stop();
+      // Handle any outstanding requests
+      for(int i=0;i<=cyclone_handle->replicas;i++) {
+	if(cyclone_socket_has_data(poll_items, i)) {
+	  unsigned long sz = cyclone_rx(cyclone_handle->zmq_pull_sockets[i],
+					cyclone_handle->cyclone_buffer_in,
+					MSG_MAXSIZE,
+					"Incoming");
+	  cyclone_handle->handle_incoming(sz);
+	}
+      }
+      int elapsed_time = timer.elapsed_time()/1000;
+      // Handle periodic events -- - AFTER any incoming requests
+      if(elapsed_time >= PERIODICITY_MSEC) {
+	raft_periodic(cyclone_handle->raft_handle, elapsed_time);
+	timer.reset();
+      }
+    }
+  }
+};
 
 #endif
