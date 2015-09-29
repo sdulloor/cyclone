@@ -69,4 +69,30 @@ static int cyclone_socket_has_data(void *poll_handle, int index)
   return ((items[index].revents & ZMQ_POLLIN) != 0) ? 1:0;
 }
 
+
+static void cyclone_connect_endpoint(void *socket, const char *endpoint)
+{
+  BOOST_LOG_TRIVIAL(info)
+    << "CYCLONE::COMM Connecting to "
+    << endpoint;
+  zmq_connect(socket, endpoint);
+}
+
+static void cyclone_bind_endpoint(void *socket, const char *endpoint)
+{
+  int rc = zmq_bind(socket, endpoint);
+  if (rc != 0) {
+    BOOST_LOG_TRIVIAL(fatal)
+      << "CYCLONE::COMM Unable to setup listening socket at "
+      << endpoint;
+    perror("zmq_bind:");
+    exit(-1);
+    }
+  else {
+    BOOST_LOG_TRIVIAL(info)
+      << "CYCLONE::COMM Listening at "
+      << endpoint;
+  }
+}
+
 #endif
