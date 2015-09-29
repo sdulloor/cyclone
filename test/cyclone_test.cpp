@@ -42,7 +42,7 @@ int main(int argc, char *argv[])
     } while(cookie == NULL);
     int result;
     do {
-      usleep(1000000);
+      usleep(30000);
       result = cyclone_check_status(cyclone_handle, cookie);
     } while(result == 0);
     free(cookie);
