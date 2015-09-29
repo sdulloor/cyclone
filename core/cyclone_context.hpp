@@ -27,8 +27,9 @@ const int  MSG_APPENDENTRIES_RESPONSE   = 4;
 const int  MSG_CLIENT_REQ               = 5;
 const int  MSG_CLIENT_STATUS            = 6;
 
-/* Timer */
-const unsigned long PERIODICITY_MSEC    = 10UL;        
+/* Timers */
+const int PERIODICITY_MSEC    = 10;        
+const int ELECTION_TIMEOUT    = 1000;
 
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 4194304;
@@ -54,49 +55,6 @@ typedef struct
   };
 } msg_t;
 
-
-static void do_zmq_send(void *socket,
-			unsigned char *data,
-			unsigned long size,
-			const char *context) {
-  while (true) {
-    int rc = zmq_send(socket, data, size, 0);
-    if (rc == -1) {
-      if (errno != EAGAIN) {
-	BOOST_LOG_TRIVIAL(warning) << "CYCLONE: Unable to transmit";
-	perror(context);
-	//Communcation failures are acceptable
-      }
-      // Retry
-    }
-    else {
-      break;
-    }
-  }
-}
-
-static unsigned long do_zmq_recv(void *socket,
-				 unsigned char *data,
-				 unsigned long size,
-				 const char *context)
-{
-  int rc;
-  while (true) {
-    rc = zmq_recv(socket, data, size, 0);
-    if (rc == -1) {
-      if (errno != EAGAIN) {
-	BOOST_LOG_TRIVIAL(fatal) << "CYCLONE: Unable to receive";
-	perror(context);
-	exit(-1);
-      }
-      // Retry
-    }
-    else {
-      break;
-    }
-  }
-  return (unsigned long) rc;
-}
 
 struct cyclone_monitor;
 typedef struct cyclone_st {
@@ -232,12 +190,8 @@ typedef struct cyclone_st {
   }
   
   /* Handle incoming message and send appropriate response */
-  void handle_incoming(void *socket)
+  void handle_incoming(unsigned long size)
   {
-    unsigned long size = do_zmq_recv(socket,
-				     cyclone_buffer_in,
-				     MSG_MAXSIZE,
-				     "Incoming");
     msg_t *msg = (msg_t *)cyclone_buffer_in;
     msg_t resp;
     unsigned long rep;
@@ -254,7 +208,7 @@ typedef struct cyclone_st {
       e = raft_recv_requestvote(raft_handle, msg->source, &msg->rv, &resp.rvr);
       /* send response */
       resp.source = me;
-      do_zmq_send(zmq_push_sockets[msg->source],
+      cyclone_tx(zmq_push_sockets[msg->source],
 		  (unsigned char *)&resp, sizeof(msg_t), "REQVOTE RESP");
       break;
     case MSG_REQUESTVOTE_RESPONSE:
@@ -273,7 +227,7 @@ typedef struct cyclone_st {
     }
     e = raft_recv_appendentries(raft_handle, msg->source, &msg->ae, &resp.aer);
     resp.source = me;
-    do_zmq_send(zmq_push_sockets[msg->source],
+    cyclone_tx(zmq_push_sockets[msg->source],
 		(unsigned char *)&resp, sizeof(msg_t), "APPENDENTRIES RESP");
     break;
     case MSG_APPENDENTRIES_RESPONSE:
@@ -282,7 +236,7 @@ typedef struct cyclone_st {
     case MSG_CLIENT_REQ:
       if(!cyclone_is_leader(this)) {
 	client_rep = NULL;
-	do_zmq_send(zmq_pull_sockets[me],
+	cyclone_tx(zmq_pull_sockets[me],
 		    (unsigned char *)&client_rep,
 		    sizeof(void *),
 		    "CLIENT COOKIE SEND");
@@ -294,7 +248,7 @@ typedef struct cyclone_st {
 	// TBD: Handle error
 	client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
 	(void)raft_recv_entry(raft_handle, me, &client_req, client_rep);
-	do_zmq_send(zmq_pull_sockets[me],
+	cyclone_tx(zmq_pull_sockets[me],
 		    (unsigned char *)&client_rep,
 		    sizeof(void *),
 		    "CLIENT COOKIE SEND");
@@ -303,7 +257,7 @@ typedef struct cyclone_st {
     case MSG_CLIENT_STATUS:
       e = raft_msg_entry_response_committed
 	(raft_handle, (const msg_entry_response_t *)msg->client.ptr);
-      do_zmq_send(zmq_pull_sockets[me],
+      cyclone_tx(zmq_pull_sockets[me],
 		  (unsigned char *)&e,
 		  sizeof(int),
 		  "CLIENT COOKIE SEND");

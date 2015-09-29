@@ -1,5 +1,6 @@
 // Asynchronous fault tolerant pmem log replication with cyclone
 #include "libcyclone.hpp"
+#include "cyclone_comm.hpp"
 #include "cyclone_context.hpp"
 
 
@@ -16,7 +17,7 @@ static int __send_requestvote(raft_server_t* raft,
   msg.source      = cyclone_handle->me;
   msg.msg_type    = MSG_REQUESTVOTE;
   msg.rv          = *m;
-  do_zmq_send(socket, 
+  cyclone_tx(socket, 
 	      (unsigned char *)&msg, 
 	      sizeof(msg_t), 
 	      "__send_requestvote");
@@ -51,7 +52,7 @@ static int __send_appendentries(raft_server_t* raft,
     memcpy(ptr, m->entries[i].data.buf, m->entries[i].data.len);
     ptr += m->entries[i].data.len;
   }
-  do_zmq_send(socket, 
+  cyclone_tx(socket, 
 	      cyclone_handle->cyclone_buffer_out, 
 	      ptr - cyclone_handle->cyclone_buffer_out, 
 	      "__send_requestvote");
@@ -226,42 +227,6 @@ static void cyclone_connect_endpoint(void *socket, const char *endpoint)
   zmq_connect(socket, endpoint);
 }
 
-
-
-struct cyclone_monitor {
-  volatile bool terminate;
-  cyclone_t *cyclone_handle;
-  cyclone_monitor()
-  :terminate(false)
-  {}
-  
-  void operator ()()
-  {
-    rtc_clock timer;
-    zmq_pollitem_t *items = new zmq_pollitem_t[cyclone_handle->replicas];
-    for(int i=0;i<cyclone_handle->replicas;i++) {
-      items[i].socket = cyclone_handle->zmq_pull_sockets[i];
-      items[i].events = ZMQ_POLLIN;
-    }
-    while(!terminate) {
-      timer.start();
-      int e = zmq_poll(items, cyclone_handle->replicas, PERIODICITY_MSEC);
-      timer.stop();
-      // Handle any outstanding requests
-      for(int i=0;i<=cyclone_handle->replicas;i++) {
-	if(items[i].revents & ZMQ_POLLIN) {
-	  cyclone_handle->handle_incoming(cyclone_handle->zmq_pull_sockets[i]);
-	}
-      }
-      // Handle periodic events -- - AFTER any incoming requests
-      if(timer.elapsed_time()/1000 >= PERIODICITY_MSEC) {
-	raft_periodic(cyclone_handle->raft_handle, timer.elapsed_time()/1000);
-	timer.reset();
-      }
-    }
-  }
-};
-
 int cyclone_is_leader(void *cyclone_handle)
 {
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
@@ -278,11 +243,11 @@ void* cyclone_add_entry(void *cyclone_handle, void *data, int size)
   msg.msg_type    = MSG_CLIENT_REQ;
   msg.client.ptr  = data;
   msg.client.size = size;
-  do_zmq_send(handle->zmq_push_sockets[handle->me], 
+  cyclone_tx(handle->zmq_push_sockets[handle->me], 
 	      (unsigned char *)&msg, 
 	      sizeof(msg_t), 
 	      "client req");
-  do_zmq_recv(handle->zmq_push_sockets[handle->me],
+  cyclone_rx(handle->zmq_push_sockets[handle->me],
 	      (unsigned char *)&cookie,
 	      sizeof(void *),
 	      "CLIENT REQ recv");
@@ -297,11 +262,11 @@ int cyclone_check_status(void *cyclone_handle, void *cookie)
   msg.msg_type    = MSG_CLIENT_STATUS;
   msg.client.ptr  = cookie;
   int result;
-  do_zmq_send(handle->zmq_push_sockets[handle->me], 
+  cyclone_tx(handle->zmq_push_sockets[handle->me], 
 	      (unsigned char *)&msg, 
 	      sizeof(msg_t), 
 	      "client status");
-  do_zmq_recv(handle->zmq_push_sockets[handle->me],
+  cyclone_rx(handle->zmq_push_sockets[handle->me],
 	      (unsigned char *)&result,
 	      sizeof(int),
 	      "CLIENT STATUS RECV");
@@ -334,7 +299,7 @@ void* cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback,
   
   cyclone_handle->raft_handle = raft_new();
   raft_set_callbacks(cyclone_handle->raft_handle, &raft_funcs, cyclone_handle);
-  raft_set_election_timeout(cyclone_handle->raft_handle, 1000);
+  raft_set_election_timeout(cyclone_handle->raft_handle, ELECTION_TIMEOUT);
   //raft_set_request_timeout(cyclone_handle->raft_handle, 200);
 
   /* setup connections */
