@@ -13,6 +13,7 @@ extern "C" {
 #include <boost/asio/io_service.hpp>
 #include <boost/bind.hpp>
 #include <boost/lockfree/queue.hpp>
+#include "circular_log.h"
 #include "clock.hpp"
 #include "libcyclone.hpp"
 
@@ -65,13 +66,6 @@ typedef struct
   };
 } msg_t;
 
-/* Persistent RAFT state */
-struct circular_log {
-  unsigned long log_head;
-  unsigned long log_tail;
-  unsigned char data[0];
-};
-
 POBJ_LAYOUT_BEGIN(raft_persistent_state);
 POBJ_LAYOUT_TOID(raft_persistent_state, struct circular_log)
 typedef struct raft_pstate_st {
@@ -85,64 +79,13 @@ POBJ_LAYOUT_END(raft_persistent_state);
 static PMEMobjpool *pop_raft_state;
 cyclone_callback_t cyclone_cb;
 
-void CIRCULAR_COPY_FROM_LOG(unsigned char *dst,
-			    unsigned long offset,
-			    unsigned long size)
-{
-  TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-  TOID(struct circular_log) log = D_RW(root)->log;
-  unsigned long chunk1 = (offset + size) > RAFT_LOGSIZE ?
-    (RAFT_LOGSIZE - offset):size;
-  unsigned long chunk2 = size - chunk1;
-  TX_MEMCPY(dst, D_RO(log)->data + offset, chunk1);
-  if(chunk2 > 0) {
-    dst += chunk1;
-    TX_MEMCPY(dst, D_RO(log)->data, chunk2);
-  }
-}
-
-void CIRCULAR_COPY_TO_LOG(unsigned long offset,
-			  unsigned char *src,
-			  unsigned long size)
-{
-  TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-  TOID(struct circular_log) log = D_RW(root)->log;
-  unsigned long chunk1 = (offset + size) > RAFT_LOGSIZE ?
-    (RAFT_LOGSIZE - offset):size;
-  unsigned long chunk2 = size - chunk1;
-  TX_MEMCPY(D_RW(log)->data + offset, src, chunk1);
-  if(chunk2 > 0) {
-    src += chunk1;
-    TX_MEMCPY(D_RW(log)->data, src, chunk2);
-  }
-}
-
-unsigned long ADVANCE_LOG_PTR(unsigned long ptr, unsigned long size)
-{
-  ptr = ptr + size;
-  if(ptr > RAFT_LOGSIZE) {
-    ptr = ptr - RAFT_LOGSIZE;
-  }
-  return ptr;
-}
-
-unsigned long RECEDE_LOG_PTR(unsigned long ptr, unsigned long size)
-{
-  if(ptr < size) {
-    ptr = RAFT_LOGSIZE - (size - ptr);
-  }
-  else {
-    ptr = ptr - size;
-  }
-  return ptr;
-}
-
 int append_to_raft_log(unsigned char *data, int size)
 {
   int status = 0;
   TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
+  TOID(struct circular_log) log = D_RO(root)->log;
   TX_BEGIN(pop_raft_state){
-    TOID(struct circular_log) log = D_RW(root)->log;
+    TOID(struct circular_log) log = D_RO(root)->log;
     TX_ADD(log);
     unsigned long space_needed = size + 2*sizeof(int);
     unsigned long space_available;
@@ -159,18 +102,24 @@ int append_to_raft_log(unsigned char *data, int size)
       pmemobj_tx_abort(-1);
     }
     unsigned long new_tail = D_RO(log)->log_tail;
-    CIRCULAR_COPY_TO_LOG(D_RO(log)->log_tail,
+    copy_to_circular_log(log,
+			 LOGSIZE,
+			 D_RO(log)->log_tail,
 			 (unsigned char *)&size,
 			 sizeof(int));
-    new_tail = ADVANCE_LOG_PTR(new_tail, sizeof(int));
-    CIRCULAR_COPY_TO_LOG(new_tail,
+    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
+    copy_to_circular_log(log,
+			 RAFT_LOGSIZE,
+			 new_tail,
 			 data,
 			 size);
-    new_tail = ADVANCE_LOG_PTR(new_tail, size);
-    CIRCULAR_COPY_TO_LOG(new_tail,
+    new_tail = circular_log_advance_ptr(new_tail, size, RAFT_LOGSIZE);
+    copy_to_circular_log(log,
+			 RAFT_LOGSIZE,
+			 new_tail,
 			 (unsigned char *)&size,
 			 sizeof(int));
-    new_tail = ADVANCE_LOG_PTR(new_tail, sizeof(int));
+    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
     D_RW(log)->log_tail = new_tail;
   } TX_ONABORT {
     status = -1;
@@ -183,12 +132,17 @@ static int remove_head_raft_log()
   int result = 0;
   TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
   TX_BEGIN(pop_raft_state){
-    TOID(struct circular_log) log = D_RW(root)->log;
+    TOID(struct circular_log) log = D_RO(root)->log;
     TX_ADD(log);
     if(D_RO(log)->log_head != D_RO(log)->log_tail) {
       int size;
-      CIRCULAR_COPY_FROM_LOG((unsigned char *)&size, D_RO(log)->log_head, sizeof(int)); 
-      D_RW(log)->log_head = ADVANCE_LOG_PTR(D_RO(log)->log_head, 2*sizeof(int) + size);
+      copy_from_circular_log(log,
+			     RAFT_LOGSIZE,
+			     (unsigned char *)&size,
+			     D_RO(log)->log_head,
+			     sizeof(int)); 
+      D_RW(log)->log_head = circular_log_advance_ptr
+	(D_RO(log)->log_head, 2*sizeof(int) + size, RAFT_LOGSIZE);
     }
   } TX_ONABORT {
     result = -1;
@@ -201,14 +155,15 @@ static int remove_tail_raft_log()
   int result = 0;
   TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
   TX_BEGIN(pop_raft_state){
-    TOID(struct circular_log) log = D_RW(root)->log;
+    TOID(struct circular_log) log = D_RO(root)->log;
     TX_ADD(log);
     if(D_RO(log)->log_head != D_RO(log)->log_tail) {
       int size;
       unsigned long new_tail = D_RO(log)->log_tail;
-      new_tail = RECEDE_LOG_PTR(new_tail, sizeof(int));
-      CIRCULAR_COPY_FROM_LOG((unsigned char *)&size, new_tail, sizeof(int)); 
-      new_tail = RECEDE_LOG_PTR(new_tail, size + sizeof(int));
+      new_tail = circular_log_recede_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
+      copy_from_circular_log(log, RAFT_LOGSIZE,
+			     (unsigned char *)&size, new_tail, sizeof(int)); 
+      new_tail = circular_log_recede_ptr(new_tail, size + sizeof(int), RAFT_LOGSIZE);
       D_RW(log)->log_tail = new_tail;
     }
   } TX_ONABORT {
@@ -217,13 +172,19 @@ static int remove_tail_raft_log()
   return result;
 }
 
-static int read_from_log(unsigned char *dst, int offset)
+static int read_from_log(TOID(struct circular log) log,
+			 unsigned char *dst,
+			 int offset)
 {
   int size;
-  CIRCULAR_COPY_FROM_LOG((unsigned char *)&size, offset, sizeof(int));
-  offset = ADVANCE_LOG_PTR(offset, sizeof(int));
-  CIRCULAR_COPY_FROM_LOG(dst, offset, size);
-  offset = ADVANCE_LOG_PTR(offset, size + sizeof(int));
+  copy_from_circular_log(log,
+			 RAFT_LOGSIZE,
+			 (unsigned char *)&size,
+			 offset,
+			 sizeof(int));
+  offset = circular_log_advance_ptr(offset, sizeof(int), RAFT_LOGSIZE);
+  copy_from_circular_log(log, RAFT_LOGSIZE, dst, offset, size);
+  offset = circular_log_advance_ptr(offset, size + sizeof(int), RAFT_LOGSIZE);
   return offset;
 }
 
