@@ -70,6 +70,26 @@ static int cyclone_socket_has_data(void *poll_handle, int index)
 }
 
 
+static void* cyclone_socket_out(void *context, int loopback)
+{
+  if(loopback) {
+    return zmq_socket(context, ZMQ_REQ);
+  }
+  else {
+    return zmq_socket(context, ZMQ_PUSH);
+  }
+}
+
+static void* cyclone_socket_in(void *context, int loopback)
+{
+  if(loopback) {
+    return zmq_socket(context, ZMQ_REP);
+  }
+  else {
+    return zmq_socket(context, ZMQ_PULL);
+  }
+}
+
 static void cyclone_connect_endpoint(void *socket, const char *endpoint)
 {
   BOOST_LOG_TRIVIAL(info)

@@ -283,12 +283,9 @@ void* cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback,
 
   // PUSH sockets
   for(int i=0;i<cyclone_handle->replicas;i++) {
-    if(i != cyclone_handle->me) {
-      cyclone_handle->zmq_push_sockets[i] = zmq_socket(cyclone_handle->zmq_context, ZMQ_PUSH);
-    }
-    else {
-      cyclone_handle->zmq_push_sockets[i] = zmq_socket(cyclone_handle->zmq_context, ZMQ_REQ);
-    }
+    cyclone_handle->zmq_push_sockets[i] =
+      cyclone_socket_out(cyclone_handle->zmq_context,
+			 i == cyclone_handle->me ? 1:0);
     key.str("");key.clear();
     addr.str("");addr.clear();
     key << "network.addr" << i;
@@ -304,12 +301,9 @@ void* cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback,
 
   // PULL sockets
   for(int i=0;i<cyclone_handle->replicas;i++) {
-    if(i != cyclone_handle->me) {
-      cyclone_handle->zmq_pull_sockets[i] = zmq_socket(cyclone_handle->zmq_context, ZMQ_PULL);
-    }
-    else {
-      cyclone_handle->zmq_pull_sockets[i] = zmq_socket(cyclone_handle->zmq_context, ZMQ_REP);
-    }
+    cyclone_handle->zmq_pull_sockets[i] =
+      cyclone_socket_in(cyclone_handle->zmq_context,
+			i == cyclone_handle->me ? 1:0);
     key.str("");key.clear();
     addr.str("");addr.clear();
     key << "network.iface" << i;
