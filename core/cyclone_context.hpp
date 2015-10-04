@@ -28,7 +28,7 @@ const int  MSG_CLIENT_REQ               = 5;
 const int  MSG_CLIENT_STATUS            = 6;
 
 /* Timers */
-const int PERIODICITY_MSEC    = 10;        
+const int PERIODICITY_MSEC    = 1;        
 
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 4194304;

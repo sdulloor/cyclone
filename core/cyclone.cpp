@@ -274,7 +274,7 @@ void* cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback,
   cyclone_handle->raft_handle = raft_new();
   raft_set_callbacks(cyclone_handle->raft_handle, &raft_funcs, cyclone_handle);
   raft_set_election_timeout(cyclone_handle->raft_handle, 1000);
-  raft_set_request_timeout(cyclone_handle->raft_handle, 200);
+  raft_set_request_timeout(cyclone_handle->raft_handle, 100);
 
   /* setup connections */
   cyclone_handle->zmq_context  = zmq_init(1); // One thread should be enough ?
