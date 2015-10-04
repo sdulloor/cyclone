@@ -6,21 +6,18 @@
 static void cyclone_tx(void *socket,
 		       unsigned char *data,
 		       unsigned long size,
-		       const char *context) {
-  while (true) {
-    int rc = zmq_send(socket, data, size, 0);
-    if (rc == -1) {
-      if (errno != EAGAIN) {
-	BOOST_LOG_TRIVIAL(warning) << "CYCLONE: Unable to transmit";
-	perror(context);
-	//Communcation failures are acceptable
-      }
-      // Retry
-    }
-    else {
-      break;
+		       const char *context) 
+{
+  int rc = zmq_send(socket, data, size, ZMQ_NOBLOCK);
+  if(rc == -1) {
+    if (errno != EAGAIN) {
+      BOOST_LOG_TRIVIAL(warning) << "CYCLONE: Unable to transmit";
+      perror(context);
+      exit(-1);
     }
   }
+  // Note we silently drop messages on hitting the socket HWM
+  // assuming the other end has failed.
 }
 
 static unsigned long cyclone_rx(void *socket,
@@ -72,22 +69,33 @@ static int cyclone_socket_has_data(void *poll_handle, int index)
 
 static void* cyclone_socket_out(void *context, int loopback)
 {
+  void *socket;
   if(loopback) {
-    return zmq_socket(context, ZMQ_REQ);
+    socket = zmq_socket(context, ZMQ_REQ);
   }
   else {
-    return zmq_socket(context, ZMQ_PUSH);
+    int hwm = 5;
+    socket = zmq_socket(context, ZMQ_PUSH);
+    int e = zmq_setsockopt(socket, ZMQ_SNDHWM, &hwm, sizeof(int));
+    if (e == -1) {
+      BOOST_LOG_TRIVIAL(fatal) << "CYCLONE_COMM: Unable to set sock HWM";
+      perror("set sock opt:");
+      exit(-1);
+    }
   }
+  return socket;
 }
 
 static void* cyclone_socket_in(void *context, int loopback)
 {
+  void *socket;
   if(loopback) {
-    return zmq_socket(context, ZMQ_REP);
+    socket = zmq_socket(context, ZMQ_REP);
   }
   else {
-    return zmq_socket(context, ZMQ_PULL);
+    socket = zmq_socket(context, ZMQ_PULL);
   }
+  return socket;
 }
 
 static void cyclone_connect_endpoint(void *socket, const char *endpoint)
