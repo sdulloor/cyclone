@@ -29,7 +29,6 @@ const int  MSG_CLIENT_STATUS            = 6;
 
 /* Timers */
 const int PERIODICITY_MSEC    = 10;        
-const int ELECTION_TIMEOUT    = 1000;
 
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 4194304;

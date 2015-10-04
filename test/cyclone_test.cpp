@@ -49,15 +49,16 @@ int main(int argc, char *argv[])
       result = cyclone_check_status(cyclone_handle, cookie);
     } while(result == 0);
     free(cookie);
+    unsigned int elapsed_msecs = timer.current_time()/1000;
     if(result == 1) {
       fprintf(stderr, "LOG %d:%d\n",
 	      *(const unsigned int *)entry,
-	      *(const unsigned int *)(entry + 4));
+	      elapsed_msecs - *(const unsigned int *)(entry + 4));
     }
     else {
       fprintf(stderr, "REJECT %d:%d\n",
 	      *(const unsigned int *)entry,
-	      *(const unsigned int *)(entry + 4));
+	      elapsed_msecs - *(const unsigned int *)(entry + 4));
     }
   }
 }
