@@ -3,7 +3,9 @@
 #include<stdlib.h>
 #include<unistd.h>
 #include<libcyclone.hpp>
+#include "../core/clock.hpp"
 
+rtc_clock timer;
 
 void cyclone_cb(void *user_arg, const unsigned char *data, const int len)
 {
@@ -11,9 +13,10 @@ void cyclone_cb(void *user_arg, const unsigned char *data, const int len)
     fprintf(stderr, "ERROR\n");
   }
   else {
+    unsigned int elapsed_msecs = timer.elapsed_time()/1000;
     fprintf(stderr, "APPLY %d:%d\n",
 	    *(const unsigned int *)data,
-	    *(const unsigned int *)(data + 4));
+	    elapsed_msecs - *(const unsigned int *)(data + 4));
   }
   __sync_synchronize();
 }
@@ -25,16 +28,16 @@ int main(int argc, char *argv[])
     printf("Usage %s node_id\n", argv[0]);
     exit(-1);
   }
+  timer.start();
   unsigned int node_id = atoi(argv[1]);
   unsigned char entry[8];
-  unsigned int ctr = 1;
   cyclone_handle = cyclone_boot("cyclone_test.ini", &cyclone_cb, NULL);
   while(true) {
     if(cyclone_is_leader(cyclone_handle) == 0)
       continue;
     *(unsigned int *)entry = node_id;
-    *(unsigned int *)(entry + 4) = ctr;
-
+    *(unsigned int *)(entry + 4) =
+      (unsigned int)(timer.elapsed_time()/1000);
     void *cookie;
     do {
       usleep(30000);
@@ -56,6 +59,5 @@ int main(int argc, char *argv[])
 	      *(const unsigned int *)entry,
 	      *(const unsigned int *)(entry + 4));
     }
-    ctr++;
   }
 }
