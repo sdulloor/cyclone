@@ -35,6 +35,10 @@ class rtc_clock {
   {
     return elapsed_useconds;
   }
+  unsigned long current_time()
+  {
+    return get_current_rtc() - start_time;
+  }
   void print(const char header[])
   {
     double elapsed_seconds = (double)elapsed_useconds/1000000;
