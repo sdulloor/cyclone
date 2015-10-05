@@ -7,32 +7,60 @@
 
 rtc_clock timer;
 
-void log_callback_pre_append(void *data, const int size)
+void trace_pre_append(void *data, const int size)
 {
-  if(len != 8) {
+  if(size != 8) {
     fprintf(stderr, "ERROR\n");
   }
   else {
     unsigned int elapsed_msecs = timer.current_time()/1000;
     fprintf(stderr, "PRE_APPEND %d:%d\n",
 	    *(const unsigned int *)data,
-	    elapsed_msecs - *(const unsigned int *)(data + 4));
+	    elapsed_msecs - *(const unsigned int *)((char *)data + 4));
   }
   __sync_synchronize();
 }
 
 
 
-void log_callback_post_append(void *data, const int size)
+void trace_post_append(void *data, const int size)
 {
-  if(len != 8) {
+  if(size != 8) {
     fprintf(stderr, "ERROR\n");
   }
   else {
     unsigned int elapsed_msecs = timer.current_time()/1000;
     fprintf(stderr, "POST_APPEND %d:%d\n",
 	    *(const unsigned int *)data,
-	    elapsed_msecs - *(const unsigned int *)(data + 4));
+	    elapsed_msecs - *(const unsigned int *)((char *)data + 4));
+  }
+  __sync_synchronize();
+}
+
+void trace_send_entry(void *data, const int size)
+{
+  if(size != 8) {
+    fprintf(stderr, "ERROR\n");
+  }
+  else {
+    unsigned int elapsed_msecs = timer.current_time()/1000;
+    fprintf(stderr, "SEND_ENTRY %d:%d\n",
+	    *(const unsigned int *)data,
+	    elapsed_msecs - *(const unsigned int *)((char *)data + 4));
+  }
+  __sync_synchronize();
+}
+
+void trace_recv_entry(void *data, const int size)
+{
+  if(size != 8) {
+    fprintf(stderr, "ERROR\n");
+  }
+  else {
+    unsigned int elapsed_msecs = timer.current_time()/1000;
+    fprintf(stderr, "RECV_ENTRY %d:%d\n",
+	    *(const unsigned int *)data,
+	    elapsed_msecs - *(const unsigned int *)((char *)data + 4));
   }
   __sync_synchronize();
 }

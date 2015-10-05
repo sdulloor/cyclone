@@ -3,6 +3,12 @@
 #include "cyclone_context.hpp"
 
 
+#ifdef TRACING
+extern void trace_pre_append(void *data, const int size);
+extern void trace_post_append(void *data, const int size);
+extern void trace_send_entry(void *data, const int size);
+#endif
+
 /** Raft callback for sending request vote message */
 static int __send_requestvote(raft_server_t* raft,
 			      void *user_data,
@@ -49,6 +55,9 @@ static int __send_appendentries(raft_server_t* raft,
   }
   for(int i=0;i<m->n_entries;i++) {
     memcpy(ptr, m->entries[i].data.buf, m->entries[i].data.len);
+#ifdef TRACING
+    trace_send_entry(ptr, m->entries[i].data.len);
+#endif
     ptr += m->entries[i].data.len;
   }
   cyclone_tx(socket, 
@@ -119,6 +128,10 @@ static int __raft_logentry_offer(raft_server_t* raft,
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   TX_BEGIN(cyclone_handle->pop_raft_state) {
+#ifdef TRACING
+    trace_pre_append((unsigned char *)ety->data.buf, ety->data.len);
+#endif
+
     if(cyclone_handle->append_to_raft_log((unsigned char *)ety,
 					  sizeof(raft_entry_t)) != 0) {
       pmemobj_tx_abort(-1);
@@ -127,6 +140,10 @@ static int __raft_logentry_offer(raft_server_t* raft,
 					  ety->data.len) != 0) {
       pmemobj_tx_abort(-1);
     }
+#ifdef TRACING
+    trace_post_append(ety->data.buf, ety->data.len);
+#endif
+
   } TX_ONABORT {
     result = -1;
   } TX_END

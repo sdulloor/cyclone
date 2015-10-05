@@ -54,9 +54,8 @@ typedef struct
   };
 } msg_t;
 
-#ifdef LOG_CALLBACKS
-void log_callback_pre_append(void *data, int size);
-void log_callback_post_append(void *data, int size);
+#ifdef TRACING
+extern void trace_recv_entry(void *data, const int len);
 #endif
 
 struct cyclone_monitor;
@@ -89,9 +88,6 @@ typedef struct cyclone_st {
     int status = 0;
     TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
     log_t log = D_RO(root)->log;
-#ifdef LOG_CALLBACKS
-    log_callback_pre_append(data, size);
-#endif
     TX_BEGIN(pop_raft_state){
       TX_ADD(log);
       unsigned long space_needed = size + 2*sizeof(int);
@@ -131,9 +127,6 @@ typedef struct cyclone_st {
     } TX_ONABORT {
       status = -1;
     } TX_END
-#ifdef LOG_CALLBACKS
-    log_callback_post_append(data, size);
-#endif
     return status;
   }
 
@@ -232,6 +225,9 @@ typedef struct cyclone_st {
       memcpy(msg->ae.entries[i].data.buf, 
 	     ptr, 
 	     msg->ae.entries[i].data.len);
+#ifdef TRACING
+      trace_recv_entry(ptr, msg->ae.entries[i].data.len);
+#endif
       ptr += msg->ae.entries[i].data.len;
     }
     e = raft_recv_appendentries(raft_handle, msg->source, &msg->ae, &resp.aer);
