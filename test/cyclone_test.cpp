@@ -7,6 +7,36 @@
 
 rtc_clock timer;
 
+void log_callback_pre_append(void *data, const int size)
+{
+  if(len != 8) {
+    fprintf(stderr, "ERROR\n");
+  }
+  else {
+    unsigned int elapsed_msecs = timer.current_time()/1000;
+    fprintf(stderr, "PRE_APPEND %d:%d\n",
+	    *(const unsigned int *)data,
+	    elapsed_msecs - *(const unsigned int *)(data + 4));
+  }
+  __sync_synchronize();
+}
+
+
+
+void log_callback_post_append(void *data, const int size)
+{
+  if(len != 8) {
+    fprintf(stderr, "ERROR\n");
+  }
+  else {
+    unsigned int elapsed_msecs = timer.current_time()/1000;
+    fprintf(stderr, "POST_APPEND %d:%d\n",
+	    *(const unsigned int *)data,
+	    elapsed_msecs - *(const unsigned int *)(data + 4));
+  }
+  __sync_synchronize();
+}
+
 void cyclone_cb(void *user_arg, const unsigned char *data, const int len)
 {
   if(len != 8) {
