@@ -1,10 +1,10 @@
-all: cyclone_test
+Ball: cyclone_test
 
-CXXFLAGS = -O3 
+CXXFLAGS = -O3 -DBOOST_LOG_DYN_LINK
 #CXXFLAGS = -g 
 
 cyclone_test:cyclone_test.cpp
-	$(CXX) $(CXXFLAGS) cyclone_test.cpp -lcyclone -o $@
+	$(CXX) $(CXXFLAGS) cyclone_test.cpp -lc -lcyclone -lboost_thread -lboost_log -lpthread -o $@
 
 .PHONY:clean
 
