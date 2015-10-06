@@ -92,7 +92,7 @@ typedef struct cyclone_st {
       TX_ADD(log);
       unsigned long space_needed = size + 2*sizeof(int);
       unsigned long space_available;
-      if(D_RO(log)->log_head < D_RO(log)->log_tail) {
+      if(D_RO(log)->log_head <= D_RO(log)->log_tail) {
 	space_available = RAFT_LOGSIZE -
 	  (D_RO(log)->log_tail - D_RO(log)->log_head);
       }
@@ -126,6 +126,8 @@ typedef struct cyclone_st {
       D_RW(log)->log_tail = new_tail;
     } TX_ONABORT {
       status = -1;
+      BOOST_LOG_TRIVIAL(fatal) << "Unable to persist log.";
+      exit(-1);
     } TX_END
     return status;
   }

@@ -287,7 +287,6 @@ void* cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback,
   cyclone_handle->replicas        = cyclone_handle->pt.get<int>("network.replicas");
   cyclone_handle->me              = cyclone_handle->pt.get<int>("network.me");
   unsigned long baseport  = cyclone_handle->pt.get<unsigned long>("network.baseport"); 
-  
   cyclone_handle->raft_handle = raft_new();
   raft_set_callbacks(cyclone_handle->raft_handle, &raft_funcs, cyclone_handle);
   raft_set_election_timeout(cyclone_handle->raft_handle, 1000);
@@ -338,7 +337,7 @@ void* cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback,
     // TBD: figure out how to make this atomic
     cyclone_handle->pop_raft_state = pmemobj_create(path_raft.c_str(),
 						    POBJ_LAYOUT_NAME(raft_persistent_state),
-						    PMEMOBJ_MIN_POOL,
+						    cyclone_handle->RAFT_LOGSIZE + PMEMOBJ_MIN_POOL,
 						    0666);
     if(cyclone_handle->pop_raft_state == NULL) {
       BOOST_LOG_TRIVIAL(fatal)
@@ -346,23 +345,25 @@ void* cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback,
 	<< strerror(errno);
       exit(-1);
     }
+  
     TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state, raft_pstate_t);
-    D_RW(root)->term      = 0;
-    D_RW(root)->voted_for = -1;
-    log_t log;
-    POBJ_ALLOC(cyclone_handle->pop_raft_state,
-	       &log,
-	       struct circular_log,
-	       sizeof(struct circular_log) + cyclone_handle->RAFT_LOGSIZE,
-	       init_log,
-	       NULL);
-    if(TOID_IS_NULL(log)) {
+    TX_BEGIN(cyclone_handle->pop_raft_state) {
+      TX_ADD(root);
+      D_RW(root)->term      = 0;
+      D_RW(root)->voted_for = -1;
+      D_RW(root)->log = 
+	TX_ALLOC(struct circular_log, 
+		 (sizeof(struct circular_log) + cyclone_handle->RAFT_LOGSIZE));
+      log_t log = D_RO(root)->log;
+      TX_ADD(log);
+      D_RW(log)->log_head = 0;
+      D_RW(log)->log_tail = 0;
+    } TX_ONABORT {
       BOOST_LOG_TRIVIAL(fatal) 
 	<< "Unable to allocate log:"
 	<< strerror(errno);
       exit(-1);
-    }
-    D_RW(root)->log      = log; 
+    } TX_END
   }
   else {
     TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state, raft_pstate_t);
