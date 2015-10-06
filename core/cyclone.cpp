@@ -79,12 +79,19 @@ static int __persist_vote(raft_server_t* raft,
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state,
 				       raft_pstate_t);
+#ifdef TRACING
+  rtc_clock timer;
+  timer.start();
+#endif  
   TX_BEGIN(cyclone_handle->pop_raft_state) {
     TX_ADD(root);
     D_RW(root)->voted_for = voted_for;
   }TX_ONABORT {
     status = -1;
   } TX_END
+#ifdef TRACING
+      BOOST_LOG_TRIVIAL(info) << "VOTE_PERSIST_DELTA ms:" << timer.current_time()/1000;
+#endif
   return status;
 }
 
@@ -99,12 +106,19 @@ static int __persist_term(raft_server_t* raft,
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state,
 				       raft_pstate_t);
+#ifdef TRACING
+  rtc_clock timer;
+  timer.start();
+#endif
   TX_BEGIN(cyclone_handle->pop_raft_state) {
     TX_ADD(root);
     D_RW(root)->term = current_term;
   } TX_ONABORT {
     status = -1;
   } TX_END
+#ifdef TRACING
+      BOOST_LOG_TRIVIAL(info) << "TERM_PERSIST_DELTA ms: " << timer.current_time()/1000;
+#endif
   return status;
 }
 
