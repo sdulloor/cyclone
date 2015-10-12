@@ -90,7 +90,8 @@ static int __persist_vote(raft_server_t* raft,
     status = -1;
   } TX_END
 #ifdef TRACING
-      BOOST_LOG_TRIVIAL(info) << "VOTE_PERSIST_DELTA ms:" << timer.current_time()/1000;
+  timer.stop();
+  BOOST_LOG_TRIVIAL(info) << "VOTE_PERSIST_DELTA ms:" << timer.elapsed_time()/1000;
 #endif
   return status;
 }
@@ -117,7 +118,8 @@ static int __persist_term(raft_server_t* raft,
     status = -1;
   } TX_END
 #ifdef TRACING
-      BOOST_LOG_TRIVIAL(info) << "TERM_PERSIST_DELTA ms: " << timer.current_time()/1000;
+  timer.stop();    
+  BOOST_LOG_TRIVIAL(info) << "TERM_PERSIST_DELTA ms: " << timer.elapsed_time()/1000;
 #endif
   return status;
 }

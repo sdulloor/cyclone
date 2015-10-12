@@ -37,7 +37,7 @@ class rtc_clock {
   }
   unsigned long current_time()
   {
-    return get_current_rtc() - start_time;
+    return get_current_rtc();
   }
   void print(const char header[])
   {
