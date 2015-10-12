@@ -302,6 +302,71 @@ void* cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback,
   cyclone_handle->me              = cyclone_handle->pt.get<int>("network.me");
   unsigned long baseport  = cyclone_handle->pt.get<unsigned long>("network.baseport"); 
   cyclone_handle->raft_handle = raft_new();
+  
+  /* Setup raft state */
+  if(access(path_raft.c_str(), F_OK)) {
+    // TBD: figure out how to make this atomic
+    cyclone_handle->pop_raft_state = pmemobj_create(path_raft.c_str(),
+						    POBJ_LAYOUT_NAME(raft_persistent_state),
+						    cyclone_handle->RAFT_LOGSIZE + PMEMOBJ_MIN_POOL,
+						    0666);
+    if(cyclone_handle->pop_raft_state == NULL) {
+      BOOST_LOG_TRIVIAL(fatal)
+	<< "Unable to creat pmemobj pool:"
+	<< strerror(errno);
+      exit(-1);
+    }
+  
+    TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state, raft_pstate_t);
+    TX_BEGIN(cyclone_handle->pop_raft_state) {
+      TX_ADD(root);
+      D_RW(root)->term      = 0;
+      D_RW(root)->voted_for = -1;
+      D_RW(root)->log = 
+	TX_ALLOC(struct circular_log, 
+		 (sizeof(struct circular_log) + cyclone_handle->RAFT_LOGSIZE));
+      log_t log = D_RO(root)->log;
+      TX_ADD(log);
+      D_RW(log)->log_head = 0;
+      D_RW(log)->log_tail = 0;
+    } TX_ONABORT {
+      BOOST_LOG_TRIVIAL(fatal) 
+	<< "Unable to allocate log:"
+	<< strerror(errno);
+      exit(-1);
+    } TX_END
+  }
+  else {
+    cyclone_handle->pop_raft_state = pmemobj_open(path_raft.c_str(),
+						  "raft_persistent_state");
+    if(cyclone_handle->pop_raft_state == NULL) {
+      BOOST_LOG_TRIVIAL(fatal)
+	<< "Unable to open pmemobj pool:"
+	<< strerror(errno);
+      exit(-1);
+    }
+    BOOST_LOG_TRIVIAL(info) << "CYCLONE: Recovering state";
+    TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state, raft_pstate_t);
+    log_t log = D_RO(root)->log;
+    raft_vote(cyclone_handle->raft_handle, D_RO(root)->voted_for);
+    raft_set_current_term(cyclone_handle->raft_handle, D_RO(root)->term);
+    unsigned long ptr = D_RO(log)->log_head;
+    raft_entry_t ety;
+    while(ptr != D_RO(log)->log_tail) {
+      // Optimize later by removing transaction
+      TX_BEGIN(cyclone_handle->pop_raft_state) {
+	ptr = cyclone_handle->read_from_log(log, (unsigned char *)&ety, ptr);
+      } TX_END
+      ety.data.buf = malloc(ety.data.len);
+      TX_BEGIN(cyclone_handle->pop_raft_state) {
+	ptr = cyclone_handle->read_from_log(log, (unsigned char *)ety.data.buf, ptr);
+      } TX_END
+      raft_append_entry(cyclone_handle->raft_handle, &ety);
+    }
+    BOOST_LOG_TRIVIAL(info) << "CYCLONE: Recovery complete";
+  }
+
+  // Note: set raft callbacks AFTER recovery
   raft_set_callbacks(cyclone_handle->raft_handle, &raft_funcs, cyclone_handle);
   raft_set_election_timeout(cyclone_handle->raft_handle, 1000);
   raft_set_request_timeout(cyclone_handle->raft_handle, 500);
@@ -343,56 +408,7 @@ void* cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback,
     addr << ":" << port;
     cyclone_bind_endpoint(cyclone_handle->zmq_pull_sockets[i], addr.str().c_str());
   }
-  
-  /* Setup raft state */
-  cyclone_handle->pop_raft_state = pmemobj_open(path_raft.c_str(),
-						"raft_persistent_state");
-  if (cyclone_handle->pop_raft_state == NULL) {
-    // TBD: figure out how to make this atomic
-    cyclone_handle->pop_raft_state = pmemobj_create(path_raft.c_str(),
-						    POBJ_LAYOUT_NAME(raft_persistent_state),
-						    cyclone_handle->RAFT_LOGSIZE + PMEMOBJ_MIN_POOL,
-						    0666);
-    if(cyclone_handle->pop_raft_state == NULL) {
-      BOOST_LOG_TRIVIAL(fatal)
-	<< "Unable to creat pmemobj pool:"
-	<< strerror(errno);
-      exit(-1);
-    }
-  
-    TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state, raft_pstate_t);
-    TX_BEGIN(cyclone_handle->pop_raft_state) {
-      TX_ADD(root);
-      D_RW(root)->term      = 0;
-      D_RW(root)->voted_for = -1;
-      D_RW(root)->log = 
-	TX_ALLOC(struct circular_log, 
-		 (sizeof(struct circular_log) + cyclone_handle->RAFT_LOGSIZE));
-      log_t log = D_RO(root)->log;
-      TX_ADD(log);
-      D_RW(log)->log_head = 0;
-      D_RW(log)->log_tail = 0;
-    } TX_ONABORT {
-      BOOST_LOG_TRIVIAL(fatal) 
-	<< "Unable to allocate log:"
-	<< strerror(errno);
-      exit(-1);
-    } TX_END
-  }
-  else {
-    TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state, raft_pstate_t);
-    log_t log = D_RO(root)->log;
-    raft_vote(cyclone_handle->raft_handle, D_RO(root)->voted_for);
-    raft_set_current_term(cyclone_handle->raft_handle, D_RO(root)->term);
-    unsigned long ptr = D_RO(log)->log_head;
-    raft_entry_t ety;
-    while(ptr != D_RO(log)->log_tail) {
-      ptr = cyclone_handle->read_from_log(log, (unsigned char *)&ety, ptr);
-      ety.data.buf = malloc(ety.data.len);
-      ptr = cyclone_handle->read_from_log(log, (unsigned char *)ety.data.buf, ptr);
-      raft_append_entry(cyclone_handle->raft_handle, &ety);
-    }
-  }
+
   cyclone_handle->cyclone_buffer_in  = new unsigned char[MSG_MAXSIZE];
   cyclone_handle->cyclone_buffer_out = new unsigned char[MSG_MAXSIZE];
   /* Launch cyclone service */
