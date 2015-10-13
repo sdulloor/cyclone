@@ -8,86 +8,48 @@
 
 rtc_clock timer;
 
-void trace_pre_append(void *data, const int size)
+void print(const char *prefix,
+	   void *data,
+	   const int size)
 {
-  if(size != 8) {
+  unsigned int elapsed_msecs = timer.current_time()/1000;
+  char *buf = (char *)data;
+  if(size != 12) {
     BOOST_LOG_TRIVIAL(fatal) << "SERVER: Incorrect record size";
     exit(-1);
   }
   else {
-    unsigned int elapsed_msecs = timer.current_time()/1000;
-    BOOST_LOG_TRIVIAL(info) 
-      << "SERVER: PRE_APPEND "
-      << *(const unsigned int *)data << " "
-      << (elapsed_msecs - *(const unsigned int *)((char *)data + 4));
+    BOOST_LOG_TRIVIAL(info)
+      << prefix << " "
+      << *(const unsigned int *)buf << " "
+      << *(const unsigned int *)(buf + 4) << " " 
+      << (elapsed_msecs - *(const unsigned int *)((char *)buf + 8));
   }
-  __sync_synchronize();
 }
 
-
+void trace_pre_append(void *data, const int size)
+{
+  print("SERVER: PRE_APPEND", data, size);
+}
 
 void trace_post_append(void *data, const int size)
 {
-  if(size != 8) {
-    BOOST_LOG_TRIVIAL(fatal) << "SERVER: Incorrect record size";
-    exit(-1);
-  }
-  else {
-    unsigned int elapsed_msecs = timer.current_time()/1000;
-    BOOST_LOG_TRIVIAL(info) 
-      <<  "SERVER: POST_APPEND "
-      << *(const unsigned int *)data << " "
-      << (elapsed_msecs - *(const unsigned int *)((char *)data + 4));
-  }
-  __sync_synchronize();
+  print("SERVER: POST_APPEND", data, size); 
 }
 
 void trace_send_entry(void *data, const int size)
 {
-  if(size != 8) {
-    BOOST_LOG_TRIVIAL(fatal) << "SERVER: Incorrect record size";
-    exit(-1);
-  }
-  else {
-    unsigned int elapsed_msecs = timer.current_time()/1000;
-    BOOST_LOG_TRIVIAL(info) 
-      << "SERVER: SEND_ENTRY "
-      << *(const unsigned int *)data << " "
-      << (elapsed_msecs - *(const unsigned int *)((char *)data + 4));
-  }
-  __sync_synchronize();
+  print("SERVER: SEND_ENTRY", data, size);
 }
 
 void trace_recv_entry(void *data, const int size)
 {
-  if(size != 8) {
-    BOOST_LOG_TRIVIAL(fatal) << "SERVER: Incorrect record size";
-    exit(-1);
-  }
-  else {
-    unsigned int elapsed_msecs = timer.current_time()/1000;
-    BOOST_LOG_TRIVIAL(info) 
-      << "SERVER: RECV_ENTRY "
-      << *(const unsigned int *)data << " "
-      <<  (elapsed_msecs - *(const unsigned int *)((char *)data + 4));
-  }
-  __sync_synchronize();
+  print("SERVER: RECV_ENTRY", data, size);
 }
 
 void cyclone_cb(void *user_arg, const unsigned char *data, const int len)
 {
-  if(len != 8) {
-    BOOST_LOG_TRIVIAL(fatal) << "CLIENT: Incorrect record size";
-    exit(-1);
-  }
-  else {
-    unsigned int elapsed_msecs = timer.current_time()/1000;
-    BOOST_LOG_TRIVIAL(info)
-      << "CLIENT: APPLY "
-      << *(const unsigned int *)data  << " "
-      << (elapsed_msecs - *(const unsigned int *)(data + 4));
-  }
-  __sync_synchronize();
+  print("CLIENT: APPLY", (void *)data, len);
 }
 
 int main(int argc, char *argv[])
@@ -99,18 +61,20 @@ int main(int argc, char *argv[])
   }
   timer.start();
   unsigned int node_id = atoi(argv[1]);
-  unsigned char entry[8];
+  unsigned char entry[12];
+  int ctr = 0;
   cyclone_handle = cyclone_boot("cyclone_test.ini", &cyclone_cb, NULL);
   while(true) {
     if(cyclone_is_leader(cyclone_handle) == 0)
       continue;
     *(unsigned int *)entry = node_id;
-    *(unsigned int *)(entry + 4) =
+    *(unsigned int *)(entry + 4) = ctr;
+    *(unsigned int *)(entry + 8) =
       (unsigned int)(timer.current_time()/1000);
     void *cookie;
     do {
       usleep(30000);
-      cookie = cyclone_add_entry(cyclone_handle, entry, 8);
+      cookie = cyclone_add_entry(cyclone_handle, entry, 12);
     } while(cookie == NULL);
     int result;
     do {
@@ -120,16 +84,11 @@ int main(int argc, char *argv[])
     free(cookie);
     unsigned int elapsed_msecs = timer.current_time()/1000;
     if(result == 1) {
-      BOOST_LOG_TRIVIAL(info) 
-	<< "CLIENT: ACCEPT "
-	<< *(const unsigned int *)entry << " "
-	<< (elapsed_msecs - *(const unsigned int *)(entry + 4));
+      print("CLIENT: ACCEPT ", (void *)entry, 12);
     }
     else {
-      BOOST_LOG_TRIVIAL(info)
-	<< "CLIENT: REJECT "
-	<< *(const unsigned int *)entry << " "
-	<< (elapsed_msecs - *(const unsigned int *)(entry + 4));
+      print("CLIENT: REJECT ", (void *)entry, 12);
     }
+    ctr++;
   }
 }
