@@ -276,7 +276,6 @@ typedef struct cyclone_st {
 	memcpy(client_req.data.buf, 
 	       msg->client.ptr, 
 	       msg->client.size);
-	client_req.data.buf = msg->client.ptr;
 	client_req.data.len = msg->client.size;
 	// TBD: Handle error
 	client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
