@@ -85,6 +85,8 @@ typedef struct cyclone_st {
 
   unsigned long get_log_offset()
   {
+    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
+    log_t log = D_RO(root)->log;
     return D_RO(log)->log_tail;
   }
   
@@ -186,6 +188,7 @@ typedef struct cyclone_st {
 			      unsigned long offset)
   {
     int size;
+    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
     log_t log = D_RO(root)->log;
     copy_from_circular_log(log,
 			   RAFT_LOGSIZE,
@@ -201,6 +204,7 @@ typedef struct cyclone_st {
   unsigned long skip_log_entry(unsigned long offset)
   {
     int size;
+    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
     log_t log = D_RO(root)->log;
     copy_from_circular_log(log,
 			   RAFT_LOGSIZE,

@@ -131,7 +131,7 @@ static int __applylog(raft_server_t* raft,
 		      const int len)
 {
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  void *chunk = malloc(len);
+  unsigned char *chunk = (unsigned char *)malloc(len);
   TX_BEGIN(cyclone_handle->pop_raft_state) {
     (void)cyclone_handle->read_from_log(chunk, (unsigned long)data);
   } TX_END
