@@ -54,7 +54,8 @@ static int __send_appendentries(raft_server_t* raft,
     ptr += sizeof(msg_entry_t);
   }
   for(int i=0;i<m->n_entries;i++) {
-    memcpy(ptr, m->entries[i].data.buf, m->entries[i].data.len);
+    (void)cyclone_handle->read_from_log(ptr,
+					(unsigned long)m->entries[i].data.buf);
 #ifdef TRACING
     trace_send_entry(ptr, m->entries[i].data.len);
 #endif
@@ -130,7 +131,12 @@ static int __applylog(raft_server_t* raft,
 		      const int len)
 {
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  cyclone_handle->cyclone_cb(cyclone_handle->user_arg, data, len);
+  void *chunk = malloc(len);
+  TX_BEGIN(cyclone_handle->pop_raft_state) {
+    (void)cyclone_handle->read_from_log(chunk, (unsigned long)data);
+  } TX_END
+  cyclone_handle->cyclone_cb(cyclone_handle->user_arg, chunk, len);
+  free(chunk);
   return 0;
 }
 
@@ -152,10 +158,13 @@ static int __raft_logentry_offer(raft_server_t* raft,
 					  sizeof(raft_entry_t)) != 0) {
       pmemobj_tx_abort(-1);
     }
+    void * saved_ptr = (void *)cyclone_handle->get_log_offset();
     if(cyclone_handle->append_to_raft_log((unsigned char *)ety->data.buf,
 					  ety->data.len) != 0) {
       pmemobj_tx_abort(-1);
     }
+    free(ety->data.buf); // release temporary memory
+    ety->data.buf = saved_ptr;
 #ifdef TRACING
     trace_post_append(ety->data.buf, ety->data.len);
 #endif
@@ -357,11 +366,11 @@ void* cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback,
     while(ptr != D_RO(log)->log_tail) {
       // Optimize later by removing transaction
       TX_BEGIN(cyclone_handle->pop_raft_state) {
-	ptr = cyclone_handle->read_from_log(log, (unsigned char *)&ety, ptr);
+	ptr = cyclone_handle->read_from_log((unsigned char *)&ety, ptr);
       } TX_END
-      ety.data.buf = malloc(ety.data.len);
+      ety.data.buf = (void *)ptr;
       TX_BEGIN(cyclone_handle->pop_raft_state) {
-	ptr = cyclone_handle->read_from_log(log, (unsigned char *)ety.data.buf, ptr);
+	ptr = cyclone_handle->skip_log_entry(ptr);
       } TX_END
       raft_append_entry(cyclone_handle->raft_handle, &ety);
     }

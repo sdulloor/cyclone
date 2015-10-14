@@ -83,6 +83,11 @@ typedef struct cyclone_st {
     :work(ioService)
   {}
 
+  unsigned long get_log_offset()
+  {
+    return D_RO(log)->log_tail;
+  }
+  
   int append_to_raft_log(unsigned char *data, int size)
   {
     int status = 0;
@@ -177,11 +182,11 @@ typedef struct cyclone_st {
 	return result;
   }
 
-  int read_from_log(log_t log,
-		    unsigned char *dst,
-		    int offset)
+  unsigned long read_from_log(unsigned char *dst,
+			      unsigned long offset)
   {
     int size;
+    log_t log = D_RO(root)->log;
     copy_from_circular_log(log,
 			   RAFT_LOGSIZE,
 			   (unsigned char *)&size,
@@ -192,7 +197,20 @@ typedef struct cyclone_st {
     offset = circular_log_advance_ptr(offset, size + sizeof(int), RAFT_LOGSIZE);
     return offset;
   }
-  
+
+  unsigned long skip_log_entry(unsigned long offset)
+  {
+    int size;
+    log_t log = D_RO(root)->log;
+    copy_from_circular_log(log,
+			   RAFT_LOGSIZE,
+			   (unsigned char *)&size,
+			   offset,
+			   sizeof(int));
+    offset = circular_log_advance_ptr(offset, size + 2*sizeof(int), RAFT_LOGSIZE);
+    return offset;
+  }
+
   /* Handle incoming message and send appropriate response */
   void handle_incoming(unsigned long size)
   {
@@ -250,6 +268,10 @@ typedef struct cyclone_st {
       }
       else {
 	client_req.id = rand();
+	client_req.data.buf = malloc(msg->client.size);
+	memcpy(client_req.data.buf, 
+	       msg->client.ptr, 
+	       msg->client.size);
 	client_req.data.buf = msg->client.ptr;
 	client_req.data.len = msg->client.size;
 	// TBD: Handle error
