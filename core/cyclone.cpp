@@ -174,13 +174,13 @@ static int __raft_logentry_offer(raft_server_t* raft,
   } TX_ONABORT {
     result = -1;
   } TX_END
-  free(chunk); // release temporary memory
   if(cyclone_handle->cyclone_rep_cb != NULL) {    
     cyclone_handle->cyclone_rep_cb(cyclone_handle->user_arg,
-				   ety->data.buf,
+				   (const unsigned char *)chunk,
 				   ety->data.len);
     
   }
+  free(chunk); // release temporary memory
   return result;
 }
 

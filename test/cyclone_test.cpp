@@ -52,6 +52,11 @@ void cyclone_cb(void *user_arg, const unsigned char *data, const int len)
   print("CLIENT: APPLY", (void *)data, len);
 }
 
+void cyclone_rep_cb(void *user_arg, const unsigned char *data, const int len)
+{
+  print("CLIENT: REP", (void *)data, len);
+}
+
 int main(int argc, char *argv[])
 {
   void *cyclone_handle;
@@ -63,7 +68,7 @@ int main(int argc, char *argv[])
   unsigned int node_id = atoi(argv[1]);
   unsigned char entry[12];
   int ctr = 0;
-  cyclone_handle = cyclone_boot("cyclone_test.ini", &cyclone_cb, NULL);
+  cyclone_handle = cyclone_boot("cyclone_test.ini", &cyclone_rep_cb, &cyclone_cb, NULL);
   while(true) {
     if(cyclone_is_leader(cyclone_handle) == 0)
       continue;
