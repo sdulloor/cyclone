@@ -16,7 +16,6 @@ static boost::property_tree::ptree pt;
 
 POBJ_LAYOUT_BEGIN(disp_state);
 typedef struct disp_state_st {
-  unsigned long committed_server_txid;
   unsigned long committed_client_txid[MAX_CLIENTS];
 } disp_state_t;
 POBJ_LAYOUT_ROOT(disp_state, disp_state_t);
@@ -24,37 +23,46 @@ POBJ_LAYOUT_END(disp_state);
 static PMEMobjpool *state;
 
 
-unsigned long next_server_txid;
-unsigned long next_client_txid[MAX_CLIENTS];
+unsigned long seen_client_txid[MAX_CLIENTS];
 static void (*execute_rpc)(const unsigned char *data, const int len);
 
-void cyclone_cb(void *user_arg, const unsigned char *data, const int len)
+void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
 {
   // Call back to app.
-  const rpc_params_t *rpc_params = (const rpc_params_t *)data;
+  const rpc_t *rpc = (const rpc_t *)data;
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  if(rpc_params->server_txid > D_RO(root)->committed_server_txid) {
+  if(rpc->client_txid >
+     D_RO(root)->committed_client_txid[rpc->client_id]) {
     TX_BEGIN(state) {
-      TX_ADD_FIELD(root, committed_server_txid);
-      D_RW(root)->committed_server_txid = rpc_params->server_txid;
+      void *ptr = (void *)&D_RO(root)->committed_client_txid[rpc->client_id];
+      pmemobj_tx_add_range_direct(ptr, sizeof(unsigned long));
+      D_RW(root)->committed_client_txid[rpc->client_id] = rpc->client_txid;
     } TX_END
   }
-  if(rpc_params->client_txid >
-     D_RO(root)->committed_client_txid[rpc_params->client_id]) {
-    TX_BEGIN(state) {
-      void *ptr = (void *)&D_RO(root)->committed_client_txid[rpc_params->client_id];
-      pmemobj_tx_add_range_direct(ptr, sizeof(unsigned long));
-      D_RW(root)->committed_client_txid[rpc_params->client_id] = rpc_params->client_txid;
-    } TX_END
+  if(rpc->client_txid > seen_client_txid[rpc->client_id]) {
+    seen_client_txid[rpc->client_id] = rpc->client_txid;    
   }
   execute_rpc(data, len);
+}
+
+void cyclone_rep_cb(void *user_arg, const unsigned char *data, const int len)
+{
+  // Call back to app.
+  const rpc_t *rpc = (const rpc_t *)data;
+  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+  if(rpc->client_txid > seen_client_txid[rpc->client_id]) {
+    seen_client_txid[rpc->client_id] = rpc->client_txid;    
+  }
 }
 
 void dispatcher_start(const char* config_path,
 		      void (*rpc_callback)(const unsigned char *data, const int len))
 {
   boost::property_tree::read_ini(config_path, pt);
-  cyclone_handle = cyclone_boot(config_path, &cyclone_cb, NULL);
+  cyclone_handle = cyclone_boot(config_path,
+				&cyclone_rep_cb,
+				&cyclone_commit_cb,
+				NULL);
   // Load/Setup state
   std::string file_path = pt.get<std::string>("dispatch.filepath");
   if(access(file_path.c_str(), F_OK)) {
@@ -72,7 +80,6 @@ void dispatcher_start(const char* config_path,
     TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
     TX_BEGIN(state) {
       TX_ADD(root);
-      D_RW(root)->committed_server_txid = 0UL;
       for(int i = 0;i < MAX_CLIENTS;i++) {
 	D_RW(root)->committed_client_txid[i] = 0UL;
       }
@@ -96,9 +103,8 @@ void dispatcher_start(const char* config_path,
   }
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   for(int i=0;i<MAX_CLIENTS;i++) {
-    next_client_txid[i] = D_RO(root)->committed_client_txid[i] + 1;
+   seen_client_txid[i] = D_RO(root)->committed_client_txid[i];
   }
-  next_server_txid = D_RO(root)->committed_server_txid + 1;
   execute_rpc = rpc_callback;
   // Listen on port
   

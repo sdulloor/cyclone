@@ -135,7 +135,9 @@ static int __applylog(raft_server_t* raft,
   TX_BEGIN(cyclone_handle->pop_raft_state) {
     (void)cyclone_handle->read_from_log(chunk, (unsigned long)data);
   } TX_END
-  cyclone_handle->cyclone_cb(cyclone_handle->user_arg, chunk, len);
+  if(cyclone_handle->cyclone_commit_cb != NULL) {    
+    cyclone_handle->cyclone_commit_cb(cyclone_handle->user_arg, chunk, len);
+  }
   free(chunk);
   return 0;
 }
@@ -173,7 +175,12 @@ static int __raft_logentry_offer(raft_server_t* raft,
     result = -1;
   } TX_END
   free(chunk); // release temporary memory
-
+  if(cyclone_handle->cyclone_rep_cb != NULL) {    
+    cyclone_handle->cyclone_rep_cb(cyclone_handle->user_arg,
+				   ety->data.buf,
+				   ety->data.len);
+    
+  }
   return result;
 }
 
@@ -297,14 +304,18 @@ static void init_log(PMEMobjpool *pop, void *ptr, void *arg)
   log->log_tail  = 0;
 }
 
-void* cyclone_boot(const char *config_path, cyclone_callback_t cyclone_callback, void *user_arg)
+void* cyclone_boot(const char *config_path,
+		   cyclone_callback_t cyclone_rep_callback,
+		   cyclone_callback_t cyclone_commit_callback,
+		   void *user_arg)
 {
   cyclone_t *cyclone_handle;
   std::stringstream key;
   std::stringstream addr;
 
   cyclone_handle = new cyclone_t();
-  cyclone_handle->cyclone_cb = cyclone_callback;
+  cyclone_handle->cyclone_rep_cb = cyclone_rep_callback;
+  cyclone_handle->cyclone_commit_cb = cyclone_commit_callback;
   cyclone_handle->user_arg   = user_arg;
   
   boost::property_tree::read_ini(config_path, cyclone_handle->pt);

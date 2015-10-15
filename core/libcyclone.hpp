@@ -15,19 +15,33 @@ typedef void (*cyclone_callback_t)(void *user_arg,
 				   const int len);
 // Returns a cyclone handle
 extern void* cyclone_boot(const char *config_path,
-			  cyclone_callback_t cyclone_callback,
+			  cyclone_callback_t cyclone_rep_callback,
+			  cyclone_callback_t cyclone_commit_callback,
 			  void *user_arg);
 extern void cyclone_shutdown(void *cyclone_handle);
 
 //////// Dispatch interface
 const int MAX_CLIENTS = 10000; // Should be enough ?
 
-typedef struct rpc_params_st {
-  unsigned long server_txid; // Assigned by server
-  unsigned long client_txid; // Assigned by server
+typedef struct rpc_st {
+  int code;
   unsigned long client_id;
+  union {
+    unsigned long client_txid; 
+    int master;
+  };
   unsigned char payload[0];
-} rpc_params_t;
+} rpc_t; // Used for both requests and replies
+
+// Possble values for code follow
+const int RPC_REQ_FN       = 0; // Execute
+const int RPC_REQ_STATUS   = 1; // Check status
+const int RPC_REP_COMPLETE = 2; // DONE 
+const int RPC_REP_PENDING  = 3; // PENDING 
+const int RPC_REP_INVTXID  = 4; // WRONG client txid -- client_txid set in reply
+const int RPC_REP_INVSRV   = 5; // WRONG master  -- master set in reply
+
+
 
 void dispatcher_start(const char* config_path,
 		      void (*rpc_callback)(const unsigned char *data, const int len));
