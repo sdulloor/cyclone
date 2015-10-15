@@ -1,22 +1,18 @@
 // Dispatcher for cyclone
 #include<stdio.h>
 #include<stdlib.h>
+#include<string.h>
+#include<errno.h>
 #include<unistd.h>
 #include "libcyclone.hpp"
 #include "../core/clock.hpp"
+#include <boost/property_tree/ini_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
 #include<boost/log/trivial.hpp>
 #include<libpmemobj.h>
 
 static void *cyclone_handle;
 static boost::property_tree::ptree pt;
-const int MAX_CLIENTS = 10000; // Should be enough ?
-
-struct rpc_params_st {
-  unsigned long server_txid; // Assigned by server
-  unsigned long client_txid; // Assigned by server
-  unsigned long client_id;
-  unsigned char payload[0];
-} rpc_params_t;
 
 POBJ_LAYOUT_BEGIN(disp_state);
 typedef struct disp_state_st {
@@ -35,26 +31,27 @@ static void (*execute_rpc)(const unsigned char *data, const int len);
 void cyclone_cb(void *user_arg, const unsigned char *data, const int len)
 {
   // Call back to app.
-  rpc_params_t *rpc_params = (rpc_params_t *)data;
+  const rpc_params_t *rpc_params = (const rpc_params_t *)data;
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   if(rpc_params->server_txid > D_RO(root)->committed_server_txid) {
     TX_BEGIN(state) {
-      TX_ADD(D_RW(root)->committed_server_txid);
+      TX_ADD_FIELD(root, committed_server_txid);
       D_RW(root)->committed_server_txid = rpc_params->server_txid;
     } TX_END
   }
   if(rpc_params->client_txid >
-     D_RO(root)->committed_client_txid[rpc->client_id]) {
+     D_RO(root)->committed_client_txid[rpc_params->client_id]) {
     TX_BEGIN(state) {
-      TX_ADD(D_RW(root)->committed_client_txid[rpc->client_id]);
-      D_RW(root)->committed_client_txid[rpc->client_id] = rpc_params->client_txid;
+      void *ptr = (void *)&D_RO(root)->committed_client_txid[rpc_params->client_id];
+      pmemobj_tx_add_range_direct(ptr, sizeof(unsigned long));
+      D_RW(root)->committed_client_txid[rpc_params->client_id] = rpc_params->client_txid;
     } TX_END
   }
   execute_rpc(data, len);
 }
 
 void dispatcher_start(const char* config_path,
-		      void (*rpc_callback)(const char *data, const int len))
+		      void (*rpc_callback)(const unsigned char *data, const int len))
 {
   boost::property_tree::read_ini(config_path, pt);
   cyclone_handle = cyclone_boot(config_path, &cyclone_cb, NULL);
