@@ -14,9 +14,15 @@
 static void *cyclone_handle;
 static boost::property_tree::ptree pt;
 
+struct client_state {
+  unsigned long committed_txid;
+  TOID(unsigned char) last_return_value;
+  int last_return_size;
+};
+
 POBJ_LAYOUT_BEGIN(disp_state);
 typedef struct disp_state_st {
-  unsigned long committed_client_txid[MAX_CLIENTS];
+  struct client_state[MAX_CLIENTS];
 } disp_state_t;
 POBJ_LAYOUT_ROOT(disp_state, disp_state_t);
 POBJ_LAYOUT_END(disp_state);
@@ -28,30 +34,100 @@ static void (*execute_rpc)(const unsigned char *data, const int len);
 
 void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
 {
-  // Call back to app.
   const rpc_t *rpc = (const rpc_t *)data;
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   if(rpc->client_txid >
-     D_RO(root)->committed_client_txid[rpc->client_id]) {
+     D_RO(root)->client_state[rpc->client_id].committed_txid) {
+    D_RW(root)->client_state[rpc->client_id].committed_txid = rpc->client_txid;
     TX_BEGIN(state) {
-      void *ptr = (void *)&D_RO(root)->committed_client_txid[rpc->client_id];
+      void *ptr =
+	(void *)&D_RW(root)->client_state[rpc->client_id].committed_txid;
       pmemobj_tx_add_range_direct(ptr, sizeof(unsigned long));
-      D_RW(root)->committed_client_txid[rpc->client_id] = rpc->client_txid;
+      *ptr = rpc->client_txid;
     } TX_END
   }
   if(rpc->client_txid > seen_client_txid[rpc->client_id]) {
+    // This should actually never happen !
     seen_client_txid[rpc->client_id] = rpc->client_txid;    
   }
+  // Call up to app.
   execute_rpc(data, len);
 }
 
 void cyclone_rep_cb(void *user_arg, const unsigned char *data, const int len)
 {
-  // Call back to app.
   const rpc_t *rpc = (const rpc_t *)data;
-  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   if(rpc->client_txid > seen_client_txid[rpc->client_id]) {
     seen_client_txid[rpc->client_id] = rpc->client_txid;    
+  }
+}
+
+static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
+static unsigned char rx_buffer[DISP_MAX_MSGSIZE];
+static volatile bool die = false;
+
+void dispatcher_loop(void* socket)
+{
+  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+  while(!die) {
+    unsigned long sz = cyclone_rx(socket,
+				  rx_buffer,
+				  DISP_MAX_MSGSIZE,
+				  "DISP RCV");
+    rpc_t *rpc_req = (rpc_t *)rx_buffer;
+    rpc_t *rpc_rep = (rpc_t *)tx_buffer;
+    unsigned long rep_sz = 0;
+    switch(rpc_req->code) {
+    case RPC_REQ_FN:
+      rpc_rep->client_id   = rpc_req->client_id;
+      rpc_rep->client_txid = rpc_req->client_txid;
+      bool is_correct_txid =
+	((seen_client_txid[rpc_req->client_id] + 1) == rpc_req->client_txid);
+      bool last_tx_committed =
+	(D_RO(root)->client_state[rpc_req->client_id].committed_txid ==
+	 seen_client_txid[rpc_req->client_id]);
+      if(is_correct_txid && last_tx_committed) {
+	// Initiate replication
+	cyclone_add_entry(cyclone_handle, rpc_req, sz);
+	seen_client_txid[rpc_req->client_id] = rpc_req->client_txid;
+	rep_sz = sizeof(rpc_t);
+	rpc_rep->code = RPC_REP_PENDING;
+      }
+      else {
+	rep_sz = sizeof(rpc_t);
+	rpc_rep->code = RPC_REP_INVTXID;
+	rpc_rep->client_txid = seen_client_txid[rpc_req->client_id];
+      }
+      break;
+    case RPC_REQ_STATUS:
+      rpc_rep->client_id   = rpc_req->client_id;
+      rpc_rep->client_txid = rpc_req->client_txid;
+      rep_sz = sizeof(rpc_t);
+      if(seen_client_txid[rpc_req->client_id] != rpc_req->client_txid) {
+	rpc_rep->code = RPC_REP_INVTXID;
+	rpc_rep->client_txid = seen_client_txid[rpc_req->client_id];
+      }
+      else if(D_RO(root)->client_state[rpc_req->client_txid].committed_txid
+	      == rpc_req->client_txid) {
+	struct client_state * s =
+	  &D_RO(root)->client_state[rpc_req->client_txid];
+	rpc_rep->code = RPC_REP_COMPLETE;
+	if(s->last_return_size > 0) {
+	  memcpy(&rpc_rep->payload,
+		 D_RO(s->last_return_value),
+		 s->last_return_size);
+	  rep_sz += s->last_return_size;
+	}
+      }
+      else {
+	rpc_rep->code = RPC_REP_PENDING;
+      }
+      break;
+    default:
+      BOOST_LOG_TRIVIAL(fatal) << "DISPATCH: unknown code";
+      exit(-1);
+    }
+    cyclone_tx(socket, tx_buffer, rep_sz);
   }
 }
 
@@ -79,9 +155,11 @@ void dispatcher_start(const char* config_path,
   
     TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
     TX_BEGIN(state) {
-      TX_ADD(root);
+      TX_ADD(root); // Add everything
       for(int i = 0;i < MAX_CLIENTS;i++) {
-	D_RW(root)->committed_client_txid[i] = 0UL;
+	D_RW(root)->client_state[i].committed_txid    = 0UL;
+	D_RW(root)->client_state[i].last_return_size  = 0;
+	TOID_ASSIGN(D_RW(root)->client_state[i].last_return_value, OID_NULL);
       }
     } TX_ONABORT {
       BOOST_LOG_TRIVIAL(fatal) 
@@ -103,7 +181,7 @@ void dispatcher_start(const char* config_path,
   }
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   for(int i=0;i<MAX_CLIENTS;i++) {
-   seen_client_txid[i] = D_RO(root)->committed_client_txid[i];
+   seen_client_txid[i] = D_RO(root)->client_state[i].committed_txid;
   }
   execute_rpc = rpc_callback;
   // Listen on port
