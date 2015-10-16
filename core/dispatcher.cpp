@@ -6,6 +6,7 @@
 #include<unistd.h>
 #include "libcyclone.hpp"
 #include "../core/clock.hpp"
+#include "cyclone_comm.hpp"
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include<boost/log/trivial.hpp>
@@ -14,15 +15,15 @@
 static void *cyclone_handle;
 static boost::property_tree::ptree pt;
 
-struct client_state {
+POBJ_LAYOUT_BEGIN(disp_state);
+POBJ_LAYOUT_TOID(disp_state, char);
+struct client_state_st {
   unsigned long committed_txid;
-  TOID(unsigned char) last_return_value;
+  TOID(char) last_return_value;
   int last_return_size;
 };
-
-POBJ_LAYOUT_BEGIN(disp_state);
 typedef struct disp_state_st {
-  struct client_state[MAX_CLIENTS];
+  struct client_state_st client_state[MAX_CLIENTS];
 } disp_state_t;
 POBJ_LAYOUT_ROOT(disp_state, disp_state_t);
 POBJ_LAYOUT_END(disp_state);
@@ -40,8 +41,8 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
      D_RO(root)->client_state[rpc->client_id].committed_txid) {
     D_RW(root)->client_state[rpc->client_id].committed_txid = rpc->client_txid;
     TX_BEGIN(state) {
-      void *ptr =
-	(void *)&D_RW(root)->client_state[rpc->client_id].committed_txid;
+      unsigned long *ptr =
+	(unsigned long *)&D_RW(root)->client_state[rpc->client_id].committed_txid;
       pmemobj_tx_add_range_direct(ptr, sizeof(unsigned long));
       *ptr = rpc->client_txid;
     } TX_END
@@ -69,6 +70,7 @@ static volatile bool die = false;
 void dispatcher_loop(void* socket)
 {
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+  bool is_correct_txid, last_tx_committed;
   while(!die) {
     unsigned long sz = cyclone_rx(socket,
 				  rx_buffer,
@@ -81,9 +83,9 @@ void dispatcher_loop(void* socket)
     case RPC_REQ_FN:
       rpc_rep->client_id   = rpc_req->client_id;
       rpc_rep->client_txid = rpc_req->client_txid;
-      bool is_correct_txid =
+      is_correct_txid =
 	((seen_client_txid[rpc_req->client_id] + 1) == rpc_req->client_txid);
-      bool last_tx_committed =
+      last_tx_committed =
 	(D_RO(root)->client_state[rpc_req->client_id].committed_txid ==
 	 seen_client_txid[rpc_req->client_id]);
       if(is_correct_txid && last_tx_committed) {
@@ -109,12 +111,12 @@ void dispatcher_loop(void* socket)
       }
       else if(D_RO(root)->client_state[rpc_req->client_txid].committed_txid
 	      == rpc_req->client_txid) {
-	struct client_state * s =
+	const struct client_state_st * s =
 	  &D_RO(root)->client_state[rpc_req->client_txid];
 	rpc_rep->code = RPC_REP_COMPLETE;
 	if(s->last_return_size > 0) {
 	  memcpy(&rpc_rep->payload,
-		 D_RO(s->last_return_value),
+		 (void *)D_RO(s->last_return_value),
 		 s->last_return_size);
 	  rep_sz += s->last_return_size;
 	}
@@ -127,7 +129,7 @@ void dispatcher_loop(void* socket)
       BOOST_LOG_TRIVIAL(fatal) << "DISPATCH: unknown code";
       exit(-1);
     }
-    cyclone_tx(socket, tx_buffer, rep_sz);
+    cyclone_tx(socket, tx_buffer, rep_sz, "Dispatch reply");
   }
 }
 

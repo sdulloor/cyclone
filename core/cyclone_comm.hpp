@@ -1,6 +1,7 @@
 #ifndef _CYCLONE_COMM_
 #define _CYCLONE_COMM_
-#include "cyclone_context.hpp"
+#include <boost/log/trivial.hpp>
+#include <zmq.h>
 // Cyclone communication
 
 static void cyclone_tx(void *socket,
