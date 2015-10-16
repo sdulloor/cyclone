@@ -31,7 +31,7 @@ static PMEMobjpool *state;
 
 
 unsigned long seen_client_txid[MAX_CLIENTS];
-static void (*execute_rpc)(const unsigned char *data, const int len);
+static rpc_callback_t execute_rpc;
 
 void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
 {
@@ -54,10 +54,13 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
     // Call up to app. -- note that RPC call executes in a transaction
     void *ret_value;
     int sz = execute_rpc(data, len, &ret_value);
+    void *ptr2 =
+      (void *)&D_RW(root)->client_state[rpc->client_id].last_return_value;
+    pmemobj_tx_add_range_direct(ptr2, sizeof(TOID(char)));
     if(sz > 0) {
       TX_FREE(D_RW(root)->client_state[rpc->client_id].last_return_value);
       D_RW(root)->client_state[rpc->client_id].last_return_value = TX_ALLOC(char, sz);
-      TX_MEMCPY(D_RW(root)->client_state[rpc->client_id].last_return_value,
+      TX_MEMCPY(&D_RW(root)->client_state[rpc->client_id].last_return_value,
 		ret_value,
 		sz);
     }
@@ -145,7 +148,7 @@ void dispatcher_loop(void* socket)
   }
 }
 
-void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback);
+void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
 {
   boost::property_tree::read_ini(config_path, pt);
   cyclone_handle = cyclone_boot(config_path,
