@@ -42,10 +42,13 @@ const int RPC_REP_PENDING  = 3; // PENDING
 const int RPC_REP_INVTXID  = 4; // WRONG client txid -- client_txid set in reply
 const int RPC_REP_INVSRV   = 5; // WRONG master  -- master set in reply
 
+// Returns the size of the return value blob
+typedef 
+int (*rpc_callback_t)(const unsigned char *data,
+		      const int len,
+		      void **return_value);
 
 
-void dispatcher_start(const char* config_path,
-		      void (*rpc_callback)(const unsigned char *data, const int len));
-
+void dispatcher_start(const char* config_path, rpc_callback_t  rpc_callback);
 
 #endif

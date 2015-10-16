@@ -37,22 +37,34 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
 {
   const rpc_t *rpc = (const rpc_t *)data;
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  if(rpc->client_txid >
-     D_RO(root)->client_state[rpc->client_id].committed_txid) {
-    D_RW(root)->client_state[rpc->client_id].committed_txid = rpc->client_txid;
-    TX_BEGIN(state) {
+  // Execute callback as a transaction
+  TX_BEGIN(state) {
+    if(rpc->client_txid >
+       D_RO(root)->client_state[rpc->client_id].committed_txid) {
+      D_RW(root)->client_state[rpc->client_id].committed_txid = rpc->client_txid;
       unsigned long *ptr =
 	(unsigned long *)&D_RW(root)->client_state[rpc->client_id].committed_txid;
       pmemobj_tx_add_range_direct(ptr, sizeof(unsigned long));
       *ptr = rpc->client_txid;
-    } TX_END
-  }
-  if(rpc->client_txid > seen_client_txid[rpc->client_id]) {
-    // This should actually never happen !
-    seen_client_txid[rpc->client_id] = rpc->client_txid;    
-  }
-  // Call up to app.
-  execute_rpc(data, len);
+    }
+    if(rpc->client_txid > seen_client_txid[rpc->client_id]) {
+      // This should actually never happen !
+      seen_client_txid[rpc->client_id] = rpc->client_txid;    
+    }
+    // Call up to app. -- note that RPC call executes in a transaction
+    void *ret_value;
+    int sz = execute_rpc(data, len, &ret_value);
+    if(sz > 0) {
+      TX_FREE(D_RW(root)->client_state[rpc->client_id].last_return_value);
+      D_RW(root)->client_state[rpc->client_id].last_return_value = TX_ALLOC(char, sz);
+      TX_MEMCPY(D_RW(root)->client_state[rpc->client_id].last_return_value,
+		ret_value,
+		sz);
+    }
+    else {
+      TOID_ASSIGN(D_RW(root)->client_state[rpc->client_id].last_return_value, OID_NULL);
+    }
+  } TX_END
 }
 
 void cyclone_rep_cb(void *user_arg, const unsigned char *data, const int len)
@@ -133,8 +145,7 @@ void dispatcher_loop(void* socket)
   }
 }
 
-void dispatcher_start(const char* config_path,
-		      void (*rpc_callback)(const unsigned char *data, const int len))
+void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback);
 {
   boost::property_tree::read_ini(config_path, pt);
   cyclone_handle = cyclone_boot(config_path,
