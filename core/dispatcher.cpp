@@ -10,6 +10,9 @@
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include<boost/log/trivial.hpp>
+#include <boost/thread.hpp>
+#include <boost/asio/io_service.hpp>
+#include <boost/bind.hpp>
 #include<libpmemobj.h>
 
 static void *cyclone_handle;
@@ -84,7 +87,7 @@ static unsigned char rx_buffer[DISP_MAX_MSGSIZE];
 struct dispatcher_loop {
   void *zmq_context;
   void *socket;
-  operator ()()
+  void operator ()()
   {
     TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
     bool is_correct_txid, last_tx_committed;
@@ -151,11 +154,11 @@ struct dispatcher_loop {
   }
 };
 
-
-boost::asio::io_service ioService;
-boost::asio::io_service::work work;
-boost::thread_group threadpool;
-boost::thread *disp_thread;
+static boost::asio::io_service ioService;
+static boost::asio::io_service::work work(ioService);
+static boost::thread_group threadpool;
+static boost::thread *disp_thread;
+static dispatcher_loop * dispatcher_loop_obj;
 
 void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
 {
@@ -212,17 +215,17 @@ void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
   // Listen on port
   void *zmq_context = zmq_init(1);
   void *socket = dispatch_socket_in(zmq_context);
-  std::stringstream key;
-  std::stringstream addr;
-  key.str("");key.clear();
-  addr.str("");addr.clear();
-  key << "network.iface" << i;
-  addr << "tcp://";
-  addr << cyclone_handle->pt.get<std::string>(key.str().c_str());
   unsigned long replicas = pt.get<unsigned long>("network.replicas");
   unsigned long me = pt.get<unsigned long>("network.me");
   unsigned long dispatch_baseport = pt.get<unsigned long>("dispatch.basport");
   unsigned long port = dispatch_baseport + me;
+  std::stringstream key;
+  std::stringstream addr;
+  key.str("");key.clear();
+  addr.str("");addr.clear();
+  key << "network.iface" << me;
+  addr << "tcp://";
+  addr << pt.get<std::string>(key.str().c_str());
   addr << ":" << port;
   cyclone_bind_endpoint(socket, "");
   threadpool.create_thread(boost::bind(&boost::asio::io_service::run,
