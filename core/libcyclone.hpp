@@ -54,6 +54,6 @@ int (*rpc_callback_t)(const unsigned char *data,
 void dispatcher_start(const char* config_path, rpc_callback_t  rpc_callback);
 
 // My id
-unsigned long dispatcher_me();
+int dispatcher_me();
 
 #endif

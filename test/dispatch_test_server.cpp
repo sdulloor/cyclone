@@ -1,12 +1,14 @@
 // Test dispatch/RPC interface (server side)
-#include<libcyclone.hpp
+#include<libcyclone.hpp>
+#include "../core/clock.hpp"
+#include<boost/log/trivial.hpp>
 
 unsigned long server_id;
 
 rtc_clock timer;
 
 void print(const char *prefix,
-	   void *data,
+	   const void *data,
 	   const int size)
 {
   unsigned int elapsed_msecs = timer.current_time()/1000;
