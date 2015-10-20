@@ -99,6 +99,13 @@ static void* cyclone_socket_in(void *context, int loopback)
   return socket;
 }
 
+static void* dispatch_socket_in(void *context)
+{
+  void *socket;
+  socket = zmq_socket(context, ZMQ_REP);
+  return socket;
+}
+
 static void cyclone_connect_endpoint(void *socket, const char *endpoint)
 {
   BOOST_LOG_TRIVIAL(info)

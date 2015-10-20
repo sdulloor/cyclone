@@ -80,73 +80,82 @@ void cyclone_rep_cb(void *user_arg, const unsigned char *data, const int len)
 
 static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
 static unsigned char rx_buffer[DISP_MAX_MSGSIZE];
-static volatile bool die = false;
 
-void dispatcher_loop(void* socket)
-{
-  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  bool is_correct_txid, last_tx_committed;
-  while(!die) {
-    unsigned long sz = cyclone_rx(socket,
-				  rx_buffer,
-				  DISP_MAX_MSGSIZE,
-				  "DISP RCV");
-    rpc_t *rpc_req = (rpc_t *)rx_buffer;
-    rpc_t *rpc_rep = (rpc_t *)tx_buffer;
-    unsigned long rep_sz = 0;
-    switch(rpc_req->code) {
-    case RPC_REQ_FN:
-      rpc_rep->client_id   = rpc_req->client_id;
-      rpc_rep->client_txid = rpc_req->client_txid;
-      is_correct_txid =
-	((seen_client_txid[rpc_req->client_id] + 1) == rpc_req->client_txid);
-      last_tx_committed =
-	(D_RO(root)->client_state[rpc_req->client_id].committed_txid ==
-	 seen_client_txid[rpc_req->client_id]);
-      if(is_correct_txid && last_tx_committed) {
-	// Initiate replication
-	cyclone_add_entry(cyclone_handle, rpc_req, sz);
-	seen_client_txid[rpc_req->client_id] = rpc_req->client_txid;
-	rep_sz = sizeof(rpc_t);
-	rpc_rep->code = RPC_REP_PENDING;
-      }
-      else {
-	rep_sz = sizeof(rpc_t);
-	rpc_rep->code = RPC_REP_INVTXID;
-	rpc_rep->client_txid = seen_client_txid[rpc_req->client_id];
-      }
-      break;
-    case RPC_REQ_STATUS:
-      rpc_rep->client_id   = rpc_req->client_id;
-      rpc_rep->client_txid = rpc_req->client_txid;
-      rep_sz = sizeof(rpc_t);
-      if(seen_client_txid[rpc_req->client_id] != rpc_req->client_txid) {
-	rpc_rep->code = RPC_REP_INVTXID;
-	rpc_rep->client_txid = seen_client_txid[rpc_req->client_id];
-      }
-      else if(D_RO(root)->client_state[rpc_req->client_txid].committed_txid
-	      == rpc_req->client_txid) {
-	const struct client_state_st * s =
-	  &D_RO(root)->client_state[rpc_req->client_txid];
-	rpc_rep->code = RPC_REP_COMPLETE;
-	if(s->last_return_size > 0) {
-	  memcpy(&rpc_rep->payload,
-		 (void *)D_RO(s->last_return_value),
-		 s->last_return_size);
-	  rep_sz += s->last_return_size;
+struct dispatcher_loop {
+  void *zmq_context;
+  void *socket;
+  operator ()()
+  {
+    TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+    bool is_correct_txid, last_tx_committed;
+    while(true) {
+      unsigned long sz = cyclone_rx(socket,
+				    rx_buffer,
+				    DISP_MAX_MSGSIZE,
+				    "DISP RCV");
+      rpc_t *rpc_req = (rpc_t *)rx_buffer;
+      rpc_t *rpc_rep = (rpc_t *)tx_buffer;
+      unsigned long rep_sz = 0;
+      switch(rpc_req->code) {
+      case RPC_REQ_FN:
+	rpc_rep->client_id   = rpc_req->client_id;
+	rpc_rep->client_txid = rpc_req->client_txid;
+	is_correct_txid =
+	  ((seen_client_txid[rpc_req->client_id] + 1) == rpc_req->client_txid);
+	last_tx_committed =
+	  (D_RO(root)->client_state[rpc_req->client_id].committed_txid ==
+	   seen_client_txid[rpc_req->client_id]);
+	if(is_correct_txid && last_tx_committed) {
+	  // Initiate replication
+	  cyclone_add_entry(cyclone_handle, rpc_req, sz);
+	  seen_client_txid[rpc_req->client_id] = rpc_req->client_txid;
+	  rep_sz = sizeof(rpc_t);
+	  rpc_rep->code = RPC_REP_PENDING;
 	}
+	else {
+	  rep_sz = sizeof(rpc_t);
+	  rpc_rep->code = RPC_REP_INVTXID;
+	  rpc_rep->client_txid = seen_client_txid[rpc_req->client_id];
+	}
+	break;
+      case RPC_REQ_STATUS:
+	rpc_rep->client_id   = rpc_req->client_id;
+	rpc_rep->client_txid = rpc_req->client_txid;
+	rep_sz = sizeof(rpc_t);
+	if(seen_client_txid[rpc_req->client_id] != rpc_req->client_txid) {
+	  rpc_rep->code = RPC_REP_INVTXID;
+	  rpc_rep->client_txid = seen_client_txid[rpc_req->client_id];
+	}
+	else if(D_RO(root)->client_state[rpc_req->client_txid].committed_txid
+		== rpc_req->client_txid) {
+	  const struct client_state_st * s =
+	    &D_RO(root)->client_state[rpc_req->client_txid];
+	  rpc_rep->code = RPC_REP_COMPLETE;
+	  if(s->last_return_size > 0) {
+	    memcpy(&rpc_rep->payload,
+		   (void *)D_RO(s->last_return_value),
+		   s->last_return_size);
+	    rep_sz += s->last_return_size;
+	  }
+	}
+	else {
+	  rpc_rep->code = RPC_REP_PENDING;
+	}
+	break;
+      default:
+	BOOST_LOG_TRIVIAL(fatal) << "DISPATCH: unknown code";
+	exit(-1);
       }
-      else {
-	rpc_rep->code = RPC_REP_PENDING;
-      }
-      break;
-    default:
-      BOOST_LOG_TRIVIAL(fatal) << "DISPATCH: unknown code";
-      exit(-1);
+      cyclone_tx(socket, tx_buffer, rep_sz, "Dispatch reply");
     }
-    cyclone_tx(socket, tx_buffer, rep_sz, "Dispatch reply");
   }
-}
+};
+
+
+boost::asio::io_service ioService;
+boost::asio::io_service::work work;
+boost::thread_group threadpool;
+boost::thread *disp_thread;
 
 void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
 {
@@ -201,5 +210,25 @@ void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
   }
   execute_rpc = rpc_callback;
   // Listen on port
-  
+  void *zmq_context = zmq_init(1);
+  void *socket = dispatch_socket_in(zmq_context);
+  std::stringstream key;
+  std::stringstream addr;
+  key.str("");key.clear();
+  addr.str("");addr.clear();
+  key << "network.iface" << i;
+  addr << "tcp://";
+  addr << cyclone_handle->pt.get<std::string>(key.str().c_str());
+  unsigned long replicas = pt.get<unsigned long>("network.replicas");
+  unsigned long me = pt.get<unsigned long>("network.me");
+  unsigned long dispatch_baseport = pt.get<unsigned long>("dispatch.basport");
+  unsigned long port = dispatch_baseport + me;
+  addr << ":" << port;
+  cyclone_bind_endpoint(socket, "");
+  threadpool.create_thread(boost::bind(&boost::asio::io_service::run,
+				       &ioService));
+  dispatcher_loop_obj    = new dispatcher_loop();
+  dispatcher_loop_obj->socket = socket;
+  dispatcher_loop_obj->zmq_context = zmq_context;
+  disp_thread = new boost::thread(boost::ref(*dispatcher_loop_obj));
 }
