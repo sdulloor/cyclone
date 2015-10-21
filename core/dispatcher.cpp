@@ -110,10 +110,17 @@ struct dispatcher_loop {
 	   seen_client_txid[rpc_req->client_id]);
 	if(is_correct_txid && last_tx_committed) {
 	  // Initiate replication
-	  cyclone_add_entry(cyclone_handle, rpc_req, sz);
-	  seen_client_txid[rpc_req->client_id] = rpc_req->client_txid;
-	  rep_sz = sizeof(rpc_t);
-	  rpc_rep->code = RPC_REP_PENDING;
+	  cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
+	  if(cookie != NULL) {
+	    seen_client_txid[rpc_req->client_id] = rpc_req->client_txid;
+	    rep_sz = sizeof(rpc_t);
+	    rpc_rep->code = RPC_REP_PENDING;
+	  }
+	  else {
+	    rep_sz = sizeof(rpc_t);
+	    rpc_rep->code = RPC_REP_INVSRV;
+	    rpc_rep->master = cyclone_get_leader(cyclone_handle);
+	  }
 	}
 	else {
 	  rep_sz = sizeof(rpc_t);
@@ -223,7 +230,7 @@ void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
   void *socket = dispatch_socket_in(zmq_context);
   unsigned long replicas = pt.get<unsigned long>("network.replicas");
   me = pt.get<int>("network.me");
-  unsigned long dispatch_baseport = pt.get<unsigned long>("dispatch.basport");
+  unsigned long dispatch_baseport = pt.get<unsigned long>("dispatch.baseport");
   unsigned long port = dispatch_baseport + me;
   std::stringstream key;
   std::stringstream addr;

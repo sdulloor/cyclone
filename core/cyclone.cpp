@@ -258,6 +258,12 @@ int cyclone_is_leader(void *cyclone_handle)
   return (leader == handle->me) ? 1:0;
 }
 
+int cyclone_get_leader(void *cyclone_handle)
+{
+  cyclone_t* handle = (cyclone_t *)cyclone_handle;
+  return raft_get_current_leader(handle->raft_handle);
+}
+
 void* cyclone_add_entry(void *cyclone_handle, void *data, int size)
 {
   cyclone_t* handle = (cyclone_t *)cyclone_handle;

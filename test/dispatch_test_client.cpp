@@ -1,0 +1,101 @@
+// Dispatcher test client
+#include "../core/clock.hpp"
+#include "../core/cyclone_comm.hpp"
+#include<boost/log/trivial.hpp>
+#include <boost/property_tree/ini_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
+
+rtc_clock timer;
+
+void print(const char *prefix,
+	   const void *data,
+	   const int size)
+{
+  unsigned int elapsed_msecs = timer.current_time()/1000;
+  char *buf = (char *)data;
+  if(size != 12) {
+    BOOST_LOG_TRIVIAL(fatal) << "CLIENT: Incorrect record size";
+    exit(-1);
+  }
+  else {
+    BOOST_LOG_TRIVIAL(info)
+      << prefix << " "
+      << *(const unsigned int *)buf << " "
+      << *(const unsigned int *)(buf + 4) << " " 
+      << (elapsed_msecs - *(const unsigned int *)((char *)buf + 8));
+  }
+}
+
+int main(int argc, char *argv[])
+{
+  std::stringstream key;
+  std::stringstream addr;
+  if(argc != 2) {
+    printf("Usage: %s client_id\n", argv[0]);
+    exit(-1);
+  }
+  int me = atoi(argv[1]);
+  boost::property_tree::ptree pt;
+  boost::property_tree::read_ini("dispatcher.ini", pt);
+  void *zmq_context = zmq_init(1);
+  int replicas = pt.get<int>("network.replicas");
+  void **sockets = new void *[replicas];
+  unsigned long port = pt.get<unsigned long>("dispatch.baseport");
+  for(int i=0;i<replicas;i++) {
+    sockets[i] = dispatch_socket_out(zmq_context);
+    key.str("");key.clear();
+    addr.str("");addr.clear();
+    key << "network.addr" << i;
+    addr << "tcp://";
+    addr << pt.get<std::string>(key.str().c_str());
+    addr << ":" << port;
+    cyclone_connect_endpoint(sockets[i], addr.str().c_str());
+  }
+  ctr = 0;
+  void *buf;
+  buf = new char[DISP_MAX_MSGSIZE];
+  rpc_t *packet_out = (rpc_t *)buf;
+  buf = new char[DISP_MAX_MSGSIZE];
+  rpc_t *packet_in = (rpc_t *)buf;
+  char *proposal = (char *)(packet_out + 1);
+  unsigned long server = 0;
+  while(true) {
+    *(unsigned int)&proposal[0] = me;
+    *(unsigned int)&proposal[4] = ctr;
+    *(unsigned int)&proposal[8] = (unsigned int)(timer.current_time()/1000);
+    packet_out->code      = RPC_REQ_FN;
+    packet_out->client_id = me;
+    packet_out->client_txid = ctr;
+    cyclone_tx(sockets[server], packet_out, sizeof(rpc_t) + 12, "PROPOSE");
+    cyclone_rx(sockets[server], packet_in, DISP_MAX_MSGSIZE, "RESULT");
+    if(packet_in->code == RPC_REP_INVTXID) {
+      ctr = packet_in->client_txid;
+    }
+    if(packet_in->code  == RPC_REP_PENDING ||
+       packet_in->code  == RPC_REP_INVTXID) {
+      // Loop till complete
+      while(true) {
+	packet_out->code        = RPC_REQ_STATUS;
+	packet_out->client_id   = me;
+	packet_out->client_txid = ctr;
+	cyclone_tx(sockets[server], packet_out, sizeof(rpc_t) + 12, "PROPOSE");
+	cyclone_rx(sockets[server], packet_in, DISP_MAX_MSGSIZE, "RESULT");
+	if(packet_in->code == RPC_REP_COMPLETE) {
+	  break;
+	}
+	else if(packet_in->code == RPC_REP_INVSVR) {
+	  server = packet_in->master;
+	}
+	else if(packet_in->code == RPC_REP_INVTXID) {
+	  ctr = packet_in->client_txid;
+	}
+	usleep(100);
+      }
+      ctr++;
+    }
+    else if(packet_in->code == RPC_REP_INVSRV) {
+      server = packet_in->master;
+      continue;
+    }
+  }
+}
