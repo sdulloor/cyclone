@@ -22,8 +22,8 @@ extern void* cyclone_boot(const char *config_path,
 extern void cyclone_shutdown(void *cyclone_handle);
 
 //////// Dispatch interface
-const int MAX_CLIENTS      = 10000; // Should be enough ?
-const int DISP_MAX_MSGSIZE = 4194304; // 4MB max msg size 
+static const int MAX_CLIENTS      = 10000; // Should be enough ?
+static const int DISP_MAX_MSGSIZE = 4194304; // 4MB max msg size 
 
 typedef struct rpc_st {
   int code;
@@ -36,12 +36,12 @@ typedef struct rpc_st {
 } rpc_t; // Used for both requests and replies
 
 // Possble values for code follow
-const int RPC_REQ_FN       = 0; // Execute
-const int RPC_REQ_STATUS   = 1; // Check status
-const int RPC_REP_COMPLETE = 2; // DONE 
-const int RPC_REP_PENDING  = 3; // PENDING 
-const int RPC_REP_INVTXID  = 4; // WRONG client txid -- client_txid set in reply
-const int RPC_REP_INVSRV   = 5; // WRONG master  -- master set in reply
+static const int RPC_REQ_FN       = 0; // Execute
+static const int RPC_REQ_STATUS   = 1; // Check status
+static const int RPC_REP_COMPLETE = 2; // DONE 
+static const int RPC_REP_PENDING  = 3; // PENDING 
+static const int RPC_REP_INVTXID  = 4; // WRONG client txid -- client_txid set in reply
+static const int RPC_REP_INVSRV   = 5; // WRONG master  -- master set in reply
 
 
 // Server side interface

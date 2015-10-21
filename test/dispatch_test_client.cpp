@@ -4,6 +4,7 @@
 #include<boost/log/trivial.hpp>
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
+#include <libcyclone.hpp>
 
 rtc_clock timer;
 
@@ -51,7 +52,7 @@ int main(int argc, char *argv[])
     addr << ":" << port;
     cyclone_connect_endpoint(sockets[i], addr.str().c_str());
   }
-  ctr = 0;
+  int ctr = 0;
   void *buf;
   buf = new char[DISP_MAX_MSGSIZE];
   rpc_t *packet_out = (rpc_t *)buf;
@@ -60,14 +61,14 @@ int main(int argc, char *argv[])
   char *proposal = (char *)(packet_out + 1);
   unsigned long server = 0;
   while(true) {
-    *(unsigned int)&proposal[0] = me;
-    *(unsigned int)&proposal[4] = ctr;
-    *(unsigned int)&proposal[8] = (unsigned int)(timer.current_time()/1000);
+    *(unsigned int *)&proposal[0] = me;
+    *(unsigned int *)&proposal[4] = ctr;
+    *(unsigned int *)&proposal[8] = (unsigned int)(timer.current_time()/1000);
     packet_out->code      = RPC_REQ_FN;
     packet_out->client_id = me;
     packet_out->client_txid = ctr;
-    cyclone_tx(sockets[server], packet_out, sizeof(rpc_t) + 12, "PROPOSE");
-    cyclone_rx(sockets[server], packet_in, DISP_MAX_MSGSIZE, "RESULT");
+    cyclone_tx(sockets[server], (unsigned char *)packet_out, sizeof(rpc_t) + 12, "PROPOSE");
+    cyclone_rx(sockets[server], (unsigned char *)packet_in, DISP_MAX_MSGSIZE, "RESULT");
     if(packet_in->code == RPC_REP_INVTXID) {
       ctr = packet_in->client_txid;
     }
@@ -78,12 +79,12 @@ int main(int argc, char *argv[])
 	packet_out->code        = RPC_REQ_STATUS;
 	packet_out->client_id   = me;
 	packet_out->client_txid = ctr;
-	cyclone_tx(sockets[server], packet_out, sizeof(rpc_t) + 12, "PROPOSE");
-	cyclone_rx(sockets[server], packet_in, DISP_MAX_MSGSIZE, "RESULT");
+	cyclone_tx(sockets[server], (unsigned char *)packet_out, sizeof(rpc_t) + 12, "PROPOSE");
+	cyclone_rx(sockets[server], (unsigned char *)packet_in, DISP_MAX_MSGSIZE, "RESULT");
 	if(packet_in->code == RPC_REP_COMPLETE) {
 	  break;
 	}
-	else if(packet_in->code == RPC_REP_INVSVR) {
+	else if(packet_in->code == RPC_REP_INVSRV) {
 	  server = packet_in->master;
 	}
 	else if(packet_in->code == RPC_REP_INVTXID) {

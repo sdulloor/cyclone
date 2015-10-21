@@ -110,7 +110,7 @@ struct dispatcher_loop {
 	   seen_client_txid[rpc_req->client_id]);
 	if(is_correct_txid && last_tx_committed) {
 	  // Initiate replication
-	  cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
+	  void *cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
 	  if(cookie != NULL) {
 	    seen_client_txid[rpc_req->client_id] = rpc_req->client_txid;
 	    rep_sz = sizeof(rpc_t);
