@@ -159,6 +159,12 @@ static boost::asio::io_service::work work(ioService);
 static boost::thread_group threadpool;
 static boost::thread *disp_thread;
 static dispatcher_loop * dispatcher_loop_obj;
+static int me;
+
+int dispatcher_me()
+{
+  return me;
+}
 
 void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
 {
@@ -216,7 +222,7 @@ void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
   void *zmq_context = zmq_init(1);
   void *socket = dispatch_socket_in(zmq_context);
   unsigned long replicas = pt.get<unsigned long>("network.replicas");
-  unsigned long me = pt.get<unsigned long>("network.me");
+  me = pt.get<int>("network.me");
   unsigned long dispatch_baseport = pt.get<unsigned long>("dispatch.basport");
   unsigned long port = dispatch_baseport + me;
   std::stringstream key;
@@ -233,5 +239,5 @@ void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
   dispatcher_loop_obj    = new dispatcher_loop();
   dispatcher_loop_obj->socket = socket;
   dispatcher_loop_obj->zmq_context = zmq_context;
-  disp_thread = new boost::thread(boost::ref(*dispatcher_loop_obj));
+  (*dispatcher_loop_obj)();
 }

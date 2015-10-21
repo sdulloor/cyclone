@@ -42,13 +42,18 @@ const int RPC_REP_PENDING  = 3; // PENDING
 const int RPC_REP_INVTXID  = 4; // WRONG client txid -- client_txid set in reply
 const int RPC_REP_INVSRV   = 5; // WRONG master  -- master set in reply
 
+
+// Server side interface
 // Returns the size of the return value blob
 typedef 
 int (*rpc_callback_t)(const unsigned char *data,
 		      const int len,
 		      void **return_value);
 
-
+// Start the dispatcher loop -- note: does not return
 void dispatcher_start(const char* config_path, rpc_callback_t  rpc_callback);
+
+// My id
+unsigned long dispatcher_me();
 
 #endif
