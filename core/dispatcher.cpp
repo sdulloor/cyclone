@@ -56,7 +56,7 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
     }
     // Call up to app. -- note that RPC call executes in a transaction
     void *ret_value;
-    int sz = execute_rpc(data, len, &ret_value);
+    int sz = execute_rpc((const unsigned char *)(rpc + 1), len - sizeof(rpc_t), &ret_value);
     void *ptr2 =
       (void *)&D_RW(root)->client_state[rpc->client_id].last_return_value;
     pmemobj_tx_add_range_direct(ptr2, sizeof(TOID(char)));
@@ -136,7 +136,7 @@ struct dispatcher_loop {
 	  rpc_rep->code = RPC_REP_INVTXID;
 	  rpc_rep->client_txid = seen_client_txid[rpc_req->client_id];
 	}
-	else if(D_RO(root)->client_state[rpc_req->client_txid].committed_txid
+	else if(D_RO(root)->client_state[rpc_req->client_id].committed_txid
 		== rpc_req->client_txid) {
 	  const struct client_state_st * s =
 	    &D_RO(root)->client_state[rpc_req->client_txid];
@@ -240,7 +240,7 @@ void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
   addr << "tcp://";
   addr << pt.get<std::string>(key.str().c_str());
   addr << ":" << port;
-  cyclone_bind_endpoint(socket, "");
+  cyclone_bind_endpoint(socket, addr.str().c_str());
   threadpool.create_thread(boost::bind(&boost::asio::io_service::run,
 				       &ioService));
   dispatcher_loop_obj    = new dispatcher_loop();

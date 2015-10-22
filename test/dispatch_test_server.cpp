@@ -37,5 +37,5 @@ int callback(const unsigned char *data,
 int main(int argc, char *argv[])
 {
   server_id = dispatcher_me();
-  dispatcher_start("dispatcher.ini", callback);
+  dispatcher_start("cyclone_test.ini", callback);
 }

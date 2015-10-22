@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
   }
   int me = atoi(argv[1]);
   boost::property_tree::ptree pt;
-  boost::property_tree::read_ini("dispatcher.ini", pt);
+  boost::property_tree::read_ini("cyclone_test.ini", pt);
   void *zmq_context = zmq_init(1);
   int replicas = pt.get<int>("network.replicas");
   void **sockets = new void *[replicas];
@@ -49,7 +49,8 @@ int main(int argc, char *argv[])
     key << "network.addr" << i;
     addr << "tcp://";
     addr << pt.get<std::string>(key.str().c_str());
-    addr << ":" << port;
+    unsigned long endport = port + i;
+    addr << ":" << endport;
     cyclone_connect_endpoint(sockets[i], addr.str().c_str());
   }
   int ctr = 0;
@@ -68,9 +69,12 @@ int main(int argc, char *argv[])
     packet_out->client_id = me;
     packet_out->client_txid = ctr;
     cyclone_tx(sockets[server], (unsigned char *)packet_out, sizeof(rpc_t) + 12, "PROPOSE");
+    print("CLIENT PROPOSED", proposal, 12);
     cyclone_rx(sockets[server], (unsigned char *)packet_in, DISP_MAX_MSGSIZE, "RESULT");
+    print("CLIENT REPLY", proposal, 12);
     if(packet_in->code == RPC_REP_INVTXID) {
       ctr = packet_in->client_txid;
+      print("CLIENT INVTXID", proposal, 12);
     }
     if(packet_in->code  == RPC_REP_PENDING ||
        packet_in->code  == RPC_REP_INVTXID) {
@@ -80,21 +84,27 @@ int main(int argc, char *argv[])
 	packet_out->client_id   = me;
 	packet_out->client_txid = ctr;
 	cyclone_tx(sockets[server], (unsigned char *)packet_out, sizeof(rpc_t) + 12, "PROPOSE");
+	print("CLIENT STATUS", proposal, 12);
 	cyclone_rx(sockets[server], (unsigned char *)packet_in, DISP_MAX_MSGSIZE, "RESULT");
+	print("CLIENT REPLY", proposal, 12);
 	if(packet_in->code == RPC_REP_COMPLETE) {
+	  print("CLIENT COMPLETE", proposal, 12);
 	  break;
 	}
 	else if(packet_in->code == RPC_REP_INVSRV) {
+	  print("CLIENT INVSRV", proposal, 12);
 	  server = packet_in->master;
 	}
 	else if(packet_in->code == RPC_REP_INVTXID) {
+	  print("CLIENT INVTXID", proposal, 12);
 	  ctr = packet_in->client_txid;
 	}
-	usleep(100);
+	sleep(1);
       }
       ctr++;
     }
     else if(packet_in->code == RPC_REP_INVSRV) {
+      print("CLIENT INVSRV", proposal, 12);
       server = packet_in->master;
       continue;
     }
