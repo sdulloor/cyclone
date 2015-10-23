@@ -61,6 +61,7 @@ int main(int argc, char *argv[])
   rpc_t *packet_in = (rpc_t *)buf;
   char *proposal = (char *)(packet_out + 1);
   unsigned long server = 0;
+  int retcode;
   while(true) {
     *(unsigned int *)&proposal[0] = me;
     *(unsigned int *)&proposal[4] = ctr;
@@ -68,7 +69,11 @@ int main(int argc, char *argv[])
     packet_out->code      = RPC_REQ_FN;
     packet_out->client_id = me;
     packet_out->client_txid = ctr;
-    cyclone_tx(sockets[server], (unsigned char *)packet_out, sizeof(rpc_t) + 12, "PROPOSE");
+    retcode = cyclone_tx(sockets[server], (unsigned char *)packet_out, sizeof(rpc_t) + 12, "PROPOSE");
+    if(retcode == -1) {
+      server = (server + 1)%replicas;
+      continue;
+    }
     print("CLIENT PROPOSED", proposal, 12);
     cyclone_rx(sockets[server], (unsigned char *)packet_in, DISP_MAX_MSGSIZE, "RESULT");
     print("CLIENT REPLY", proposal, 12);
@@ -83,7 +88,11 @@ int main(int argc, char *argv[])
 	packet_out->code        = RPC_REQ_STATUS;
 	packet_out->client_id   = me;
 	packet_out->client_txid = ctr;
-	cyclone_tx(sockets[server], (unsigned char *)packet_out, sizeof(rpc_t) + 12, "PROPOSE");
+	int retcode = cyclone_tx(sockets[server], (unsigned char *)packet_out, sizeof(rpc_t) + 12, "PROPOSE");
+	if(retcode == -1) {
+	  server = (server + 1)%replicas;
+	  continue;
+	}
 	print("CLIENT STATUS", proposal, 12);
 	cyclone_rx(sockets[server], (unsigned char *)packet_in, DISP_MAX_MSGSIZE, "RESULT");
 	print("CLIENT REPLY", proposal, 12);

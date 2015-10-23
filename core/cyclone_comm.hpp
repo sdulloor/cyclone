@@ -4,10 +4,10 @@
 #include <zmq.h>
 // Cyclone communication
 
-static void cyclone_tx(void *socket,
-		       unsigned char *data,
-		       unsigned long size,
-		       const char *context) 
+static int cyclone_tx(void *socket,
+		      unsigned char *data,
+		      unsigned long size,
+		      const char *context) 
 {
   int rc = zmq_send(socket, data, size, ZMQ_NOBLOCK);
   if(rc == -1) {
@@ -16,9 +16,11 @@ static void cyclone_tx(void *socket,
       perror(context);
       exit(-1);
     }
+    return -1;
   }
-  // Note we silently drop messages on hitting the socket HWM
-  // assuming the other end has failed.
+  else {
+    return 0;
+  }
 }
 
 static unsigned long cyclone_rx(void *socket,
@@ -110,6 +112,13 @@ static void* dispatch_socket_out(void *context)
 {
   void *socket;
   socket = zmq_socket(context, ZMQ_REQ);
+  int hwm = 5;
+  int e = zmq_setsockopt(socket, ZMQ_SNDHWM, &hwm, sizeof(int));
+  if (e == -1) {
+    BOOST_LOG_TRIVIAL(fatal) << "CYCLONE_COMM: Unable to set sock HWM";
+    perror("set sock opt disp socket out:");
+    exit(-1);
+  }
   return socket;
 }
 
