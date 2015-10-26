@@ -74,6 +74,7 @@ typedef struct cyclone_st {
   PMEMobjpool *pop_raft_state;
   raft_server_t *raft_handle;
   cyclone_callback_t cyclone_rep_cb;
+  cyclone_callback_t cyclone_pop_cb;
   cyclone_callback_t cyclone_commit_cb;
   void *user_arg;
   unsigned char* cyclone_buffer_out;

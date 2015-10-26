@@ -53,7 +53,7 @@ void event_remove(const rpc_t *rpc)
   }
 }
 
-void event_executed(const rpc_t *rpc, void*ret_value, int ret_size)
+void event_executed(const rpc_t *rpc, const void* ret_value, const int ret_size)
 {
   int client_id = rpc->client_id;
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
@@ -66,7 +66,7 @@ void event_executed(const rpc_t *rpc, void*ret_value, int ret_size)
   if(ret_size > 0) {
     D_RW(root)->client_state[client_id].last_return_value =
       TX_ALLOC(char, ret_size);
-    TX_MEMCPY(D_RW(root)->client_state[client_id].last_return_value,
+    TX_MEMCPY(D_RW(D_RW(root)->client_state[client_id].last_return_value),
 	      ret_value,
 	      ret_size);
   }
@@ -78,6 +78,7 @@ void event_executed(const rpc_t *rpc, void*ret_value, int ret_size)
 void event_committed(const rpc_t *rpc)
 {
   int client_id = rpc->client_id;
+  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   if(rpc->client_txid > D_RO(root)->client_state[client_id].committed_txid) {
     D_RW(root)->client_state[client_id].committed_txid = rpc->client_txid;
     unsigned long *ptr =
@@ -98,7 +99,7 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
     int sz = execute_rpc((const unsigned char *)(rpc + 1),
 			 len - sizeof(rpc_t),
 			 &ret_value);
-    event_executed(rpc, ret_value, ret_size);
+    event_executed(rpc, data, len);
     event_committed(rpc);
   } TX_END
 }
@@ -147,7 +148,7 @@ struct dispatcher_loop {
 	  // Initiate replication
 	  void *cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
 	  if(cookie != NULL) {
-	    event_seen(rpc);
+	    event_seen(rpc_req);
 	    rep_sz = sizeof(rpc_t);
 	    rpc_rep->code = RPC_REP_PENDING;
 	  }

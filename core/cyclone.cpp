@@ -219,8 +219,8 @@ static int __raft_logentry_pop(raft_server_t* raft,
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   if(cyclone_handle->cyclone_pop_cb != NULL) {    
     cyclone_handle->cyclone_pop_cb(cyclone_handle->user_arg,
-				   (const unsigned char *)ety->data.buf,
-				   ety->data.len);
+				   (const unsigned char *)entry->data.buf,
+				   entry->data.len);
   }
   TX_BEGIN(cyclone_handle->pop_raft_state) {
     if(cyclone_handle->remove_tail_raft_log() != 0) {
