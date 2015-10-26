@@ -45,7 +45,7 @@ static const int RPC_REP_INVTXID  = 4; // WRONG client txid -- last seen
 				       // client_txid set in reply
 static const int RPC_REP_INVSRV   = 5; // WRONG master  -- master set in reply
 
-static const unsigned long RPC_INIT_TXID = 0; // Initial client txid
+static const unsigned long RPC_INIT_TXID = 1; // Initial client txid
 
 // Server side interface
 // Returns the size of the return value blob

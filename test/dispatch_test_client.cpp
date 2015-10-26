@@ -53,7 +53,7 @@ int main(int argc, char *argv[])
     addr << ":" << endport;
     cyclone_connect_endpoint(sockets[i], addr.str().c_str());
   }
-  int ctr = 0;
+  int ctr = RPC_INIT_TXID;
   void *buf;
   buf = new char[DISP_MAX_MSGSIZE];
   rpc_t *packet_out = (rpc_t *)buf;
@@ -62,6 +62,7 @@ int main(int argc, char *argv[])
   char *proposal = (char *)(packet_out + 1);
   unsigned long server = 0;
   int retcode;
+  void *poll_item = setup_cyclone_inpoll(&sockets[server], 1);
   while(true) {
     *(unsigned int *)&proposal[0] = me;
     *(unsigned int *)&proposal[4] = ctr;
@@ -72,10 +73,25 @@ int main(int argc, char *argv[])
     retcode = cyclone_tx(sockets[server], (unsigned char *)packet_out, sizeof(rpc_t) + 12, "PROPOSE");
     if(retcode == -1) {
       server = (server + 1)%replicas;
+      delete_cyclone_inpoll(poll_item);
+      poll_item = setup_cyclone_inpoll(&sockets[server], 1);
+      BOOST_LOG_TRIVIAL(info) << "CLIENT DETECTED POSSIBLE FAILED MASTER";
+      BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
       continue;
     }
     print("CLIENT PROPOSED", proposal, 12);
-    cyclone_rx(sockets[server], (unsigned char *)packet_in, DISP_MAX_MSGSIZE, "RESULT");
+    int e = cyclone_poll(poll_item, 1, 10000);
+    if(cyclone_socket_has_data(poll_item, 0)) {
+      cyclone_rx(sockets[server], (unsigned char *)packet_in, DISP_MAX_MSGSIZE, "RESULT");
+    }
+    else {
+      server = (server + 1)%replicas;
+      delete_cyclone_inpoll(poll_item);
+      poll_item = setup_cyclone_inpoll(&sockets[server], 1);
+      BOOST_LOG_TRIVIAL(info) << "CLIENT DETECTED POSSIBLE FAILED MASTER";
+      BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
+      continue;
+    }
     print("CLIENT REPLY", proposal, 12);
     if(packet_in->code == RPC_REP_INVTXID) {
       ctr = packet_in->client_txid;
@@ -94,7 +110,18 @@ int main(int argc, char *argv[])
 	  continue;
 	}
 	print("CLIENT STATUS", proposal, 12);
-	cyclone_rx(sockets[server], (unsigned char *)packet_in, DISP_MAX_MSGSIZE, "RESULT");
+	int e = cyclone_poll(poll_item, 1, 10000);
+	if(cyclone_socket_has_data(poll_item, 0)) {
+	  cyclone_rx(sockets[server], (unsigned char *)packet_in, DISP_MAX_MSGSIZE, "RESULT");
+	}
+	else {
+	  server = (server + 1)%replicas;
+	  delete_cyclone_inpoll(poll_item);
+	  poll_item = setup_cyclone_inpoll(&sockets[server], 1);
+	  BOOST_LOG_TRIVIAL(info) << "CLIENT DETECTED POSSIBLE FAILED MASTER";
+	  BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
+	  continue;
+	}
 	print("CLIENT REPLY", proposal, 12);
 	if(packet_in->code == RPC_REP_COMPLETE) {
 	  print("CLIENT COMPLETE", proposal, 12);
@@ -103,6 +130,7 @@ int main(int argc, char *argv[])
 	else if(packet_in->code == RPC_REP_INVSRV) {
 	  print("CLIENT INVSRV", proposal, 12);
 	  server = packet_in->master;
+	  BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING MASTER " << server;
 	}
 	else if(packet_in->code == RPC_REP_INVTXID) {
 	  print("CLIENT INVTXID", proposal, 12);
@@ -115,6 +143,7 @@ int main(int argc, char *argv[])
     else if(packet_in->code == RPC_REP_INVSRV) {
       print("CLIENT INVSRV", proposal, 12);
       server = packet_in->master;
+      BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING MASTER " << server;
       continue;
     }
   }
