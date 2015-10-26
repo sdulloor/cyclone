@@ -17,6 +17,7 @@ typedef void (*cyclone_callback_t)(void *user_arg,
 // Returns a cyclone handle
 extern void* cyclone_boot(const char *config_path,
 			  cyclone_callback_t cyclone_rep_callback,
+			  cyclone_callback_t cyclone_pop_callback,
 			  cyclone_callback_t cyclone_commit_callback,
 			  void *user_arg);
 extern void cyclone_shutdown(void *cyclone_handle);
@@ -27,7 +28,7 @@ static const int DISP_MAX_MSGSIZE = 4194304; // 4MB max msg size
 
 typedef struct rpc_st {
   int code;
-  unsigned long client_id;
+  int client_id;
   union {
     unsigned long client_txid; 
     int master;
@@ -40,9 +41,11 @@ static const int RPC_REQ_FN       = 0; // Execute
 static const int RPC_REQ_STATUS   = 1; // Check status
 static const int RPC_REP_COMPLETE = 2; // DONE 
 static const int RPC_REP_PENDING  = 3; // PENDING 
-static const int RPC_REP_INVTXID  = 4; // WRONG client txid -- client_txid set in reply
+static const int RPC_REP_INVTXID  = 4; // WRONG client txid -- last seen
+				       // client_txid set in reply
 static const int RPC_REP_INVSRV   = 5; // WRONG master  -- master set in reply
 
+static const unsigned long RPC_INIT_TXID = 0; // Initial client txid
 
 // Server side interface
 // Returns the size of the return value blob

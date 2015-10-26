@@ -217,6 +217,11 @@ static int __raft_logentry_pop(raft_server_t* raft,
 {
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
+  if(cyclone_handle->cyclone_pop_cb != NULL) {    
+    cyclone_handle->cyclone_pop_cb(cyclone_handle->user_arg,
+				   (const unsigned char *)ety->data.buf,
+				   ety->data.len);
+  }
   TX_BEGIN(cyclone_handle->pop_raft_state) {
     if(cyclone_handle->remove_tail_raft_log() != 0) {
       pmemobj_tx_abort(-1);
@@ -312,6 +317,7 @@ static void init_log(PMEMobjpool *pop, void *ptr, void *arg)
 
 void* cyclone_boot(const char *config_path,
 		   cyclone_callback_t cyclone_rep_callback,
+		   cyclone_callback_t cyclone_pop_callback,
 		   cyclone_callback_t cyclone_commit_callback,
 		   void *user_arg)
 {
