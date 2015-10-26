@@ -62,8 +62,7 @@ struct cyclone_monitor;
 typedef struct cyclone_st {
   boost::property_tree::ptree pt;
   void *zmq_context;
-  void** zmq_push_sockets;
-  void** zmq_pull_sockets;
+  cyclone_switch *router;
   int replicas;
   int me;
   boost::asio::io_service ioService;
@@ -236,7 +235,7 @@ typedef struct cyclone_st {
       e = raft_recv_requestvote(raft_handle, msg->source, &msg->rv, &resp.rvr);
       /* send response */
       resp.source = me;
-      cyclone_tx(zmq_push_sockets[msg->source],
+      cyclone_tx(router->output_socket(msg->source),
 		 (unsigned char *)&resp, sizeof(msg_t), "REQVOTE RESP");
       break;
     case MSG_REQUESTVOTE_RESPONSE:
@@ -258,7 +257,7 @@ typedef struct cyclone_st {
     }
     e = raft_recv_appendentries(raft_handle, msg->source, &msg->ae, &resp.aer);
     resp.source = me;
-    cyclone_tx(zmq_push_sockets[msg->source],
+    cyclone_tx(router->output_socket(msg->source),
 		(unsigned char *)&resp, sizeof(msg_t), "APPENDENTRIES RESP");
     break;
     case MSG_APPENDENTRIES_RESPONSE:
@@ -267,7 +266,7 @@ typedef struct cyclone_st {
     case MSG_CLIENT_REQ:
       if(!cyclone_is_leader(this)) {
 	client_rep = NULL;
-	cyclone_tx(zmq_pull_sockets[me],
+	cyclone_tx(router->input_socket(me),
 		    (unsigned char *)&client_rep,
 		    sizeof(void *),
 		    "CLIENT COOKIE SEND");
@@ -282,7 +281,7 @@ typedef struct cyclone_st {
 	// TBD: Handle error
 	client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
 	(void)raft_recv_entry(raft_handle, me, &client_req, client_rep);
-	cyclone_tx(zmq_pull_sockets[me],
+	cyclone_tx(router->input_socket(me),
 		    (unsigned char *)&client_rep,
 		    sizeof(void *),
 		    "CLIENT COOKIE SEND");
@@ -291,7 +290,7 @@ typedef struct cyclone_st {
     case MSG_CLIENT_STATUS:
       e = raft_msg_entry_response_committed
 	(raft_handle, (const msg_entry_response_t *)msg->client.ptr);
-      cyclone_tx(zmq_pull_sockets[me],
+      cyclone_tx(router->input_socket(me),
 		  (unsigned char *)&e,
 		  sizeof(int),
 		  "CLIENT COOKIE SEND");
@@ -316,8 +315,8 @@ struct cyclone_monitor {
   void operator ()()
   {
     rtc_clock timer;
-    void *poll_items = setup_cyclone_inpoll(cyclone_handle->zmq_pull_sockets, 
-				      cyclone_handle->replicas);
+    void *poll_items = setup_cyclone_inpoll(cyclone_handle->router->input_socket_array(), 
+					    cyclone_handle->replicas);
     while(!terminate) {
       timer.start();
       int e = cyclone_poll(poll_items, cyclone_handle->replicas, (unsigned long)PERIODICITY_MSEC);
@@ -325,7 +324,7 @@ struct cyclone_monitor {
       // Handle any outstanding requests
       for(int i=0;i<cyclone_handle->replicas;i++) {
 	if(cyclone_socket_has_data(poll_items, i)) {
-	  unsigned long sz = cyclone_rx(cyclone_handle->zmq_pull_sockets[i],
+	  unsigned long sz = cyclone_rx(cyclone_handle->router->input_socket(i),
 					cyclone_handle->cyclone_buffer_in,
 					MSG_MAXSIZE,
 					"Incoming");

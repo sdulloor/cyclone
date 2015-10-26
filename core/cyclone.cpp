@@ -278,14 +278,16 @@ void* cyclone_add_entry(void *cyclone_handle, void *data, int size)
   msg.msg_type    = MSG_CLIENT_REQ;
   msg.client.ptr  = data;
   msg.client.size = size;
-  cyclone_tx(handle->zmq_push_sockets[handle->me], 
-	      (unsigned char *)&msg, 
-	      sizeof(msg_t), 
-	      "client req");
-  cyclone_rx(handle->zmq_push_sockets[handle->me],
-	      (unsigned char *)&cookie,
-	      sizeof(void *),
-	      "CLIENT REQ recv");
+  cyclone_tx(handle->router->output_socket(handle->me), 
+	     (const unsigned char *)&msg, 
+	     sizeof(msg_t), 
+	     "client req");
+  cyclone_rx(handle->router->output_socket(handle->me),
+	     (unsigned char *)&cookie,
+	     sizeof(void *),
+	     "CLIENT REQ recv");
+  printf("cookie = %p\n", cookie);
+  fflush(stdout);
   return cookie;
 }
 
@@ -297,11 +299,11 @@ int cyclone_check_status(void *cyclone_handle, void *cookie)
   msg.msg_type    = MSG_CLIENT_STATUS;
   msg.client.ptr  = cookie;
   int result;
-  cyclone_tx(handle->zmq_push_sockets[handle->me], 
+  cyclone_tx(handle->router->output_socket(handle->me), 
 	      (unsigned char *)&msg, 
 	      sizeof(msg_t), 
 	      "client status");
-  cyclone_rx(handle->zmq_push_sockets[handle->me],
+  cyclone_rx(handle->router->output_socket(handle->me),
 	      (unsigned char *)&result,
 	      sizeof(int),
 	      "CLIENT STATUS RECV");
@@ -335,7 +337,7 @@ void* cyclone_boot(const char *config_path,
   cyclone_handle->RAFT_LOGSIZE    = cyclone_handle->pt.get<unsigned long>("storage.logsize");
   cyclone_handle->replicas        = cyclone_handle->pt.get<int>("network.replicas");
   cyclone_handle->me              = cyclone_handle->pt.get<int>("network.me");
-  unsigned long baseport  = cyclone_handle->pt.get<unsigned long>("network.baseport"); 
+  int baseport  = cyclone_handle->pt.get<int>("network.baseport"); 
   cyclone_handle->raft_handle = raft_new();
   
   /* Setup raft state */
@@ -408,40 +410,16 @@ void* cyclone_boot(const char *config_path,
 
   /* setup connections */
   cyclone_handle->zmq_context  = zmq_init(1); // One thread should be enough ?
-  cyclone_handle->zmq_pull_sockets = new void*[cyclone_handle->replicas];
-  cyclone_handle->zmq_push_sockets = new void*[cyclone_handle->replicas];
-
-  // PUSH sockets
+  cyclone_handle->router = new cyclone_switch(cyclone_handle->zmq_context,
+					      &cyclone_handle->pt,
+					      cyclone_handle->me,
+					      cyclone_handle->replicas,
+					      baseport,
+					      true);
   for(int i=0;i<cyclone_handle->replicas;i++) {
-    cyclone_handle->zmq_push_sockets[i] =
-      cyclone_socket_out(cyclone_handle->zmq_context,
-			 i == cyclone_handle->me ? 1:0);
-    key.str("");key.clear();
-    addr.str("");addr.clear();
-    key << "network.addr" << i;
-    addr << "tcp://";
-    addr << cyclone_handle->pt.get<std::string>(key.str().c_str());
-    unsigned long port = baseport + i*cyclone_handle->replicas + cyclone_handle->me;
-    addr << ":" << port;
-    cyclone_connect_endpoint(cyclone_handle->zmq_push_sockets[i], addr.str().c_str());
     raft_add_peer(cyclone_handle->raft_handle,
-		  cyclone_handle->zmq_push_sockets[i],
+		  cyclone_handle->router->output_socket(i),
 		  i == cyclone_handle->me ? 1:0);
-  }
-
-  // PULL sockets
-  for(int i=0;i<cyclone_handle->replicas;i++) {
-    cyclone_handle->zmq_pull_sockets[i] =
-      cyclone_socket_in(cyclone_handle->zmq_context,
-			i == cyclone_handle->me ? 1:0);
-    key.str("");key.clear();
-    addr.str("");addr.clear();
-    key << "network.iface" << i;
-    addr << "tcp://";
-    addr << cyclone_handle->pt.get<std::string>(key.str().c_str());
-    unsigned long port = baseport + cyclone_handle->me*cyclone_handle->replicas + i;
-    addr << ":" << port;
-    cyclone_bind_endpoint(cyclone_handle->zmq_pull_sockets[i], addr.str().c_str());
   }
 
   cyclone_handle->cyclone_buffer_in  = new unsigned char[MSG_MAXSIZE];
@@ -463,13 +441,8 @@ void cyclone_shutdown(void *cyclone_handle)
   handle->monitor_obj->terminate = true;
   handle->monitor_thread->join();
   delete handle->monitor_obj;
-  for(int i=0;i<=handle->replicas;i++) {
-    zmq_close(handle->zmq_push_sockets[i]);
-    zmq_close(handle->zmq_pull_sockets[i]);
-  }
+  delete handle->router;
   zmq_ctx_destroy(handle->zmq_context);
-  delete[] handle->zmq_push_sockets;
-  delete[] handle->zmq_pull_sockets;
   pmemobj_close(handle->pop_raft_state);
   delete[] handle->cyclone_buffer_in;
   delete[] handle->cyclone_buffer_out;

@@ -1,11 +1,13 @@
 #ifndef _CYCLONE_COMM_
 #define _CYCLONE_COMM_
+#include <boost/property_tree/ini_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
 #include <boost/log/trivial.hpp>
 #include <zmq.h>
 // Cyclone communication
 
 static int cyclone_tx(void *socket,
-		      unsigned char *data,
+		      const unsigned char *data,
 		      unsigned long size,
 		      const char *context) 
 {
@@ -79,51 +81,11 @@ static int cyclone_socket_has_data(void *poll_handle, int index)
 }
 
 
-static void* cyclone_socket_out(void *context, int loopback)
+static void* cyclone_socket_out(void *context)
 {
   void *socket;
-  if(loopback) {
-    socket = zmq_socket(context, ZMQ_REQ);
-  }
-  else {
-    int hwm = 5;
-    socket = zmq_socket(context, ZMQ_PUSH);
-    int e = zmq_setsockopt(socket, ZMQ_SNDHWM, &hwm, sizeof(int));
-    if (e == -1) {
-      BOOST_LOG_TRIVIAL(fatal) 
-	<< "CYCLONE_COMM: Unable to set sock HWM "
-	<< context << " "
-	<< zmq_strerror(zmq_errno());
-      exit(-1);
-    }
-  }
-  return socket;
-}
-
-static void* cyclone_socket_in(void *context, int loopback)
-{
-  void *socket;
-  if(loopback) {
-    socket = zmq_socket(context, ZMQ_REP);
-  }
-  else {
-    socket = zmq_socket(context, ZMQ_PULL);
-  }
-  return socket;
-}
-
-static void* dispatch_socket_in(void *context)
-{
-  void *socket;
-  socket = zmq_socket(context, ZMQ_REP);
-  return socket;
-}
-
-static void* dispatch_socket_out(void *context)
-{
-  void *socket;
-  socket = zmq_socket(context, ZMQ_REQ);
   int hwm = 5;
+  socket = zmq_socket(context, ZMQ_PUSH);
   int e = zmq_setsockopt(socket, ZMQ_SNDHWM, &hwm, sizeof(int));
   if (e == -1) {
     BOOST_LOG_TRIVIAL(fatal) 
@@ -132,6 +94,27 @@ static void* dispatch_socket_out(void *context)
       << zmq_strerror(zmq_errno());
     exit(-1);
   }
+  return socket;
+}
+
+static void* cyclone_socket_out_loopback(void *context)
+{
+  void *socket;
+  socket = zmq_socket(context, ZMQ_REQ);
+  return socket;
+}
+
+static void* cyclone_socket_in(void *context)
+{
+  void *socket;
+  socket = zmq_socket(context, ZMQ_PULL);
+  return socket;
+}
+
+static void* cyclone_socket_in_loopback(void *context)
+{
+  void *socket;
+  socket = zmq_socket(context, ZMQ_REP);
   return socket;
 }
 
@@ -159,5 +142,84 @@ static void cyclone_bind_endpoint(void *socket, const char *endpoint)
       << endpoint;
   }
 }
+
+class cyclone_switch {
+  int machines;
+  void **sockets_out;
+  void **sockets_in;
+  std::stringstream key;
+  std::stringstream addr;
+public:
+  cyclone_switch(void *context, 
+		 boost::property_tree::ptree *pt,
+		 int me,
+		 int machines_in, 
+		 int baseport,
+		 bool loopback) // loopback = true means other end is same process
+    :machines(machines_in)
+  {
+    sockets_in = new void *[machines];
+    sockets_out = new void *[machines];
+    unsigned long port;
+    for(int i=0;i<machines;i++) {
+      // input wire from i
+      if(i == me && loopback) {
+	sockets_in[i] = cyclone_socket_in_loopback(context);
+      }
+      else {
+	sockets_in[i] = cyclone_socket_in(context);
+      }
+      key.str("");key.clear();
+      addr.str("");addr.clear();
+      key << "network.iface" << i;
+      addr << "tcp://";
+      addr << pt->get<std::string>(key.str().c_str());
+      port = baseport + me*machines + i;
+      addr << ":" << port;
+      cyclone_bind_endpoint(sockets_in[i], addr.str().c_str());
+      // output wire to i
+      if(i == me && loopback) {
+	sockets_out[i] = cyclone_socket_out_loopback(context);
+      }
+      else {
+	sockets_out[i] = cyclone_socket_out(context);
+      }
+      key.str("");key.clear();
+      addr.str("");addr.clear();
+      key << "network.addr" << i;
+      addr << "tcp://";
+      addr << pt->get<std::string>(key.str().c_str());
+      port = baseport + i*machines + me ;
+      addr << ":" << port;
+      cyclone_connect_endpoint(sockets_out[i], addr.str().c_str());
+    }
+    
+  }
+
+  void * output_socket(int machine)
+  {
+    return sockets_out[machine];
+  }
+
+  void *input_socket(int machine)
+  {
+    return sockets_in[machine];
+  }
+
+  void **input_socket_array()
+  {
+    return sockets_in;
+  }
+
+  ~cyclone_switch()
+  {
+    for(int i=0;i<=machines;i++) {
+      zmq_close(sockets_out[i]);
+      zmq_close(sockets_in[i]);
+    }
+    delete[] sockets_out;
+    delete[] sockets_in;
+  }
+};
 
 #endif

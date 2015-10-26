@@ -1,7 +1,7 @@
 all: cyclone_test dispatch_test_server dispatch_test_client
 
 CXXFLAGS = -O3 -DBOOST_LOG_DYN_LINK
-#CXXFLAGS = -g 
+#CXXFLAGS = -g -DBOOST_LOG_DYN_LINK
 
 cyclone_test:cyclone_test.cpp 
 	$(CXX) $(CXXFLAGS) cyclone_test.cpp -lc -lcyclone -lboost_thread -lboost_log -lpthread -o $@

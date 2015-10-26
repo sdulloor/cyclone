@@ -36,6 +36,12 @@ static PMEMobjpool *state;
 unsigned long seen_client_txid[MAX_CLIENTS];
 unsigned long executed_client_txid[MAX_CLIENTS];
 static rpc_callback_t execute_rpc;
+static int me;
+
+int dispatcher_me()
+{
+  return me;
+}
 
 
 // These functions must be executed in the context of a tx
@@ -122,13 +128,13 @@ static unsigned char rx_buffer[DISP_MAX_MSGSIZE];
 
 struct dispatcher_loop {
   void *zmq_context;
-  void *socket;
+  cyclone_switch *router;
   void operator ()()
   {
     TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
     bool is_correct_txid, last_tx_committed;
     while(true) {
-      unsigned long sz = cyclone_rx(socket,
+      unsigned long sz = cyclone_rx(router->input_socket(me),
 				    rx_buffer,
 				    DISP_MAX_MSGSIZE,
 				    "DISP RCV");
@@ -192,7 +198,10 @@ struct dispatcher_loop {
 	BOOST_LOG_TRIVIAL(fatal) << "DISPATCH: unknown code";
 	exit(-1);
       }
-      cyclone_tx(socket, tx_buffer, rep_sz, "Dispatch reply");
+      cyclone_tx(router->output_socket(rpc_req->client_id), 
+		 tx_buffer, 
+		 rep_sz, 
+		 "Dispatch reply");
     }
   }
 };
@@ -202,12 +211,6 @@ static boost::asio::io_service::work work(ioService);
 static boost::thread_group threadpool;
 static boost::thread *disp_thread;
 static dispatcher_loop * dispatcher_loop_obj;
-static int me;
-
-int dispatcher_me()
-{
-  return me;
-}
 
 void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
 {
@@ -262,26 +265,20 @@ void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
    seen_client_txid[i] = D_RO(root)->client_state[i].committed_txid;
   }
   execute_rpc = rpc_callback;
+  
   // Listen on port
   void *zmq_context = zmq_init(1);
-  void *socket = dispatch_socket_in(zmq_context);
-  unsigned long replicas = pt.get<unsigned long>("network.replicas");
   me = pt.get<int>("network.me");
-  unsigned long dispatch_baseport = pt.get<unsigned long>("dispatch.baseport");
-  unsigned long port = dispatch_baseport + me;
-  std::stringstream key;
-  std::stringstream addr;
-  key.str("");key.clear();
-  addr.str("");addr.clear();
-  key << "network.iface" << me;
-  addr << "tcp://";
-  addr << pt.get<std::string>(key.str().c_str());
-  addr << ":" << port;
-  cyclone_bind_endpoint(socket, addr.str().c_str());
+  dispatcher_loop_obj    = new dispatcher_loop();
+  dispatcher_loop_obj->zmq_context = zmq_context;
+  int dispatch_baseport = pt.get<int>("dispatch.baseport");
+  dispatcher_loop_obj->router = new cyclone_switch(zmq_context,
+						   &pt,
+						   me,
+						   pt.get<int>("network.replicas"),
+						   dispatch_baseport,
+						   false);
   threadpool.create_thread(boost::bind(&boost::asio::io_service::run,
 				       &ioService));
-  dispatcher_loop_obj    = new dispatcher_loop();
-  dispatcher_loop_obj->socket = socket;
-  dispatcher_loop_obj->zmq_context = zmq_context;
   (*dispatcher_loop_obj)();
 }
