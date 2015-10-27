@@ -129,79 +129,97 @@ static unsigned char rx_buffer[DISP_MAX_MSGSIZE];
 struct dispatcher_loop {
   void *zmq_context;
   cyclone_switch *router;
-  void operator ()()
+  int clients;
+  
+  void handle_rpc(unsigned long sz)
   {
     TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
     bool is_correct_txid, last_tx_committed;
-    while(true) {
-      unsigned long sz = cyclone_rx(router->input_socket(me),
-				    rx_buffer,
-				    DISP_MAX_MSGSIZE,
-				    "DISP RCV");
-      rpc_t *rpc_req = (rpc_t *)rx_buffer;
-      rpc_t *rpc_rep = (rpc_t *)tx_buffer;
-      unsigned long rep_sz = 0;
-      switch(rpc_req->code) {
-      case RPC_REQ_FN:
-	rpc_rep->client_id   = rpc_req->client_id;
-	rpc_rep->client_txid = rpc_req->client_txid;
-	is_correct_txid =
-	  ((seen_client_txid[rpc_req->client_id] + 1) == rpc_req->client_txid);
-	last_tx_committed =
-	  (D_RO(root)->client_state[rpc_req->client_id].committed_txid ==
-	   seen_client_txid[rpc_req->client_id]);
-	if(is_correct_txid && last_tx_committed) {
-	  // Initiate replication
-	  void *cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
-	  if(cookie != NULL) {
-	    event_seen(rpc_req);
-	    rep_sz = sizeof(rpc_t);
-	    rpc_rep->code = RPC_REP_PENDING;
-	  }
-	  else {
-	    rep_sz = sizeof(rpc_t);
-	    rpc_rep->code = RPC_REP_INVSRV;
-	    rpc_rep->master = cyclone_get_leader(cyclone_handle);
-	  }
+
+    rpc_t *rpc_req = (rpc_t *)rx_buffer;
+    rpc_t *rpc_rep = (rpc_t *)tx_buffer;
+    unsigned long rep_sz = 0;
+    switch(rpc_req->code) {
+    case RPC_REQ_FN:
+      rpc_rep->client_id   = rpc_req->client_id;
+      rpc_rep->client_txid = rpc_req->client_txid;
+      is_correct_txid =
+	((seen_client_txid[rpc_req->client_id] + 1) == rpc_req->client_txid);
+      last_tx_committed =
+	(D_RO(root)->client_state[rpc_req->client_id].committed_txid ==
+	 seen_client_txid[rpc_req->client_id]);
+      if(is_correct_txid && last_tx_committed) {
+	// Initiate replication
+	void *cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
+	if(cookie != NULL) {
+	  event_seen(rpc_req);
+	  rep_sz = sizeof(rpc_t);
+	  rpc_rep->code = RPC_REP_PENDING;
 	}
 	else {
 	  rep_sz = sizeof(rpc_t);
-	  rpc_rep->code = RPC_REP_INVTXID;
-	  rpc_rep->client_txid = seen_client_txid[rpc_req->client_id];
+	  rpc_rep->code = RPC_REP_INVSRV;
+	  rpc_rep->master = cyclone_get_leader(cyclone_handle);
 	}
-	break;
-      case RPC_REQ_STATUS:
-	rpc_rep->client_id   = rpc_req->client_id;
-	rpc_rep->client_txid = rpc_req->client_txid;
-	rep_sz = sizeof(rpc_t);
-	if(seen_client_txid[rpc_req->client_id] != rpc_req->client_txid) {
-	  rpc_rep->code = RPC_REP_INVTXID;
-	  rpc_rep->client_txid = seen_client_txid[rpc_req->client_id];
-	}
-	else if(D_RO(root)->client_state[rpc_req->client_id].committed_txid
-		== rpc_req->client_txid) {
-	  const struct client_state_st * s =
-	    &D_RO(root)->client_state[rpc_req->client_txid];
-	  rpc_rep->code = RPC_REP_COMPLETE;
-	  if(s->last_return_size > 0) {
-	    memcpy(&rpc_rep->payload,
-		   (void *)D_RO(s->last_return_value),
-		   s->last_return_size);
-	    rep_sz += s->last_return_size;
-	  }
-	}
-	else {
-	  rpc_rep->code = RPC_REP_PENDING;
-	}
-	break;
-      default:
-	BOOST_LOG_TRIVIAL(fatal) << "DISPATCH: unknown code";
-	exit(-1);
       }
-      cyclone_tx(router->output_socket(rpc_req->client_id), 
-		 tx_buffer, 
-		 rep_sz, 
-		 "Dispatch reply");
+      else {
+	rep_sz = sizeof(rpc_t);
+	rpc_rep->code = RPC_REP_INVTXID;
+	rpc_rep->client_txid = seen_client_txid[rpc_req->client_id];
+      }
+      break;
+    case RPC_REQ_STATUS:
+      rpc_rep->client_id   = rpc_req->client_id;
+      rpc_rep->client_txid = rpc_req->client_txid;
+      rep_sz = sizeof(rpc_t);
+      if(seen_client_txid[rpc_req->client_id] != rpc_req->client_txid) {
+	rpc_rep->code = RPC_REP_INVTXID;
+	rpc_rep->client_txid = seen_client_txid[rpc_req->client_id];
+      }
+      else if(D_RO(root)->client_state[rpc_req->client_id].committed_txid
+	      == rpc_req->client_txid) {
+	const struct client_state_st * s =
+	  &D_RO(root)->client_state[rpc_req->client_txid];
+	rpc_rep->code = RPC_REP_COMPLETE;
+	if(s->last_return_size > 0) {
+	  memcpy(&rpc_rep->payload,
+		 (void *)D_RO(s->last_return_value),
+		 s->last_return_size);
+	  rep_sz += s->last_return_size;
+	}
+      }
+      else {
+	rpc_rep->code = RPC_REP_PENDING;
+      }
+      break;
+    default:
+      BOOST_LOG_TRIVIAL(fatal) << "DISPATCH: unknown code";
+      exit(-1);
+    }
+    cyclone_tx(router->output_socket(rpc_req->client_id), 
+	       tx_buffer, 
+	       rep_sz, 
+	       "Dispatch reply");
+  }
+
+  void operator ()()
+  {
+    void *poll_items = setup_cyclone_inpoll(router->input_socket_array(), 
+					    clients);
+    while(true) {
+      int e;
+      do {
+	e = cyclone_poll(poll_items, clients, -1);
+      } while(e <= 0); 
+      for(int i=0;i<clients;i++) {
+	if(cyclone_socket_has_data(poll_items, i)) {
+	  unsigned long sz = cyclone_rx(router->input_socket(i),
+					rx_buffer,
+					DISP_MAX_MSGSIZE,
+					"DISP RCV");
+	  handle_rpc(sz);
+	}
+      }
     }
   }
 };
@@ -271,12 +289,13 @@ void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
   me = pt.get<int>("network.me");
   dispatcher_loop_obj    = new dispatcher_loop();
   dispatcher_loop_obj->zmq_context = zmq_context;
+  dispatcher_loop_obj->clients = pt.get<int>("dispatch.clients");
   int dispatch_server_baseport = pt.get<int>("dispatch.server_baseport");
   int dispatch_client_baseport = pt.get<int>("dispatch.client_baseport");
   dispatcher_loop_obj->router = new cyclone_switch(zmq_context,
 						   &pt,
 						   me,
-						   pt.get<int>("network.replicas"),
+						   dispatcher_loop_obj->clients,
 						   dispatch_server_baseport,
 						   dispatch_client_baseport,
 						   false);
