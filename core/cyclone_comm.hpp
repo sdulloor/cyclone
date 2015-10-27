@@ -154,7 +154,8 @@ public:
 		 boost::property_tree::ptree *pt,
 		 int me,
 		 int machines_in, 
-		 int baseport,
+		 int baseport_local,
+		 int baseport_remote,
 		 bool loopback) // loopback = true means other end is same process
     :machines(machines_in)
   {
@@ -174,7 +175,7 @@ public:
       key << "network.iface" << i;
       addr << "tcp://";
       addr << pt->get<std::string>(key.str().c_str());
-      port = baseport + me*machines + i;
+      port = baseport_local + me*machines + i;
       addr << ":" << port;
       cyclone_bind_endpoint(sockets_in[i], addr.str().c_str());
       // output wire to i
@@ -189,7 +190,7 @@ public:
       key << "network.addr" << i;
       addr << "tcp://";
       addr << pt->get<std::string>(key.str().c_str());
-      port = baseport + i*machines + me ;
+      port = baseport_remote + i*machines + me ;
       addr << ":" << port;
       cyclone_connect_endpoint(sockets_out[i], addr.str().c_str());
     }

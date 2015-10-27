@@ -10,7 +10,7 @@ dispatch_test_server:dispatch_test_server.cpp
 	$(CXX) $(CXXFLAGS) dispatch_test_server.cpp -lc -lcyclone -lboost_thread -lboost_log -lpthread -o $@
 
 dispatch_test_client:dispatch_test_client.cpp 
-	$(CXX) $(CXXFLAGS) dispatch_test_client.cpp -lzmq -lc -lcyclone -lboost_thread -lboost_log -lpthread -o $@
+	$(CXX) $(CXXFLAGS) dispatch_test_client.cpp -lzmq -lc -lcyclone -lboost_system -lboost_thread -lboost_log -lpthread -o $@
 
 .PHONY:clean
 

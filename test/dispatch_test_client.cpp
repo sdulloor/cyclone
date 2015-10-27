@@ -2,6 +2,7 @@
 #include "../core/clock.hpp"
 #include "../core/cyclone_comm.hpp"
 #include<boost/log/trivial.hpp>
+#include <boost/log/utility/setup.hpp>
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <libcyclone.hpp>
@@ -38,6 +39,7 @@ int main(int argc, char *argv[])
 {
   std::stringstream key;
   std::stringstream addr;
+  boost::log::keywords::auto_flush = true;
   if(argc != 2) {
     printf("Usage: %s client_id\n", argv[0]);
     exit(-1);
@@ -47,12 +49,14 @@ int main(int argc, char *argv[])
   boost::property_tree::read_ini("cyclone_test.ini", pt);
   void *zmq_context = zmq_init(1);
   int replicas = pt.get<int>("network.replicas");
-  unsigned long port = pt.get<unsigned long>("dispatch.baseport");
+  unsigned long server_port = pt.get<unsigned long>("dispatch.server_baseport");
+  unsigned long client_port = pt.get<unsigned long>("dispatch.client_baseport");
   cyclone_switch *router = new cyclone_switch(zmq_context,
 					      &pt,
 					      me,
 					      pt.get<int>("network.replicas"),
-					      port,
+					      client_port,
+					      server_port,
 					      false);
   int ctr = RPC_INIT_TXID;
   void *buf;
@@ -84,7 +88,10 @@ int main(int argc, char *argv[])
       continue;
     }
     print("CLIENT PROPOSED", proposal, 12);
-    int e = cyclone_poll(poll_item, 1, 10000);
+    int e;
+    do {
+      e = cyclone_poll(poll_item, 1, 10000);
+    } while(e < 0 && errno == EINTR);
     if(cyclone_socket_has_data(poll_item, 0)) {
       cyclone_rx(router->input_socket(server), 
 		 (unsigned char *)packet_in, 
@@ -122,7 +129,9 @@ int main(int argc, char *argv[])
 	  continue;
 	}
 	print("CLIENT STATUS", proposal, 12);
-	int e = cyclone_poll(poll_item, 1, 10000);
+	do {
+	  e = cyclone_poll(poll_item, 1, 10000);
+	} while( e < 0 && errno == EINTR); 
 	if(cyclone_socket_has_data(poll_item, 0)) {
 	  cyclone_rx(router->input_socket(server), 
 		     (unsigned char *)packet_in, 

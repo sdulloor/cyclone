@@ -286,8 +286,6 @@ void* cyclone_add_entry(void *cyclone_handle, void *data, int size)
 	     (unsigned char *)&cookie,
 	     sizeof(void *),
 	     "CLIENT REQ recv");
-  printf("cookie = %p\n", cookie);
-  fflush(stdout);
   return cookie;
 }
 
@@ -414,6 +412,7 @@ void* cyclone_boot(const char *config_path,
 					      &cyclone_handle->pt,
 					      cyclone_handle->me,
 					      cyclone_handle->replicas,
+					      baseport,
 					      baseport,
 					      true);
   for(int i=0;i<cyclone_handle->replicas;i++) {

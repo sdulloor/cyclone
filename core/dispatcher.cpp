@@ -271,12 +271,14 @@ void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
   me = pt.get<int>("network.me");
   dispatcher_loop_obj    = new dispatcher_loop();
   dispatcher_loop_obj->zmq_context = zmq_context;
-  int dispatch_baseport = pt.get<int>("dispatch.baseport");
+  int dispatch_server_baseport = pt.get<int>("dispatch.server_baseport");
+  int dispatch_client_baseport = pt.get<int>("dispatch.client_baseport");
   dispatcher_loop_obj->router = new cyclone_switch(zmq_context,
 						   &pt,
 						   me,
 						   pt.get<int>("network.replicas"),
-						   dispatch_baseport,
+						   dispatch_server_baseport,
+						   dispatch_client_baseport,
 						   false);
   threadpool.create_thread(boost::bind(&boost::asio::io_service::run,
 				       &ioService));
