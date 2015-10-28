@@ -397,6 +397,11 @@ void* cyclone_boot(const char *config_path,
 	ptr = cyclone_handle->skip_log_entry(ptr);
       } TX_END
       raft_append_entry(cyclone_handle->raft_handle, &ety);
+      if(cyclone_rep_callback != NULL) {
+	cyclone_rep_callback(user_arg,
+			     (const unsigned char *)ety.data.buf,
+			     ety.data.len);
+      }
     }
     BOOST_LOG_TRIVIAL(info) << "CYCLONE: Recovery complete";
   }
