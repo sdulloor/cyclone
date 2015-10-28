@@ -222,11 +222,6 @@ static dispatcher_loop * dispatcher_loop_obj;
 void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
 {
   boost::property_tree::read_ini(config_path, pt);
-  cyclone_handle = cyclone_boot(config_path,
-				&cyclone_rep_cb,
-				&cyclone_pop_cb,
-				&cyclone_commit_cb,
-				NULL);
   // Load/Setup state
   std::string file_path = pt.get<std::string>("dispatch.filepath");
   if(access(file_path.c_str(), F_OK)) {
@@ -272,7 +267,13 @@ void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
    seen_client_txid[i] = D_RO(root)->client_state[i].committed_txid;
   }
   execute_rpc = rpc_callback;
-  
+
+  // Boot cyclone -- this can lead to rep cbs on recovery
+  cyclone_handle = cyclone_boot(config_path,
+				&cyclone_rep_cb,
+				&cyclone_pop_cb,
+				&cyclone_commit_cb,
+				NULL);
   // Listen on port
   void *zmq_context = zmq_init(1);
   me = pt.get<int>("network.me");
