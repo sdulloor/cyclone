@@ -14,22 +14,11 @@
 #include <boost/asio/io_service.hpp>
 #include <boost/bind.hpp>
 #include<libpmemobj.h>
+#include "dispatcher_layout.hpp"
+
 
 static void *cyclone_handle;
 static boost::property_tree::ptree pt;
-
-POBJ_LAYOUT_BEGIN(disp_state);
-POBJ_LAYOUT_TOID(disp_state, char);
-struct client_state_st {
-  unsigned long committed_txid;
-  TOID(char) last_return_value;
-  int last_return_size;
-};
-typedef struct disp_state_st {
-  struct client_state_st client_state[MAX_CLIENTS];
-} disp_state_t;
-POBJ_LAYOUT_ROOT(disp_state, disp_state_t);
-POBJ_LAYOUT_END(disp_state);
 
 
 static PMEMobjpool *state;
@@ -44,7 +33,6 @@ int dispatcher_me()
 }
 
 
-// These functions must be executed in the context of a tx
 void event_seen(const rpc_t *rpc)
 {
   if(rpc->client_txid > seen_client_txid[rpc->client_id]) {
@@ -59,6 +47,7 @@ void event_remove(const rpc_t *rpc)
   }
 }
 
+// This function must be executed in the context of a tx
 void event_executed(const rpc_t *rpc, const void* ret_value, const int ret_size)
 {
   int client_id = rpc->client_id;
