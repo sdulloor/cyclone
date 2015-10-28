@@ -218,9 +218,15 @@ static int __raft_logentry_pop(raft_server_t* raft,
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   if(cyclone_handle->cyclone_pop_cb != NULL) {    
+    unsigned char *chunk = (unsigned char *)malloc(entry->data.len);
+    TX_BEGIN(cyclone_handle->pop_raft_state) {
+      (void)cyclone_handle->read_from_log(chunk, 
+					  (unsigned long)entry->data.buf);
+    } TX_END
     cyclone_handle->cyclone_pop_cb(cyclone_handle->user_arg,
-				   (const unsigned char *)entry->data.buf,
+				   chunk,
 				   entry->data.len);
+    free(chunk);
   }
   TX_BEGIN(cyclone_handle->pop_raft_state) {
     if(cyclone_handle->remove_tail_raft_log() != 0) {
@@ -398,9 +404,15 @@ void* cyclone_boot(const char *config_path,
       } TX_END
       raft_append_entry(cyclone_handle->raft_handle, &ety);
       if(cyclone_rep_callback != NULL) {
+	unsigned char *chunk = (unsigned char *)malloc(ety.data.len);
+	TX_BEGIN(cyclone_handle->pop_raft_state) {
+	  (void)cyclone_handle->read_from_log(chunk, 
+					      (unsigned long)ety.data.buf);
+	} TX_END
 	cyclone_rep_callback(user_arg,
-			     (const unsigned char *)ety.data.buf,
+			     (const unsigned char *)chunk,
 			     ety.data.len);
+	free(chunk);
       }
     }
     BOOST_LOG_TRIVIAL(info) << "CYCLONE: Recovery complete";

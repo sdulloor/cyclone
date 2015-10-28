@@ -253,7 +253,7 @@ void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
   }
   else {
     state = pmemobj_open(file_path.c_str(),
-			 "dispatcher_persistent_state");
+			 "disp_state");
     if(state == NULL) {
       BOOST_LOG_TRIVIAL(fatal)
 	<< "Unable to open pmemobj pool for dispatcher state:"
