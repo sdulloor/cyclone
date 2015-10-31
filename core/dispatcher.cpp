@@ -26,6 +26,7 @@ unsigned long seen_client_txid[MAX_CLIENTS];
 unsigned long executed_client_txid[MAX_CLIENTS];
 static rpc_callback_t execute_rpc;
 static int me;
+static unsigned long last_global_txid;
 
 int dispatcher_me()
 {
@@ -38,12 +39,18 @@ void event_seen(const rpc_t *rpc)
   if(rpc->client_txid > seen_client_txid[rpc->client_id]) {
     seen_client_txid[rpc->client_id] = rpc->client_txid;    
   }
+  if(rpc->global_txid > last_global_txid) {
+    last_global_txid = rpc->global_txid;
+  }
 }
 
 void event_remove(const rpc_t *rpc)
 {
   if(rpc->client_txid <= seen_client_txid[rpc->client_id]) {
     seen_client_txid[rpc->client_id] = rpc->client_txid - 1;    
+  }
+  if(rpc->global_txid <= last_global_txid) {
+    last_global_txid = rpc->global_txid - 1;
   }
 }
 
@@ -94,6 +101,7 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
     int sz = execute_rpc((const unsigned char *)(rpc + 1),
 			 len - sizeof(rpc_t),
 			 &ret_value);
+    //BOOST_LOG_TRIVIAL(info) << "Execute RPC: " << rpc->global_txid;
     event_executed(rpc, data, len);
     event_committed(rpc);
   } TX_END
@@ -139,6 +147,7 @@ struct dispatcher_loop {
 	 seen_client_txid[rpc_req->client_id]);
       if(is_correct_txid && last_tx_committed) {
 	// Initiate replication
+	rpc_req->global_txid = (++last_global_txid);
 	void *cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
 	if(cookie != NULL) {
 	  event_seen(rpc_req);
@@ -267,7 +276,7 @@ void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
    seen_client_txid[i] = D_RO(root)->client_state[i].committed_txid;
   }
   execute_rpc = rpc_callback;
-
+  last_global_txid = 0; // Count up from zero, always
   // Boot cyclone -- this can lead to rep cbs on recovery
   cyclone_handle = cyclone_boot(config_path,
 				&cyclone_rep_cb,

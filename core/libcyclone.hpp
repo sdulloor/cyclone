@@ -29,6 +29,7 @@ static const int DISP_MAX_MSGSIZE = 4194304; // 4MB max msg size
 typedef struct rpc_st {
   int code;
   int client_id;
+  unsigned long global_txid;
   union {
     unsigned long client_txid; 
     int master;
