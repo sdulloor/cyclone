@@ -450,7 +450,6 @@ void* cyclone_boot(const char *config_path,
 void cyclone_shutdown(void *cyclone_handle)
 {
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
-  handle->ioService.stop();
   handle->monitor_obj->terminate = true;
   handle->monitor_thread->join();
   delete handle->monitor_obj;

@@ -15,7 +15,7 @@
 #include <boost/bind.hpp>
 #include<libpmemobj.h>
 #include "dispatcher_layout.hpp"
-
+#include "dispatcher_exec.hpp"
 
 static void *cyclone_handle;
 static boost::property_tree::ptree pt;
@@ -293,7 +293,5 @@ void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
 						   dispatch_server_baseport,
 						   dispatch_client_baseport,
 						   false);
-  threadpool.create_thread(boost::bind(&boost::asio::io_service::run,
-				       &ioService));
   (*dispatcher_loop_obj)();
 }

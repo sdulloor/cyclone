@@ -6,9 +6,9 @@ CXXFLAGS = -O3 -fPIC -DBOOST_LOG_DYN_LINK
 #CXXFLAGS += -DTRACING
 
 libcyclone.so:libcyclone.o dispatcher.o dispatcher_exec.o
-	$(CXX) -shared -Wl,-soname,libcyclone.so -o libcyclone.so libcyclone.o dispatcher.o \
-	-lc -lcraft -lpmemobj -lpmemlog -lzmq -lboost_thread -lboost_log
-
+	$(CXX) -shared -Wl,-soname,libcyclone.so -o libcyclone.so libcyclone.o\
+	 dispatcher.o dispatcher_exec.o -lc -lcraft -lpmemobj -lpmemlog -lzmq\
+	 -lboost_thread -lboost_log
 
 libcyclone.o: cyclone.cpp libcyclone.hpp
 	$(CXX) $(CXXFLAGS) cyclone.cpp -c -o $@
