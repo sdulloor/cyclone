@@ -21,7 +21,8 @@ static void *cyclone_handle;
 static boost::property_tree::ptree pt;
 
 
-PMEMobjpool *state;
+static PMEMobjpool *state;
+static rpc_callback_t execute_rpc;
 static unsigned long seen_client_txid[MAX_CLIENTS];
 static unsigned long executed_client_txid[MAX_CLIENTS];
 static int me;
@@ -30,6 +31,67 @@ static unsigned long last_global_txid;
 static rpc_info_t * pending_rpc_head;
 static rpc_info_t * pending_rpc_tail;
 
+
+static void event_committed(const rpc_t *rpc)
+{
+  int client_id = rpc->client_id;
+  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+  if(rpc->client_txid > D_RO(root)->client_state[client_id].committed_txid) {
+    D_RW(root)->client_state[client_id].committed_txid = rpc->client_txid;
+    unsigned long *ptr =
+      (unsigned long  *)&D_RW(root)->client_state[client_id].committed_txid;
+    pmemobj_tx_add_range_direct(ptr, sizeof(unsigned long));
+    *ptr = rpc->client_txid;
+  }
+}
+
+// This function must be executed in the context of a tx
+static void event_executed(const rpc_t *rpc,
+			   const void* ret_value,
+			   const int ret_size)
+{
+  int client_id = rpc->client_id;
+  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+  void *old = (void *)&D_RW(root)->client_state[client_id].last_return_value;
+  pmemobj_tx_add_range_direct(old, sizeof(TOID(char)));
+  if(!TOID_IS_NULL(D_RW(root)->client_state[client_id].last_return_value))
+  {
+    TX_FREE(D_RW(root)->client_state[client_id].last_return_value);
+  }
+  if(ret_size > 0) {
+    D_RW(root)->client_state[client_id].last_return_value =
+      TX_ALLOC(char, ret_size);
+    TX_MEMCPY(D_RW(D_RW(root)->client_state[client_id].last_return_value),
+	      ret_value,
+	      ret_size);
+  }
+  else {
+    TOID_ASSIGN(D_RW(root)->client_state[rpc->client_id].last_return_value, OID_NULL);
+  }
+}
+
+void exec_rpc_internal(rpc_info_t *rpc)
+{
+  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+  TX_BEGIN(state) {
+    rpc->sz = execute_rpc((const unsigned char *)(rpc->rpc + 1),
+			  rpc->len - sizeof(rpc_t),
+			  &rpc->ret_value);
+    rpc->executed = true;
+    while(!rpc->rep_success && !rpc->rep_failed);
+    if(rpc->rep_success) {
+      event_executed(rpc->rpc, rpc->ret_value, rpc->sz);
+      event_committed(rpc->rpc);
+      D_RW(root)->committed_global_txid = rpc->rpc->global_txid;
+    }
+    else {
+      pmemobj_tx_abort(-1);
+    }
+  } TX_END
+  __sync_synchronize();
+  rpc->executed = true; // in case the execution aborted (on all replicas !)
+  rpc->complete = true; // note: rpc will be freed after this
+}
 
 int dispatcher_me()
 {
@@ -77,7 +139,7 @@ void gc_pending_rpc_list()
   }
 }
 
-void issue_rpc(rpc_t *rpc, int len)
+void issue_rpc(const rpc_t *rpc, int len)
 {
   rpc_info_t *rpc_info = new rpc_info_t;
   rpc_info->executed    = false;
@@ -85,7 +147,7 @@ void issue_rpc(rpc_t *rpc, int len)
   rpc_info->rep_failed  = false;
   rpc_info->complete    = false;
   rpc_info->len = len;
-  rpc_info->rpc = (void *)(new char[len]);
+  rpc_info->rpc = (rpc_t *)(new char[len]);
   memcpy(rpc_info->rpc, rpc, len);
   rpc_info->next = NULL;
   if(pending_rpc_head == NULL) {
@@ -121,7 +183,7 @@ void cyclone_rep_cb(void *user_arg, const unsigned char *data, const int len)
   const rpc_t *rpc = (const rpc_t *)data;
   event_seen(rpc);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  if(root->committed_global_txid < rpc->global_txid &&
+  if(D_RO(root)->committed_global_txid < rpc->global_txid &&
      (pending_rpc_tail == NULL ||
       pending_rpc_tail->rpc->global_txid < rpc->global_txid)){
     issue_rpc(rpc, len);
@@ -164,6 +226,7 @@ struct dispatcher_loop {
 
     rpc_t *rpc_req = (rpc_t *)rx_buffer;
     rpc_t *rpc_rep = (rpc_t *)tx_buffer;
+    rpc_info_t *rpc_info;
     unsigned long rep_sz = 0;
     switch(rpc_req->code) {
     case RPC_REQ_FN:
@@ -201,10 +264,10 @@ struct dispatcher_loop {
       rpc_rep->client_id   = rpc_req->client_id;
       rpc_rep->client_txid = rpc_req->client_txid;
       rep_sz = sizeof(rpc_t);
-      rpc_info_t *rpc_info = pending_rpc_head;
+      rpc_info = pending_rpc_head;
       while(rpc_info != NULL) {
 	if(rpc_info->rpc->client_id == rpc_req->client_id &&
-	   rpc_info->rpc->cliext_txid == rpc_req->client_txid) {
+	   rpc_info->rpc->client_txid == rpc_req->client_txid) {
 	  break;
 	}
       }

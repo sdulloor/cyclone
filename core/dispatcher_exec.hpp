@@ -12,7 +12,7 @@ typedef struct rpc_info_st {
   volatile bool complete;
   struct rpc_info_st *next;
 } rpc_info_t;
+extern void dispatcher_exec_startup();
 extern void exec_rpc(rpc_info_t *rpc);
-extern rpc_callback_t execute_rpc;
-extern PMEMobjpool *state;
+extern void exec_rpc_internal(rpc_info_t *rpc);
 #endif
