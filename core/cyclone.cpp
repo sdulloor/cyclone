@@ -441,8 +441,6 @@ void* cyclone_boot(const char *config_path,
   cyclone_handle->cyclone_buffer_in  = new unsigned char[MSG_MAXSIZE];
   cyclone_handle->cyclone_buffer_out = new unsigned char[MSG_MAXSIZE];
   /* Launch cyclone service */
-  cyclone_handle->threadpool.create_thread(boost::bind(&boost::asio::io_service::run,
-						       &cyclone_handle->ioService));
   cyclone_handle->monitor_obj    = new cyclone_monitor();
   cyclone_handle->monitor_obj->cyclone_handle    = cyclone_handle;
   cyclone_handle->monitor_thread = new boost::thread(boost::ref(*cyclone_handle->monitor_obj));
@@ -453,7 +451,6 @@ void cyclone_shutdown(void *cyclone_handle)
 {
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
   handle->ioService.stop();
-  handle->threadpool.join_all();
   handle->monitor_obj->terminate = true;
   handle->monitor_thread->join();
   delete handle->monitor_obj;

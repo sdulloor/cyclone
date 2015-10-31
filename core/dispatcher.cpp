@@ -22,9 +22,8 @@ static boost::property_tree::ptree pt;
 
 
 static PMEMobjpool *state;
-unsigned long seen_client_txid[MAX_CLIENTS];
-unsigned long executed_client_txid[MAX_CLIENTS];
-static rpc_callback_t execute_rpc;
+static unsigned long seen_client_txid[MAX_CLIENTS];
+static unsigned long executed_client_txid[MAX_CLIENTS];
 static int me;
 static unsigned long last_global_txid;
 
@@ -222,10 +221,6 @@ struct dispatcher_loop {
   }
 };
 
-static boost::asio::io_service ioService;
-static boost::asio::io_service::work work(ioService);
-static boost::thread_group threadpool;
-static boost::thread *disp_thread;
 static dispatcher_loop * dispatcher_loop_obj;
 
 void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)

@@ -65,9 +65,6 @@ typedef struct cyclone_st {
   cyclone_switch *router;
   int replicas;
   int me;
-  boost::asio::io_service ioService;
-  boost::asio::io_service::work work;
-  boost::thread_group threadpool;
   boost::thread *monitor_thread;
   unsigned long RAFT_LOGSIZE;
   PMEMobjpool *pop_raft_state;
@@ -81,7 +78,6 @@ typedef struct cyclone_st {
   cyclone_monitor *monitor_obj;
 
   cyclone_st()
-    :work(ioService)
   {}
 
   unsigned long get_log_offset()

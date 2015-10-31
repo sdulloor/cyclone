@@ -5,7 +5,7 @@ CXXFLAGS = -O3 -fPIC -DBOOST_LOG_DYN_LINK
 
 #CXXFLAGS += -DTRACING
 
-libcyclone.so:libcyclone.o dispatcher.o
+libcyclone.so:libcyclone.o dispatcher.o dispatcher_exec.o
 	$(CXX) -shared -Wl,-soname,libcyclone.so -o libcyclone.so libcyclone.o dispatcher.o \
 	-lc -lcraft -lpmemobj -lpmemlog -lzmq -lboost_thread -lboost_log
 
@@ -13,8 +13,11 @@ libcyclone.so:libcyclone.o dispatcher.o
 libcyclone.o: cyclone.cpp libcyclone.hpp
 	$(CXX) $(CXXFLAGS) cyclone.cpp -c -o $@
 
-dispatcher.o: dispatcher.cpp libcyclone.hpp
+dispatcher.o: dispatcher.cpp dispatcher_exec.hpp libcyclone.hpp
 	$(CXX) $(CXXFLAGS) dispatcher.cpp -c -o $@
+
+dispatcher_exec.o: dispatcher_exec.cpp dispatcher_exec.hpp libcyclone.hpp
+	$(CXX) $(CXXFLAGS) dispatcher_exec.cpp -c -o $@
 
 .PHONY:clean install
 
@@ -23,4 +26,4 @@ install:libcyclone.so
 	cp libcyclone.hpp /usr/include
 
 clean:
-	rm -f libcyclone.o dispatcher.o libcyclone.so
+	rm -f libcyclone.o dispatcher.o dispatcher_exec.o libcyclone.so
