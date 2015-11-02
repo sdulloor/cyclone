@@ -13,7 +13,7 @@ typedef struct rpc_client_st {
   cyclone_switch *router;
   rpc_t *packet_out;
   rpc_t *packet_in;
-  unsigned long server;
+  int server;
   void *poll_item;
   int replicas;
   void update_server(void **pll)
@@ -36,6 +36,7 @@ typedef struct rpc_client_st {
     BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING MASTER " << server;
   }
 
+  // Check that the last successfully issued RPC has completed
   unsigned long await_completion()
   {
     unsigned long resp_sz;
@@ -91,14 +92,16 @@ typedef struct rpc_client_st {
   {
     int retcode;
     unsigned long resp_sz;
+    int txid;
     while(true) {
       packet_out->code      = RPC_REQ_FN;
       packet_out->client_id = me;
       packet_out->client_txid = ctr;
       memcpy(packet_out + 1, payload, sz);
+      txid = ctr;
       retcode = cyclone_tx(router->output_socket(server), 
 			   (unsigned char *)packet_out, 
-			   sizeof(rpc_t) + 12, 
+			   sizeof(rpc_t) + sz, 
 			   "PROPOSE");
       if(retcode == -1) {
 	update_server(&poll_item);
@@ -130,7 +133,12 @@ typedef struct rpc_client_st {
       }
       else if(packet_in->code == RPC_REP_PENDING) {
 	resp_sz = await_completion();
-	break;
+	if(ctr == (txid + 1)) {
+	  break;
+	}
+	else {
+	  continue;
+	}
       }
       else if(packet_in->code == RPC_REP_INVSRV) {
 	server = packet_in->master;

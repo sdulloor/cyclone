@@ -175,7 +175,9 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
   }
   if(rpc_info == NULL) {
     if(rpc->global_txid > D_RO(root)->committed_global_txid) {
-      BOOST_LOG_TRIVIAL(fatal) << "Unable to locate replicated RPC !";
+      BOOST_LOG_TRIVIAL(fatal) 
+	<< "Unable to locate replicated RPC id = "
+	<< rpc->global_txid;
       exit(-1);
     }
   }
