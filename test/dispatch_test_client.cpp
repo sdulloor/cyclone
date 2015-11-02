@@ -46,7 +46,7 @@ int main(int argc, char *argv[])
     *(unsigned int *)&proposal[8] = (unsigned int)(timer.current_time()/1000);
     void *resp;
     print("PROPOSE", proposal, 12);
-    make_rpc(handle, proposal, 12, resp);
+    make_rpc(handle, proposal, 12, &resp);
     print("ACCEPTED", proposal, 12);
   }
 }
