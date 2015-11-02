@@ -1,4 +1,11 @@
 #include "libcyclone.hpp"
+#include "../core/clock.hpp"
+#include "../core/cyclone_comm.hpp"
+#include<boost/log/trivial.hpp>
+#include <boost/log/utility/setup.hpp>
+#include <boost/property_tree/ini_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
+
 
 typedef struct rpc_client_st {
   int me;
@@ -13,7 +20,7 @@ typedef struct rpc_client_st {
   {
     server = (server + 1)%replicas;
     delete_cyclone_inpoll(*pll);
-    void *socket = router->input_socket(new_server);
+    void *socket = router->input_socket(server);
     *pll = setup_cyclone_inpoll(&socket, 1);
     BOOST_LOG_TRIVIAL(info) << "CLIENT DETECTED POSSIBLE FAILED MASTER";
     BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
@@ -22,16 +29,17 @@ typedef struct rpc_client_st {
   unsigned long await_completion()
   {
     unsigned long resp_sz;
+    int retcode, e;
     while(true) {
       packet_out->code        = RPC_REQ_STATUS;
       packet_out->client_id   = me;
       packet_out->client_txid = ctr;
-      int retcode = cyclone_tx(router->output_socket(server), 
-			       (unsigned char *)packet_out, 
-			       sizeof(rpc_t) + 12, 
-			       "PROPOSE");
+      retcode = cyclone_tx(router->output_socket(server), 
+			   (unsigned char *)packet_out, 
+			   sizeof(rpc_t) + 12, 
+			   "PROPOSE");
       if(retcode == -1) {
-	update_server(&poll_item, router, server);
+	update_server(&poll_item, router);
 	continue;
       }
       do {
@@ -44,7 +52,7 @@ typedef struct rpc_client_st {
 			     "RESULT");
       }
       else {
-	update_server(&poll_item, router, server);
+	update_server(&poll_item, router);
 	continue;
       }
       if(packet_in->code == RPC_REP_COMPLETE) {
@@ -52,7 +60,7 @@ typedef struct rpc_client_st {
       }
       else if(packet_in->code == RPC_REP_INVSRV) {
 	server = packet_in->master;
-	update_server(&poll_item, router, server);
+	update_server(&poll_item, router);
 	BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING MASTER " << server;
       }
       else if(packet_in->code == RPC_REP_INVTXID) {
@@ -69,8 +77,7 @@ typedef struct rpc_client_st {
 
   unsigned long make_rpc(void *payload,
 			 int sz,
-			 void **response,
-			 int *response_size)
+			 void **response)
   {
     int retcode;
     unsigned long resp_sz;
@@ -84,7 +91,7 @@ typedef struct rpc_client_st {
 			   sizeof(rpc_t) + 12, 
 			   "PROPOSE");
       if(retcode == -1) {
-	update_server(&poll_item, router, server);
+	update_server(&poll_item, router);
 	continue;
       }
       int e;
@@ -98,7 +105,7 @@ typedef struct rpc_client_st {
 		   "RESULT");
       }
       else {
-	update_server(&poll_item, router, server);
+	update_server(&poll_item, router);
 	continue;
       }
       if(packet_in->code == RPC_REP_INVTXID) {
@@ -119,7 +126,7 @@ typedef struct rpc_client_st {
       }
       else if(packet_in->code == RPC_REP_INVSRV) {
 	server = packet_in->master;
-	update_server(&poll_item, router, server);
+	update_server(&poll_item, router);
 	BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING MASTER " << server;
       }
     }
@@ -141,16 +148,17 @@ void* cyclone_client_init(int client_id, const char *config)
   unsigned long client_port = pt.get<unsigned long>("dispatch.client_baseport");
   client->router = new cyclone_switch(zmq_context,
 				      &pt,
-				      client_me,
+				      client_id,
 				      replicas,
 				      client_port,
 				      server_port,
 				      false);
   void *buf = new char[DISP_MAX_MSGSIZE];
-  packet_out = (rpc_t *)buf;
+  client->packet_out = (rpc_t *)buf;
   buf = new char[DISP_MAX_MSGSIZE];
-  packet_in = (rpc_t *)buf;
+  client->packet_in = (rpc_t *)buf;
   client->server    = 0;
+  void *sock = client->router->input_socket(0);
   client->poll_item = setup_cyclone_inpoll(&sock, 1);
   client->ctr = RPC_INIT_TXID;
   client->replicas = replicas;
