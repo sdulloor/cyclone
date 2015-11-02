@@ -164,6 +164,7 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
 {
   const rpc_t *rpc = (const rpc_t *)data;
   rpc_info_t *rpc_info = pending_rpc_head;
+  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   while(rpc_info != NULL) {
     if(rpc_info->rpc->global_txid == rpc->global_txid) {
       break;
@@ -171,12 +172,16 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
     rpc_info = rpc_info->next;
   }
   if(rpc_info == NULL) {
-    BOOST_LOG_TRIVIAL(fatal) << "Unable to locate replicated RPC !";
-    exit(-1);
+    if(rpc->global_txid > D_RO(root)->committed_global_txid) {
+      BOOST_LOG_TRIVIAL(fatal) << "Unable to locate replicated RPC !";
+      exit(-1);
+    }
   }
-  rpc_info->rep_success = true;
-  __sync_synchronize();
-  gc_pending_rpc_list();
+  else {
+    rpc_info->rep_success = true;
+    __sync_synchronize();
+    gc_pending_rpc_list();
+  }
 }
 
 void cyclone_rep_cb(void *user_arg, const unsigned char *data, const int len)
