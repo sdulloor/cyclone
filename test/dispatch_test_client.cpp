@@ -48,5 +48,6 @@ int main(int argc, char *argv[])
     print("PROPOSE", proposal, 12);
     make_rpc(handle, proposal, 12, &resp);
     print("ACCEPTED", proposal, 12);
+    ctr++;
   }
 }

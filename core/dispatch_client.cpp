@@ -16,14 +16,24 @@ typedef struct rpc_client_st {
   unsigned long server;
   void *poll_item;
   int replicas;
-  void update_server(void **pll, cyclone_switch *router)
+  void update_server(void **pll)
   {
+    BOOST_LOG_TRIVIAL(info) 
+      << "CLIENT DETECTED POSSIBLE FAILED MASTER "
+      << server;
     server = (server + 1)%replicas;
     delete_cyclone_inpoll(*pll);
     void *socket = router->input_socket(server);
     *pll = setup_cyclone_inpoll(&socket, 1);
-    BOOST_LOG_TRIVIAL(info) << "CLIENT DETECTED POSSIBLE FAILED MASTER";
     BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
+  }
+
+  void set_server(void **pll)
+  {
+    delete_cyclone_inpoll(*pll);
+    void *socket = router->input_socket(server);
+    *pll = setup_cyclone_inpoll(&socket, 1);
+    BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING MASTER " << server;
   }
 
   unsigned long await_completion()
@@ -36,10 +46,10 @@ typedef struct rpc_client_st {
       packet_out->client_txid = ctr;
       retcode = cyclone_tx(router->output_socket(server), 
 			   (unsigned char *)packet_out, 
-			   sizeof(rpc_t) + 12, 
+			   sizeof(rpc_t), 
 			   "PROPOSE");
       if(retcode == -1) {
-	update_server(&poll_item, router);
+	update_server(&poll_item);
 	continue;
       }
       do {
@@ -52,20 +62,20 @@ typedef struct rpc_client_st {
 			     "RESULT");
       }
       else {
-	update_server(&poll_item, router);
+	update_server(&poll_item);
 	continue;
       }
       if(packet_in->code == RPC_REP_COMPLETE) {
+	ctr++;
 	break;
       }
       else if(packet_in->code == RPC_REP_INVSRV) {
 	server = packet_in->master;
-	update_server(&poll_item, router);
-	BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING MASTER " << server;
+	set_server(&poll_item);
       }
       else if(packet_in->code == RPC_REP_INVTXID) {
 	BOOST_LOG_TRIVIAL(info)
-	  << "CLIENT UPDATE TXID "
+	  << "CLIENT UPDATE TXID (completion) "
 	  << ctr
 	  << "->"
 	  << packet_in->client_txid;
@@ -91,7 +101,7 @@ typedef struct rpc_client_st {
 			   sizeof(rpc_t) + 12, 
 			   "PROPOSE");
       if(retcode == -1) {
-	update_server(&poll_item, router);
+	update_server(&poll_item);
 	continue;
       }
       int e;
@@ -99,13 +109,13 @@ typedef struct rpc_client_st {
 	e = cyclone_poll(poll_item, 1, 10000);
       } while(e < 0 && errno == EINTR);
       if(cyclone_socket_has_data(poll_item, 0)) {
-	cyclone_rx(router->input_socket(server), 
-		   (unsigned char *)packet_in, 
-		   DISP_MAX_MSGSIZE, 
-		   "RESULT");
+	resp_sz = cyclone_rx(router->input_socket(server), 
+			     (unsigned char *)packet_in, 
+			     DISP_MAX_MSGSIZE, 
+			     "RESULT");
       }
       else {
-	update_server(&poll_item, router);
+	update_server(&poll_item);
 	continue;
       }
       if(packet_in->code == RPC_REP_INVTXID) {
@@ -116,18 +126,19 @@ typedef struct rpc_client_st {
 	  << packet_in->client_txid;
 	ctr = packet_in->client_txid;
 	resp_sz = await_completion();
-	ctr++;
 	continue;
       }
       else if(packet_in->code == RPC_REP_PENDING) {
 	resp_sz = await_completion();
-	ctr++;
 	break;
       }
       else if(packet_in->code == RPC_REP_INVSRV) {
 	server = packet_in->master;
-	update_server(&poll_item, router);
-	BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING MASTER " << server;
+	set_server(&poll_item);
+      }
+      else if(packet_in->code == RPC_REP_COMPLETE) {
+	ctr++;
+	break;
       }
     }
     *response = (void *)(packet_in + 1);
