@@ -168,6 +168,7 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
     if(rpc_info->rpc->global_txid == rpc->global_txid) {
       break;
     }
+    rpc_info = rpc_info->next;
   }
   if(rpc_info == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Unable to locate replicated RPC !";
@@ -200,6 +201,7 @@ void cyclone_pop_cb(void *user_arg, const unsigned char *data, const int len)
     if(rpc_info->rpc->global_txid == rpc->global_txid) {
       break;
     }
+    rpc_info = rpc_info->next;
   }
   if(rpc_info == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Unable to locate failed replication RPC !";
@@ -249,6 +251,8 @@ struct dispatcher_loop {
 	  rpc_rep->code = RPC_REP_PENDING;
 	}
 	else {
+	  // Roll this back
+	  cyclone_pop_cb(NULL, (const unsigned char *)rpc_req, sz);
 	  rep_sz = sizeof(rpc_t);
 	  rpc_rep->code = RPC_REP_INVSRV;
 	  rpc_rep->master = cyclone_get_leader(cyclone_handle);
@@ -270,6 +274,7 @@ struct dispatcher_loop {
 	   rpc_info->rpc->client_txid == rpc_req->client_txid) {
 	  break;
 	}
+	rpc_info = rpc_info->next;
       }
 
       if(seen_client_txid[rpc_req->client_id] != rpc_req->client_txid) {
