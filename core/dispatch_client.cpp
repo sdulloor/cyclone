@@ -24,7 +24,7 @@ typedef struct rpc_client_st {
       << "CLIENT DETECTED POSSIBLE FAILED MASTER "
       << server;
     server = (server + 1)%replicas;
-    delete_cyclone_inpoll(&poll_item);
+    delete_cyclone_inpoll(poll_item);
     void *socket = router->input_socket(server);
     poll_item = setup_cyclone_inpoll(&socket, 1);
     BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
@@ -32,7 +32,7 @@ typedef struct rpc_client_st {
 
   void set_server()
   {
-    delete_cyclone_inpoll(&poll_item);
+    delete_cyclone_inpoll(poll_item);
     void *socket = router->input_socket(server);
     poll_item = setup_cyclone_inpoll(&socket, 1);
     BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING MASTER " << server;
