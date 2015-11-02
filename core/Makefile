@@ -29,6 +29,6 @@ install:libcyclone.so
 	cp libcyclone.hpp /usr/include
 
 clean:
-	rm -f libcyclone.o dispatcher.o dispatcher_exec.o dispatch_client.o\
+	rm -f libcyclone.o dispatcher.o dispatcher_exec.o dispatch_client.o \
 	libcyclone.so
 
