@@ -3,7 +3,7 @@
 
 
 
-//////// Non-dispatch interface
+//////// Direct interface
 int cyclone_is_leader(void *cyclone_handle); // returns 1 if true
 int cyclone_get_leader(void *cyclone_handle); // returns leader id
 // Returns a non-null cookie if accepted for replication
@@ -22,7 +22,7 @@ extern void* cyclone_boot(const char *config_path,
 			  void *user_arg);
 extern void cyclone_shutdown(void *cyclone_handle);
 
-//////// Dispatch interface
+//////// RPC interface
 static const int MAX_CLIENTS      = 10000; // Should be enough ?
 static const int DISP_MAX_MSGSIZE = 4194304; // 4MB max msg size 
 
@@ -48,7 +48,7 @@ static const int RPC_REP_INVSRV   = 5; // WRONG master  -- master set in reply
 
 static const unsigned long RPC_INIT_TXID = 1; // Initial client txid
 
-// Server side interface
+////// RPC Server side interface
 // Returns the size of the return value blob
 typedef 
 int (*rpc_callback_t)(const unsigned char *data,
@@ -60,5 +60,15 @@ void dispatcher_start(const char* config_path, rpc_callback_t  rpc_callback);
 
 // My id
 int dispatcher_me();
+
+
+////// RPC client side interface
+void* cyclone_client_init(int client_id, const char *config);
+// Make an rpc call -- returns size of response
+unsigned long make_rpc(void *handle,
+		       void *payload,
+		       int sz,
+		       void **response);
+
 
 #endif
