@@ -1,7 +1,7 @@
 all: libcyclone.so
 
 CXXFLAGS = -O3 -fPIC -DBOOST_LOG_DYN_LINK
-#CXXFLAGS = -g -fPIC -DBOOST_LOG_DYN_LINK
+#CXXFLAGS = -O1 -fno-omit-frame-pointer -g -fPIC -DBOOST_LOG_DYN_LINK
 
 #CXXFLAGS += -DTRACING
 

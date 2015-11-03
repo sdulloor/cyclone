@@ -9,6 +9,7 @@
 #include "cyclone_comm.hpp"
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
+#include <boost/log/utility/setup.hpp>
 #include<boost/log/trivial.hpp>
 #include <boost/thread.hpp>
 #include <boost/asio/io_service.hpp>
@@ -28,9 +29,42 @@ static unsigned long executed_client_txid[MAX_CLIENTS];
 static int me;
 static unsigned long last_global_txid;
 // Linked list of RPCs yet to be completed
-static rpc_info_t * pending_rpc_head;
-static rpc_info_t * pending_rpc_tail;
+static rpc_info_t * volatile pending_rpc_head;
+static rpc_info_t * volatile pending_rpc_tail;
 
+static volatile unsigned long list_lock = 0;
+
+static void lock_rpc_list()
+{
+  // TEST + TEST&SET
+  do {
+    while(list_lock != 0);
+  } while(!__sync_bool_compare_and_swap(&list_lock, 0, 1));
+  __sync_synchronize();
+}
+
+static void unlock_rpc_list()
+{
+  __sync_synchronize();
+  list_lock = 0;
+  __sync_synchronize();
+}
+
+rpc_info_t * locate_rpc(unsigned long global_txid)
+{
+  rpc_info_t *rpc_info;
+  lock_rpc_list();
+  rpc_info = pending_rpc_head;
+  while(rpc_info != NULL) {
+    if(rpc_info->rpc->global_txid == global_txid) {
+      break;
+    }
+    rpc_info = rpc_info->next;
+  }
+  unlock_rpc_list(); 
+  // Note: assume gc will not remove this entry
+  return rpc_info;
+}
 
 static void event_committed(const rpc_t *rpc)
 {
@@ -121,13 +155,16 @@ static void event_remove(const rpc_t *rpc)
 
 void gc_pending_rpc_list()
 {
-  rpc_info_t *rpc = pending_rpc_head, *deleted;
+  rpc_info_t *rpc, *deleted, *tmp;
+  deleted = NULL;
+  lock_rpc_list();
+  rpc = pending_rpc_head;
   while(rpc != NULL) {
     if(rpc->complete) {
-      deleted = rpc;
+      tmp = rpc;
       rpc = rpc->next;
-      delete deleted->rpc;
-      delete deleted;
+      tmp->next = deleted;
+      deleted = tmp;
     }
     else {
       break;
@@ -136,6 +173,14 @@ void gc_pending_rpc_list()
   pending_rpc_head = rpc;
   if(rpc == NULL) {
     pending_rpc_tail = NULL;
+  }
+  unlock_rpc_list();
+
+  while(deleted) {
+    tmp = deleted;
+    deleted = deleted->next;
+    delete tmp->rpc;
+    delete tmp;
   }
 }
 
@@ -150,6 +195,7 @@ void issue_rpc(const rpc_t *rpc, int len)
   rpc_info->rpc = (rpc_t *)(new char[len]);
   memcpy(rpc_info->rpc, rpc, len);
   rpc_info->next = NULL;
+  lock_rpc_list();
   if(pending_rpc_head == NULL) {
     pending_rpc_head = pending_rpc_tail = rpc_info;
   }
@@ -157,6 +203,7 @@ void issue_rpc(const rpc_t *rpc, int len)
     pending_rpc_tail->next = rpc_info;
     pending_rpc_tail = rpc_info;
   }
+  unlock_rpc_list();
   exec_rpc(rpc_info);
   __sync_synchronize();
   gc_pending_rpc_list();
@@ -165,14 +212,9 @@ void issue_rpc(const rpc_t *rpc, int len)
 void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
 {
   const rpc_t *rpc = (const rpc_t *)data;
-  rpc_info_t *rpc_info = pending_rpc_head;
+  rpc_info_t *rpc_info;
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  while(rpc_info != NULL) {
-    if(rpc_info->rpc->global_txid == rpc->global_txid) {
-      break;
-    }
-    rpc_info = rpc_info->next;
-  }
+  rpc_info = locate_rpc(rpc->global_txid);
   if(rpc_info == NULL) {
     if(rpc->global_txid > D_RO(root)->committed_global_txid) {
       BOOST_LOG_TRIVIAL(fatal) 
@@ -187,29 +229,32 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
   }
 }
 
+// Note: node cannot become master while this function is in progress
 void cyclone_rep_cb(void *user_arg, const unsigned char *data, const int len)
 {
   const rpc_t *rpc = (const rpc_t *)data;
+  bool issue_it;
   event_seen(rpc);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  if(D_RO(root)->committed_global_txid < rpc->global_txid &&
-     (pending_rpc_tail == NULL ||
-      pending_rpc_tail->rpc->global_txid < rpc->global_txid)){
+  issue_it = (D_RO(root)->committed_global_txid < rpc->global_txid); // not committed
+  lock_rpc_list();
+  // not already issued
+  issue_it =  issue_it && 
+    (pending_rpc_tail == NULL || pending_rpc_tail->rpc->global_txid < rpc->global_txid);
+  unlock_rpc_list();
+  
+  if(issue_it) {
     issue_rpc(rpc, len);
   }
 }
 
+// Note: cyclone pop_cb cannot be called once the node becomes a master
 void cyclone_pop_cb(void *user_arg, const unsigned char *data, const int len)
 {
   const rpc_t *rpc = (const rpc_t *)data;
-  rpc_info_t *rpc_info = pending_rpc_head;
+  rpc_info_t *rpc_info;
   event_remove(rpc);
-  while(rpc_info != NULL) {
-    if(rpc_info->rpc->global_txid == rpc->global_txid) {
-      break;
-    }
-    rpc_info = rpc_info->next;
-  }
+  rpc_info = locate_rpc(rpc->global_txid);
   if(rpc_info == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Unable to locate failed replication RPC !";
     exit(-1);
@@ -342,6 +387,7 @@ static dispatcher_loop * dispatcher_loop_obj;
 void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
 {
   boost::property_tree::read_ini(config_path, pt);
+  boost::log::keywords::auto_flush = true;
   // Load/Setup state
   std::string file_path = pt.get<std::string>("dispatch.filepath");
   dispatcher_exec_startup();
