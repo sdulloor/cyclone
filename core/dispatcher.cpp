@@ -292,7 +292,7 @@ struct dispatcher_loop {
 	      == rpc_req->client_txid &&
 	      (rpc_info == NULL || rpc_info->complete)) {
 	const struct client_state_st * s =
-	  &D_RO(root)->client_state[rpc_req->client_txid];
+	  &D_RO(root)->client_state[rpc_req->client_id];
 	rpc_rep->code = RPC_REP_COMPLETE;
 	if(s->last_return_size > 0) {
 	  memcpy(&rpc_rep->payload,
