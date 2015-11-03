@@ -436,6 +436,8 @@ void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
     BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered state";
   }
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+  BOOST_LOG_TRIVIAL(info) << "committed global txid = " 
+			  << D_RO(root)->committed_global_txid;
   for(int i=0;i<MAX_CLIENTS;i++) {
    seen_client_txid[i] = D_RO(root)->client_state[i].committed_txid;
   }
