@@ -255,6 +255,7 @@ struct dispatcher_loop {
 	  event_seen(rpc_req);
 	  rep_sz = sizeof(rpc_t);
 	  rpc_rep->code = RPC_REP_PENDING;
+	  free(cookie);
 	}
 	else {
 	  // Roll this back
