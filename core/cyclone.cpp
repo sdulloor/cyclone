@@ -333,6 +333,7 @@ void* cyclone_boot(const char *config_path,
 
   cyclone_handle = new cyclone_t();
   cyclone_handle->cyclone_rep_cb = cyclone_rep_callback;
+  cyclone_handle->cyclone_pop_cb = cyclone_pop_callback;
   cyclone_handle->cyclone_commit_cb = cyclone_commit_callback;
   cyclone_handle->user_arg   = user_arg;
   
