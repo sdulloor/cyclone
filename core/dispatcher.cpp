@@ -50,20 +50,23 @@ static void unlock_rpc_list()
   __sync_synchronize();
 }
 
-rpc_info_t * locate_rpc(unsigned long global_txid)
+rpc_info_t * locate_rpc(unsigned long global_txid, bool keep_lock = false)
 {
   rpc_info_t *rpc_info;
+  rpc_info_t *hit = NULL;
   lock_rpc_list();
   rpc_info = pending_rpc_head;
   while(rpc_info != NULL) {
     if(rpc_info->rpc->global_txid == global_txid) {
-      break;
-    }
+      hit = rpc_info;
+    } // There can be failed versions earlier in the chain
     rpc_info = rpc_info->next;
   }
-  unlock_rpc_list(); 
+  if(!keep_lock) {
+    unlock_rpc_list(); 
+  }
   // Note: assume gc will not remove this entry
-  return rpc_info;
+  return hit;
 }
 
 static void event_committed(const rpc_t *rpc)
@@ -117,6 +120,7 @@ void exec_rpc_internal(rpc_info_t *rpc)
       event_executed(rpc->rpc, rpc->ret_value, rpc->sz);
       event_committed(rpc->rpc);
       D_RW(root)->committed_global_txid = rpc->rpc->global_txid;
+      //BOOST_LOG_TRIVIAL(info) << "SUCCESS " << rpc->rpc->global_txid;
     }
     else {
       pmemobj_tx_abort(-1);
@@ -234,15 +238,16 @@ void cyclone_rep_cb(void *user_arg, const unsigned char *data, const int len)
 {
   const rpc_t *rpc = (const rpc_t *)data;
   bool issue_it;
+  rpc_info_t *match;
   event_seen(rpc);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   issue_it = (D_RO(root)->committed_global_txid < rpc->global_txid); // not committed
-  lock_rpc_list();
   // not already issued
-  issue_it =  issue_it && 
-    (pending_rpc_tail == NULL || pending_rpc_tail->rpc->global_txid < rpc->global_txid);
+  match = locate_rpc(rpc->global_txid, true);
+  if(match != NULL) {
+    issue_it =  issue_it && match->rep_failed;
+  }
   unlock_rpc_list();
-  
   if(issue_it) {
     issue_rpc(rpc, len);
   }
