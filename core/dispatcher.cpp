@@ -69,42 +69,30 @@ rpc_info_t * locate_rpc(unsigned long global_txid, bool keep_lock = false)
   return hit;
 }
 
-static void event_committed(const rpc_t *rpc)
-{
-  int client_id = rpc->client_id;
-  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  if(rpc->client_txid > D_RO(root)->client_state[client_id].committed_txid) {
-    D_RW(root)->client_state[client_id].committed_txid = rpc->client_txid;
-    unsigned long *ptr =
-      (unsigned long  *)&D_RW(root)->client_state[client_id].committed_txid;
-    pmemobj_tx_add_range_direct(ptr, sizeof(unsigned long));
-    *ptr = rpc->client_txid;
-  }
-}
-
 // This function must be executed in the context of a tx
-static void event_executed(const rpc_t *rpc,
-			   const void* ret_value,
-			   const int ret_size)
+static void mark_done(const rpc_t *rpc,
+		      const void* ret_value,
+		      const int ret_size)
 {
   int client_id = rpc->client_id;
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  void *old = (void *)&D_RW(root)->client_state[client_id].last_return_value;
-  pmemobj_tx_add_range_direct(old, sizeof(TOID(char)));
-  if(!TOID_IS_NULL(D_RW(root)->client_state[client_id].last_return_value))
-  {
-    TX_FREE(D_RW(root)->client_state[client_id].last_return_value);
+  struct client_state_st *state = &D_RW(root)->client_state[client_id];
+  pmemobj_tx_add_range_direct(state, sizeof(struct client_state_st));
+  if(!TOID_IS_NULL(state->last_return_value)) {
+    TX_FREE(state->last_return_value);
   }
   if(ret_size > 0) {
-    D_RW(root)->client_state[client_id].last_return_value =
-      TX_ALLOC(char, ret_size);
-    TX_MEMCPY(D_RW(D_RW(root)->client_state[client_id].last_return_value),
-	      ret_value,
-	      ret_size);
+    state->last_return_value = TX_ALLOC(char, ret_size);
+    TX_MEMCPY(D_RW(state->last_return_value), ret_value, ret_size);
   }
   else {
-    TOID_ASSIGN(D_RW(root)->client_state[rpc->client_id].last_return_value, OID_NULL);
+    TOID_ASSIGN(state->last_return_value, OID_NULL);
   }
+  unsigned long *global_txid_ptr = &D_RW(root)->committed_global_txid;
+  pmemobj_tx_add_range_direct(global_txid_ptr, sizeof(unsigned long));
+  *global_txid_ptr = rpc->global_txid;
+  __sync_synchronize(); // Main thread can return this value now
+  state->committed_txid = rpc->client_txid;
 }
 
 void exec_rpc_internal(rpc_info_t *rpc)
@@ -117,9 +105,7 @@ void exec_rpc_internal(rpc_info_t *rpc)
     rpc->executed = true;
     while(!rpc->rep_success && !rpc->rep_failed);
     if(rpc->rep_success) {
-      event_executed(rpc->rpc, rpc->ret_value, rpc->sz);
-      event_committed(rpc->rpc);
-      D_RW(root)->committed_global_txid = rpc->rpc->global_txid;
+      mark_done(rpc->rpc, rpc->ret_value, rpc->sz);
       //BOOST_LOG_TRIVIAL(info) << "SUCCESS " << rpc->rpc->global_txid;
     }
     else {
