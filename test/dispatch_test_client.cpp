@@ -46,8 +46,8 @@ int main(int argc, char *argv[])
     *(unsigned int *)&proposal[8] = (unsigned int)(timer.current_time()/1000);
     void *resp;
     print("PROPOSE", proposal, 12);
-    make_rpc(handle, proposal, 12, &resp);
-    if(memcmp(proposal, resp, 12) != 0) {
+    int sz = make_rpc(handle, proposal, 12, &resp);
+    if(sz != 12 || memcmp(proposal, resp, 12) != 0) {
       print("ERROR", proposal, 12);
     }
     else {

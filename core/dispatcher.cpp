@@ -89,6 +89,7 @@ static void mark_done(const rpc_t *rpc,
   else {
     TOID_ASSIGN(state->last_return_value, OID_NULL);
   }
+  state->last_return_size = ret_size;
   unsigned long *global_txid_ptr = &D_RW(root)->committed_global_txid;
   pmemobj_tx_add_range_direct(global_txid_ptr, sizeof(unsigned long));
   *global_txid_ptr = rpc->global_txid;
@@ -381,7 +382,7 @@ static dispatcher_loop * dispatcher_loop_obj;
 
 void dispatcher_start(const char* config_path,
 		      rpc_callback_t rpc_callback,
-		      gc_callback_t gc_callback)
+		      rpc_gc_callback_t gc_callback)
 {
   boost::property_tree::read_ini(config_path, pt);
   boost::log::keywords::auto_flush = true;

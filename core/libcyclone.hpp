@@ -56,10 +56,12 @@ int (*rpc_callback_t)(const unsigned char *data,
 		      void **return_value);
 
 //Garbage collect return value
-typedef void (*gc_callback_t)(void *data);
+typedef void (*rpc_gc_callback_t)(void *data);
 
 // Start the dispatcher loop -- note: does not return
-void dispatcher_start(const char* config_path, rpc_callback_t  rpc_callback);
+void dispatcher_start(const char* config_path, 
+		      rpc_callback_t rpc_callback,
+		      rpc_gc_callback_t gc_callback);
 
 // My id
 int dispatcher_me();
@@ -69,10 +71,10 @@ int dispatcher_me();
 static const int CLIENT_MAXPAYLOAD = (DISP_MAX_MSGSIZE - sizeof(rpc_t));
 void* cyclone_client_init(int client_id, const char *config);
 // Make an rpc call -- returns size of response
-unsigned long make_rpc(void *handle,
-		       void *payload,
-		       int sz,
-		       void **response);
+int make_rpc(void *handle,
+	     void *payload,
+	     int sz,
+	     void **response);
 
 
 #endif

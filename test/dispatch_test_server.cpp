@@ -1,5 +1,6 @@
 // Test dispatch/RPC interface (server side)
 #include<libcyclone.hpp>
+#include<string.h>
 #include "../core/clock.hpp"
 #include<boost/log/trivial.hpp>
 

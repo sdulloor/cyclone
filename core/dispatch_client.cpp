@@ -91,12 +91,12 @@ typedef struct rpc_client_st {
     return resp_sz;
   }
 
-  unsigned long make_rpc(void *payload,
-			 int sz,
-			 void **response)
+  int make_rpc(void *payload,
+	       int sz,
+	       void **response)
   {
     int retcode;
-    unsigned long resp_sz;
+    int resp_sz;
     int txid;
     while(true) {
       packet_out->code      = RPC_REQ_FN;
@@ -156,7 +156,7 @@ typedef struct rpc_client_st {
       }
     }
     *response = (void *)(packet_in + 1);
-    return resp_sz - sizeof(rpc_t);
+    return (int)(resp_sz - sizeof(rpc_t));
   }
 } rpc_client_t;
 
@@ -190,10 +190,10 @@ void* cyclone_client_init(int client_id, const char *config)
   return (void *)client;
 }
 
-unsigned long make_rpc(void *handle,
-		       void *payload,
-		       int sz,
-		       void **response)
+int make_rpc(void *handle,
+	     void *payload,
+	     int sz,
+	     void **response)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
   return client->make_rpc(payload, sz, response);
