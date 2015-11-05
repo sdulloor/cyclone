@@ -9,10 +9,10 @@ struct client_state_st {
   int last_return_size;
 };
 typedef struct disp_state_st {
+  TOID(char) nvheap_root;
   unsigned long committed_global_txid;
   struct client_state_st client_state[MAX_CLIENTS];
 } disp_state_t;
-TOID(char) nvheap_root;
 POBJ_LAYOUT_ROOT(disp_state, disp_state_t);
 POBJ_LAYOUT_END(disp_state);
 #endif

@@ -15,7 +15,6 @@
 #include <boost/asio/io_service.hpp>
 #include <boost/bind.hpp>
 #include<libpmemobj.h>
-#include "dispatcher_layout.hpp"
 #include "dispatcher_exec.hpp"
 
 static void *cyclone_handle;
@@ -428,6 +427,7 @@ void dispatcher_start(const char* config_path,
 	<< strerror(errno);
       exit(-1);
     }
+    TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
     TX_BEGIN(state) {
       D_RW(root)->nvheap_root = nvheap_setup_callback(D_RO(root)->nvheap_root);
     } TX_ONABORT {
@@ -435,7 +435,7 @@ void dispatcher_start(const char* config_path,
 	<< "Application unable to recover state:"
 	<< strerror(errno);
       exit(-1);
-    }
+    } TX_END
     BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered state";
   }
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
