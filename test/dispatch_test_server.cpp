@@ -39,6 +39,11 @@ int callback(const unsigned char *data,
   return len;
 }
 
+TOID(char) nvheap_setup(TOID(char) recovered)
+{
+  return TOID_NULL(char);
+}
+
 void gc(void *data)
 {
   free(data);
@@ -47,5 +52,5 @@ void gc(void *data)
 int main(int argc, char *argv[])
 {
   server_id = dispatcher_me();
-  dispatcher_start("cyclone_test.ini", callback, gc);
+  dispatcher_start("cyclone_test.ini", callback, gc, nvheap_setup);
 }

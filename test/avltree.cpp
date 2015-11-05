@@ -375,6 +375,11 @@ setval_t set_lookup(set_t *s, setkey_t k)
 
 static void **set;
 
+TOID(char) nvheap_setup(TOID(char) recovered)
+{
+  return TOID_NULL(char);
+}
+
 void gc (void *data)
 {
   free(data);
@@ -427,5 +432,5 @@ int callback(const unsigned char *data,
 
 int main(int argc, char *argv[])
 {
-  dispatcher_start("cyclone_test.ini", callback, gc);
+  dispatcher_start("cyclone_test.ini", callback, gc, nvheap_setup);
 }

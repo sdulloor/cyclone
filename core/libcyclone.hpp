@@ -1,6 +1,6 @@
 #ifndef _CYCLONE_HPP_
 #define _CYCLONE_HPP_
-
+#include<libpmemobj.h>
 
 
 //////// Direct interface
@@ -58,10 +58,14 @@ int (*rpc_callback_t)(const unsigned char *data,
 //Garbage collect return value
 typedef void (*rpc_gc_callback_t)(void *data);
 
+//NVheap setup return heap root -- passes in recovered heap root
+typedef TOID(char) (*rpc_nvheap_setup_callback_t)(TOID(char) recovered);
+
 // Start the dispatcher loop -- note: does not return
 void dispatcher_start(const char* config_path, 
 		      rpc_callback_t rpc_callback,
-		      rpc_gc_callback_t gc_callback);
+		      rpc_gc_callback_t gc_callback,
+		      rpc_nvheap_setup_callback_t nvheap_setup_callback);
 
 // My id
 int dispatcher_me();

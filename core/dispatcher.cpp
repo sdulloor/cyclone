@@ -382,7 +382,8 @@ static dispatcher_loop * dispatcher_loop_obj;
 
 void dispatcher_start(const char* config_path,
 		      rpc_callback_t rpc_callback,
-		      rpc_gc_callback_t gc_callback)
+		      rpc_gc_callback_t gc_callback,
+		      rpc_nvheap_setup_callback_t nvheap_setup_callback)
 {
   boost::property_tree::read_ini(config_path, pt);
   boost::log::keywords::auto_flush = true;
@@ -410,6 +411,7 @@ void dispatcher_start(const char* config_path,
 	TOID_ASSIGN(D_RW(root)->client_state[i].last_return_value, OID_NULL);
       }
       D_RW(root)->committed_global_txid = 0;
+      D_RW(root)->nvheap_root = nvheap_setup_callback(TOID_NULL(char));
     } TX_ONABORT {
       BOOST_LOG_TRIVIAL(fatal) 
 	<< "Unable to setup dispatcher state:"
@@ -423,6 +425,14 @@ void dispatcher_start(const char* config_path,
     if(state == NULL) {
       BOOST_LOG_TRIVIAL(fatal)
 	<< "Unable to open pmemobj pool for dispatcher state:"
+	<< strerror(errno);
+      exit(-1);
+    }
+    TX_BEGIN(state) {
+      D_RW(root)->nvheap_root = nvheap_setup_callback(D_RO(root)->nvheap_root);
+    } TX_ONABORT {
+      BOOST_LOG_TRIVIAL(fatal) 
+	<< "Application unable to recover state:"
 	<< strerror(errno);
       exit(-1);
     }
