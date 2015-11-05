@@ -26,16 +26,25 @@ void print(const char *prefix,
   }
 }
 
+//Print message and reflect back the rpc payload
 int callback(const unsigned char *data,
 	     const int len,
 	     void **return_value)
 {
   print("SERVER: APPLY", data, len);
-  return 0;
+  void *ret = malloc(len);
+  memcpy(ret, data, len);
+  *return_value = ret;
+  return len;
+}
+
+void gc(void *data)
+{
+  free(data);
 }
 
 int main(int argc, char *argv[])
 {
   server_id = dispatcher_me();
-  dispatcher_start("cyclone_test.ini", callback);
+  dispatcher_start("cyclone_test.ini", callback, gc);
 }

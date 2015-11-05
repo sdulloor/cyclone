@@ -24,6 +24,7 @@ static boost::property_tree::ptree pt;
 
 static PMEMobjpool *state;
 static rpc_callback_t execute_rpc;
+static rpc_gc_callback_t gc_rpc;
 static unsigned long seen_client_txid[MAX_CLIENTS];
 static unsigned long executed_client_txid[MAX_CLIENTS];
 static int me;
@@ -169,6 +170,9 @@ void gc_pending_rpc_list()
   while(deleted) {
     tmp = deleted;
     deleted = deleted->next;
+    if(tmp->sz != 0) {
+      gc_rpc(tmp->ret_value);
+    }
     delete tmp->rpc;
     delete tmp;
   }
@@ -375,7 +379,9 @@ struct dispatcher_loop {
 
 static dispatcher_loop * dispatcher_loop_obj;
 
-void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
+void dispatcher_start(const char* config_path,
+		      rpc_callback_t rpc_callback,
+		      gc_callback_t gc_callback)
 {
   boost::property_tree::read_ini(config_path, pt);
   boost::log::keywords::auto_flush = true;
@@ -428,6 +434,7 @@ void dispatcher_start(const char* config_path, rpc_callback_t rpc_callback)
    seen_client_txid[i] = D_RO(root)->client_state[i].committed_txid;
   }
   execute_rpc = rpc_callback;
+  gc_rpc      = gc_callback;
   last_global_txid = 0; // Count up from zero, always
   pending_rpc_head = pending_rpc_tail = NULL;
   // Boot cyclone -- this can lead to rep cbs on recovery

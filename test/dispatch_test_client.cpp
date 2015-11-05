@@ -47,7 +47,12 @@ int main(int argc, char *argv[])
     void *resp;
     print("PROPOSE", proposal, 12);
     make_rpc(handle, proposal, 12, &resp);
-    print("ACCEPTED", proposal, 12);
+    if(memcmp(proposal, resp, 12) != 0) {
+      print("ERROR", proposal, 12);
+    }
+    else {
+      print("ACCEPTED", proposal, 12);
+    }
     ctr++;
   }
 }
