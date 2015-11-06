@@ -1,5 +1,6 @@
 // AVLTree (server side)
 #include<libcyclone.hpp>
+#include "../core/dispatcher_layout.hpp"
 #include<string.h>
 #include "../core/clock.hpp"
 #include<boost/log/trivial.hpp>

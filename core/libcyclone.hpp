@@ -23,6 +23,8 @@ extern void* cyclone_boot(const char *config_path,
 extern void cyclone_shutdown(void *cyclone_handle);
 
 //////// RPC interface
+TOID_DECLARE(char, 0);
+#define TOID_NUM_BASE 1000
 static const int MAX_CLIENTS      = 10000; // Should be enough ?
 static const int DISP_MAX_MSGSIZE = 4194304; // 4MB max msg size 
 

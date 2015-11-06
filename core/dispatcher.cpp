@@ -5,6 +5,7 @@
 #include<errno.h>
 #include<unistd.h>
 #include "libcyclone.hpp"
+#include "dispatcher_layout.hpp"
 #include "../core/clock.hpp"
 #include "cyclone_comm.hpp"
 #include <boost/property_tree/ini_parser.hpp>
