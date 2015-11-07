@@ -39,7 +39,7 @@ int callback(const unsigned char *data,
   return len;
 }
 
-TOID(char) nvheap_setup(TOID(char) recovered)
+TOID(char) nvheap_setup(TOID(char) recovered, PMEMobjpool *state)
 {
   return TOID_NULL(char);
 }

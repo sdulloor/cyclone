@@ -61,7 +61,8 @@ int (*rpc_callback_t)(const unsigned char *data,
 typedef void (*rpc_gc_callback_t)(void *data);
 
 //NVheap setup return heap root -- passes in recovered heap root
-typedef TOID(char) (*rpc_nvheap_setup_callback_t)(TOID(char) recovered);
+typedef TOID(char) (*rpc_nvheap_setup_callback_t)(TOID(char) recovered,
+						  PMEMobjpool *state);
 
 // Start the dispatcher loop -- note: does not return
 void dispatcher_start(const char* config_path, 

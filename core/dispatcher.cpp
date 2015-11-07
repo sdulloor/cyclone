@@ -411,7 +411,7 @@ void dispatcher_start(const char* config_path,
 	TOID_ASSIGN(D_RW(root)->client_state[i].last_return_value, OID_NULL);
       }
       D_RW(root)->committed_global_txid = 0;
-      D_RW(root)->nvheap_root = nvheap_setup_callback(TOID_NULL(char));
+      D_RW(root)->nvheap_root = nvheap_setup_callback(TOID_NULL(char), state);
     } TX_ONABORT {
       BOOST_LOG_TRIVIAL(fatal) 
 	<< "Unable to setup dispatcher state:"
@@ -430,7 +430,7 @@ void dispatcher_start(const char* config_path,
     }
     TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
     TX_BEGIN(state) {
-      D_RW(root)->nvheap_root = nvheap_setup_callback(D_RO(root)->nvheap_root);
+      D_RW(root)->nvheap_root = nvheap_setup_callback(D_RO(root)->nvheap_root, state);
     } TX_ONABORT {
       BOOST_LOG_TRIVIAL(fatal) 
 	<< "Application unable to recover state:"

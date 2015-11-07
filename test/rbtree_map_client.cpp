@@ -30,54 +30,59 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/*
- * tree_map.c -- TreeMap sorted collection implementation
- */
-
-#ifndef	TREE_MAP_H
-#define	TREE_MAP_H
-
-#include <libpmemobj.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <time.h>
+#include <assert.h>
+#include "tree_map.hpp"
+#include "../core/clock.hpp"
+#include<boost/log/trivial.hpp>
+#include <boost/log/utility/setup.hpp>
 #include <libcyclone.hpp>
 
-#define	TREE_MAP_TYPE_OFFSET TOID_NUM_BASE + 1
-TOID_DECLARE(uint64_t, TOID_NUM_BASE);
-TOID_DECLARE(struct tree_map, TREE_MAP_TYPE_OFFSET + 0);
 
-struct tree_map;
+rtc_clock timer;
+#define	MAX_INSERTS 100
+static uint64_t nkeys;
+static uint64_t keys[MAX_INSERTS];
 
-int tree_map_new(PMEMobjpool *pop, TOID(struct tree_map) *map);
-
-int tree_map_delete(PMEMobjpool *pop, TOID(struct tree_map) *map);
-
-int tree_map_insert(PMEMobjpool *pop,
-	TOID(struct tree_map) map, uint64_t key, PMEMoid value);
-
-int tree_map_insert_new(PMEMobjpool *pop,
-	TOID(struct tree_map) map, uint64_t key, size_t size,
-		unsigned int type_num,
-		void (*constructor)(PMEMobjpool *pop, void *ptr, void *arg),
-		void *arg);
-
-PMEMoid tree_map_remove(PMEMobjpool *pop,
-	TOID(struct tree_map) map, uint64_t key);
-
-int tree_map_remove_free(PMEMobjpool *pop,
-	TOID(struct tree_map) map, uint64_t key);
-
-int tree_map_clear(PMEMobjpool *pop,
-	TOID(struct tree_map) map);
-
-PMEMoid tree_map_get(TOID(struct tree_map) map, uint64_t key);
-
-int tree_map_is_empty(TOID(struct tree_map) map);
-
-
-const int FN_INSERT = 0;
-const int FN_DELETE = 1;
-const int FN_LOOKUP = 2;
-
-struct k {uint64_t key;};
-struct kv {uint64_t key; uint64_t value;};
-
-#endif /* TREE_MAP_H */
+int main(int argc, const char *argv[]) {
+  boost::log::keywords::auto_flush = true;
+  if(argc != 2) {
+    printf("Usage: %s client_id\n", argv[0]);
+    exit(-1);
+  }
+  int me = atoi(argv[1]);
+  void * handle = cyclone_client_init(me, "cyclone_test.ini");
+  char *proposal = new char[CLIENT_MAXPAYLOAD];
+  srand(time(NULL));
+  struct kv insert_data;
+  struct k query_data;
+  int sz;
+  void *resp;
+  nkeys = 0;
+  for (int i = 0; i < MAX_INSERTS; ++i) {
+    insert_data.key = rand();
+    insert_data.value = rand();
+    *(int *)proposal = FN_INSERT;
+    *(struct kv *)(proposal + sizeof(int)) = insert_data; 
+    sz = make_rpc(handle, proposal, sizeof(int) + sizeof(struct kv), &resp);
+    keys[nkeys++] = insert_data.key;
+  }
+  for (int i = 0; i < MAX_INSERTS; ++i) {
+    query_data.key = keys[i];
+    *(int *)proposal = FN_LOOKUP;
+    *(struct k *)(proposal + sizeof(int)) = query_data; 
+    sz = make_rpc(handle, proposal, sizeof(int) + sizeof(struct k), &resp);
+    if(sz != sizeof(struct kv)) {
+      BOOST_LOG_TRIVIAL(error) << "Key not found !";
+    }
+    else {
+      BOOST_LOG_TRIVIAL(info) << "Success: " << ((struct kv *)resp)->key;
+    }
+  }
+  return 0;
+}

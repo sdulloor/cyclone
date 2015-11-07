@@ -27,8 +27,6 @@ void print(const char *prefix,
 
 int main(int argc, char *argv[])
 {
-  std::stringstream key;
-  std::stringstream addr;
   boost::log::keywords::auto_flush = true;
   if(argc != 2) {
     printf("Usage: %s client_id\n", argv[0]);
@@ -37,8 +35,6 @@ int main(int argc, char *argv[])
   int me = atoi(argv[1]);
   void * handle = cyclone_client_init(me, "cyclone_test.ini");
   char *proposal = new char[CLIENT_MAXPAYLOAD];
-  unsigned long server = 0;
-  int retcode;
   int ctr = 0;
   while(true) {
     *(unsigned int *)&proposal[0] = me;

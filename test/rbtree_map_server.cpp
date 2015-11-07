@@ -36,10 +36,11 @@
 
 #include <assert.h>
 #include <errno.h>
-#include "tree_map.hpp"
 #include<libcyclone.hpp>
+#include "tree_map.hpp"
 #include<string.h>
 #include<stdlib.h>
+#include<boost/log/trivial.hpp>
 
 TOID_DECLARE(struct tree_map_node, TREE_MAP_TYPE_OFFSET + 1);
 
@@ -478,29 +479,95 @@ tree_map_is_empty(TOID(struct tree_map) map)
 }
 
 
-unsigned long server_id;
+static unsigned long server_id;
+static TOID(struct tree_map) the_tree;
+static PMEMobjpool *pop;
+
+TOID(uint64_t) new_store_item(uint64_t val)
+{
+  TOID(uint64_t) item = TX_ALLOC(uint64_t, sizeof(uint64_t));
+  *D_RW(item) = val;
+  return item;
+}
 
 //Print message and reflect back the rpc payload
 int callback(const unsigned char *data,
 	     const int len,
 	     void **return_value)
 {
-  //print("SERVER: APPLY", data, len);
-  void *ret = malloc(len);
-  memcpy(ret, data, len);
-  *return_value = ret;
-  return len;
+  int code = *(int *)data;
+  if(code == FN_INSERT) {
+    struct kv *kv_pair = (struct kv *)(data + sizeof(int));
+    tree_map_insert(pop, 
+		    the_tree, 
+		    kv_pair->key,
+		    new_store_item(kv_pair->value).oid);
+    return 0;
+  }
+  else if(code == FN_DELETE) {
+    struct k *key = (struct k *)(data + sizeof(int));
+    struct kv *kv_pair;
+    PMEMoid item = tree_map_remove(pop,
+				   the_tree, 
+				   key->key);
+    if(OID_IS_NULL(item)) {
+      return 0;
+    }
+    else {
+      *return_value  = malloc(sizeof(struct kv));
+      kv_pair        = (struct kv *)*return_value;
+      kv_pair->key   = key->key;
+      kv_pair->value = *(uint64_t *)pmemobj_direct(item);
+      pmemobj_tx_free(item);
+      return sizeof(struct kv);
+    }
+  }
+  else if(code == FN_LOOKUP) {
+    struct k *key = (struct k *)(data + sizeof(int));
+    struct kv *kv_pair;
+    PMEMoid item = tree_map_get(the_tree, 
+				key->key);
+    if(OID_IS_NULL(item)) {
+      return 0;
+    }
+    else {
+      *return_value  = malloc(sizeof(struct kv));
+      kv_pair        = (struct kv *)*return_value;
+      kv_pair->key     = key->key;
+      kv_pair->value = *(uint64_t *)pmemobj_direct(item);
+      return sizeof(struct kv);
+    }
+  }
+  else {
+    BOOST_LOG_TRIVIAL(fatal) << "Tree: unknown fn !";
+    exit(-1);
+  }
 }
 
-TOID(char) nvheap_setup(TOID(char) recovered)
+TOID(char) nvheap_setup(TOID(char) recovered,
+			PMEMobjpool *state)
 {
-  return TOID_NULL(char);
+  
+  TOID(char) store;
+  pop = state;
+  if(TOID_IS_NULL(recovered)) {
+    tree_map_new(state, &the_tree);
+    store = TX_ALLOC(char, sizeof(TOID(struct tree_map)));
+    TX_MEMCPY(D_RW(store), &the_tree, sizeof(TOID(struct tree_map)));
+    return store;
+  }
+  else {
+    the_tree = *(TOID(struct tree_map) *)D_RO(recovered);
+    return recovered;
+  }
 }
 
 void gc(void *data)
 {
   free(data);
 }
+
+
 
 int main(int argc, char *argv[])
 {
