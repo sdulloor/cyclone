@@ -325,7 +325,7 @@ struct cyclone_monitor {
 	}
 	cyclone_handle->handle_incoming(sz);
       }
-      int elapsed_time = timer.elapsed_time()/1000;
+      int elapsed_time = timer.elapsed_time();
       // Handle periodic events -- - AFTER any incoming requests
       if(elapsed_time >= PERIODICITY) {
 	raft_periodic(cyclone_handle->raft_handle, elapsed_time);
