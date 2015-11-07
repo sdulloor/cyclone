@@ -69,20 +69,28 @@ int main(int argc, const char *argv[]) {
     insert_data.value = rand();
     *(int *)proposal = FN_INSERT;
     *(struct kv *)(proposal + sizeof(int)) = insert_data; 
+    timer.start();
     sz = make_rpc(handle, proposal, sizeof(int) + sizeof(struct kv), &resp);
+    timer.stop();
+    timer.print("Time: ");
+    timer.reset();
     keys[nkeys++] = insert_data.key;
   }
   for (int i = 0; i < MAX_INSERTS; ++i) {
     query_data.key = keys[i];
     *(int *)proposal = FN_LOOKUP;
     *(struct k *)(proposal + sizeof(int)) = query_data; 
+    timer.start();
     sz = make_rpc(handle, proposal, sizeof(int) + sizeof(struct k), &resp);
+    timer.stop();
     if(sz != sizeof(struct kv)) {
       BOOST_LOG_TRIVIAL(error) << "Key not found !";
     }
     else {
       BOOST_LOG_TRIVIAL(info) << "Success: " << ((struct kv *)resp)->key;
     }
+    timer.print("Time: ");
+    timer.reset();
   }
   return 0;
 }
