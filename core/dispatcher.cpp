@@ -313,37 +313,44 @@ struct dispatcher_loop {
       }
       break;
     case RPC_REQ_STATUS:
-      rpc_rep->client_id   = rpc_req->client_id;
-      rpc_rep->client_txid = rpc_req->client_txid;
-      rep_sz = sizeof(rpc_t);
-      rpc_info = pending_rpc_head;
-      while(rpc_info != NULL) {
-	if(rpc_info->rpc->client_id == rpc_req->client_id &&
-	   rpc_info->rpc->client_txid == rpc_req->client_txid) {
-	  break;
-	}
-	rpc_info = rpc_info->next;
-      }
-
-      if(seen_client_txid[rpc_req->client_id] != rpc_req->client_txid) {
-	rpc_rep->code = RPC_REP_INVTXID;
-	rpc_rep->client_txid = seen_client_txid[rpc_req->client_id];
-      }
-      else if(D_RO(root)->client_state[rpc_req->client_id].committed_txid
-	      == rpc_req->client_txid &&
-	      (rpc_info == NULL || rpc_info->complete)) {
-	const struct client_state_st * s =
-	  &D_RO(root)->client_state[rpc_req->client_id];
-	rpc_rep->code = RPC_REP_COMPLETE;
-	if(s->last_return_size > 0) {
-	  memcpy(&rpc_rep->payload,
-		 (void *)D_RO(s->last_return_value),
-		 s->last_return_size);
-	  rep_sz += s->last_return_size;
-	}
+      if(!cyclone_is_leader(cyclone_handle)) {
+	rep_sz = sizeof(rpc_t);
+	rpc_rep->code = RPC_REP_INVSRV;
+	rpc_rep->master = cyclone_get_leader(cyclone_handle);
       }
       else {
-	rpc_rep->code = RPC_REP_PENDING;
+	rpc_rep->client_id   = rpc_req->client_id;
+	rpc_rep->client_txid = rpc_req->client_txid;
+	rep_sz = sizeof(rpc_t);
+	rpc_info = pending_rpc_head;
+	while(rpc_info != NULL) {
+	  if(rpc_info->rpc->client_id == rpc_req->client_id &&
+	     rpc_info->rpc->client_txid == rpc_req->client_txid) {
+	    break;
+	  }
+	  rpc_info = rpc_info->next;
+	}
+
+	if(seen_client_txid[rpc_req->client_id] != rpc_req->client_txid) {
+	  rpc_rep->code = RPC_REP_INVTXID;
+	  rpc_rep->client_txid = seen_client_txid[rpc_req->client_id];
+	}
+	else if(D_RO(root)->client_state[rpc_req->client_id].committed_txid
+		== rpc_req->client_txid &&
+		(rpc_info == NULL || rpc_info->complete)) {
+	  const struct client_state_st * s =
+	    &D_RO(root)->client_state[rpc_req->client_id];
+	  rpc_rep->code = RPC_REP_COMPLETE;
+	  if(s->last_return_size > 0) {
+	    memcpy(&rpc_rep->payload,
+		   (void *)D_RO(s->last_return_value),
+		   s->last_return_size);
+	    rep_sz += s->last_return_size;
+	  }
+	}
+	else {
+	  rpc_rep->code = RPC_REP_PENDING;
+	}
       }
       break;
     default:

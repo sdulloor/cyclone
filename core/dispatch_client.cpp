@@ -57,7 +57,7 @@ typedef struct rpc_client_st {
       usleep(throttle_usec); // Avoid overwhelming the tx socket
 
       do {
-	e = cyclone_poll(poll_item, 1, timeout);
+	e = cyclone_poll(poll_item, 1, timeout_msec);
       } while( e < 0 && errno == EINTR); 
       if(cyclone_socket_has_data(poll_item, 0)) {
 	resp_sz = cyclone_rx(router->input_socket(server), 
@@ -113,7 +113,7 @@ typedef struct rpc_client_st {
       usleep(throttle_usec); // Avoid overwhelming the tx socket
       int e;
       do {
-	e = cyclone_poll(poll_item, 1, timeout);
+	e = cyclone_poll(poll_item, 1, timeout_msec);
       } while(e < 0 && errno == EINTR);
       if(cyclone_socket_has_data(poll_item, 0)) {
 	resp_sz = cyclone_rx(router->input_socket(server), 
