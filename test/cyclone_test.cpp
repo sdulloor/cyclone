@@ -5,6 +5,7 @@
 #include<libcyclone.hpp>
 #include "../core/clock.hpp"
 #include<boost/log/trivial.hpp>
+#include "../core/timeouts.hpp"
 
 rtc_clock timer;
 
@@ -12,9 +13,9 @@ void print(const char *prefix,
 	   void *data,
 	   const int size)
 {
-  unsigned int elapsed_msecs = timer.current_time()/1000;
+  unsigned long elapsed_usecs = timer.current_time();
   char *buf = (char *)data;
-  if(size != 12) {
+  if(size != 16) {
     BOOST_LOG_TRIVIAL(fatal) << "SERVER: Incorrect record size";
     exit(-1);
   }
@@ -23,7 +24,7 @@ void print(const char *prefix,
       << prefix << " "
       << *(const unsigned int *)buf << " "
       << *(const unsigned int *)(buf + 4) << " " 
-      << (elapsed_msecs - *(const unsigned int *)((char *)buf + 8));
+      << (elapsed_usecs - *(const unsigned long *)((char *)buf + 8));
   }
 }
 
@@ -71,7 +72,7 @@ int main(int argc, char *argv[])
   }
   timer.start();
   unsigned int node_id = atoi(argv[1]);
-  unsigned char entry[12];
+  unsigned char entry[16];
   int ctr = 0;
   cyclone_handle = cyclone_boot("cyclone_test.ini",
 				&cyclone_rep_cb,
@@ -83,25 +84,24 @@ int main(int argc, char *argv[])
       continue;
     *(unsigned int *)entry = node_id;
     *(unsigned int *)(entry + 4) = ctr;
-    *(unsigned int *)(entry + 8) =
-      (unsigned int)(timer.current_time()/1000);
+    *(unsigned long *)(entry + 8) = timer.current_time();
     void *cookie;
     do {
-      usleep(30000);
-      cookie = cyclone_add_entry(cyclone_handle, entry, 12);
+      usleep(throttle_usec);
+      cookie = cyclone_add_entry(cyclone_handle, entry, 16);
     } while(cookie == NULL);
     int result;
     do {
-      usleep(30000);
+      usleep(throttle_usec);
       result = cyclone_check_status(cyclone_handle, cookie);
     } while(result == 0);
     free(cookie);
-    unsigned int elapsed_msecs = timer.current_time()/1000;
+    unsigned long elapsed_usecs = timer.current_time();
     if(result == 1) {
-      print("CLIENT: ACCEPT ", (void *)entry, 12);
+      print("CLIENT: ACCEPT ", (void *)entry, 16);
     }
     else {
-      print("CLIENT: REJECT ", (void *)entry, 12);
+      print("CLIENT: REJECT ", (void *)entry, 16);
     }
     ctr++;
   }
