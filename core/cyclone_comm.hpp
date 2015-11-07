@@ -52,6 +52,25 @@ static unsigned long cyclone_rx(void *socket,
   return (unsigned long) rc;
 }
 
+static unsigned long cyclone_rx_noblock(void *socket,
+					unsigned char *data,
+					unsigned long size,
+					const char *context)
+{
+  int rc;
+  rc = zmq_recv(socket, data, size, ZMQ_NOBLOCK);
+  if (rc == -1) {
+    if (errno != EAGAIN) {
+      BOOST_LOG_TRIVIAL(fatal) 
+	<< "CYCLONE: Unable to receive "
+	<< context << " "
+	<< zmq_strerror(zmq_errno());
+      exit(-1);
+    }
+  }
+  return (unsigned long) rc;
+}
+
 static void * setup_cyclone_inpoll(void **sockets, int cnt)
 {
   zmq_pollitem_t *items = new zmq_pollitem_t[cnt];

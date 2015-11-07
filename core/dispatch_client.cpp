@@ -6,9 +6,7 @@
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <unistd.h>
-
-static const int timeout_msec  = 10000;
-static const int throttle_usec = 10000;
+#include "timeouts.hpp"
 
 typedef struct rpc_client_st {
   int me;
@@ -59,7 +57,7 @@ typedef struct rpc_client_st {
       usleep(throttle_usec); // Avoid overwhelming the tx socket
 
       do {
-	e = cyclone_poll(poll_item, 1, timeout_msec);
+	e = cyclone_poll(poll_item, 1, timeout);
       } while( e < 0 && errno == EINTR); 
       if(cyclone_socket_has_data(poll_item, 0)) {
 	resp_sz = cyclone_rx(router->input_socket(server), 
@@ -115,7 +113,7 @@ typedef struct rpc_client_st {
       usleep(throttle_usec); // Avoid overwhelming the tx socket
       int e;
       do {
-	e = cyclone_poll(poll_item, 1, timeout_msec);
+	e = cyclone_poll(poll_item, 1, timeout);
       } while(e < 0 && errno == EINTR);
       if(cyclone_socket_has_data(poll_item, 0)) {
 	resp_sz = cyclone_rx(router->input_socket(server), 

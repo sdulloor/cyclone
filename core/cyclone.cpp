@@ -1,7 +1,7 @@
 // Asynchronous fault tolerant pmem log replication with cyclone
 #include "libcyclone.hpp"
 #include "cyclone_context.hpp"
-
+#include "timeouts.hpp"
 
 #ifdef TRACING
 extern void trace_pre_append(void *data, const int size);
@@ -421,8 +421,8 @@ void* cyclone_boot(const char *config_path,
 
   // Note: set raft callbacks AFTER recovery
   raft_set_callbacks(cyclone_handle->raft_handle, &raft_funcs, cyclone_handle);
-  raft_set_election_timeout(cyclone_handle->raft_handle, 1000);
-  raft_set_request_timeout(cyclone_handle->raft_handle, 500);
+  raft_set_election_timeout(cyclone_handle->raft_handle, RAFT_ELECTION_TIMEOUT);
+  raft_set_request_timeout(cyclone_handle->raft_handle, RAFT_REQUEST_TIMEOUT);
 
   /* setup connections */
   cyclone_handle->zmq_context  = zmq_init(1); // One thread should be enough ?

@@ -10,6 +10,7 @@
 extern "C" {
 #include <raft.h>
 }
+#include <unistd.h>
 #include <boost/thread.hpp>
 #include <boost/asio/io_service.hpp>
 #include <boost/bind.hpp>
@@ -18,6 +19,7 @@ extern "C" {
 #include "circular_log.h"
 #include "clock.hpp"
 #include "cyclone_comm.hpp"
+#include "timeouts.hpp"
 
 /* Message types */
 const int  MSG_REQUESTVOTE              = 1;
@@ -27,8 +29,6 @@ const int  MSG_APPENDENTRIES_RESPONSE   = 4;
 const int  MSG_CLIENT_REQ               = 5;
 const int  MSG_CLIENT_STATUS            = 6;
 
-/* Timers */
-const int PERIODICITY_MSEC    = 1;        
 
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 4194304;
@@ -311,28 +311,28 @@ struct cyclone_monitor {
   void operator ()()
   {
     rtc_clock timer;
-    void *poll_items = setup_cyclone_inpoll(cyclone_handle->router->input_socket_array(), 
-					    cyclone_handle->replicas);
+    timer.start();
     while(!terminate) {
-      timer.start();
-      int e = cyclone_poll(poll_items, cyclone_handle->replicas, (unsigned long)PERIODICITY_MSEC);
       timer.stop();
       // Handle any outstanding requests
       for(int i=0;i<cyclone_handle->replicas;i++) {
-	if(cyclone_socket_has_data(poll_items, i)) {
-	  unsigned long sz = cyclone_rx(cyclone_handle->router->input_socket(i),
-					cyclone_handle->cyclone_buffer_in,
-					MSG_MAXSIZE,
-					"Incoming");
-	  cyclone_handle->handle_incoming(sz);
+	unsigned long sz = cyclone_rx_noblock(cyclone_handle->router->input_socket(i),
+					      cyclone_handle->cyclone_buffer_in,
+					      MSG_MAXSIZE,
+					      "Incoming");
+	if(sz == -1) {
+	  continue;
 	}
+	cyclone_handle->handle_incoming(sz);
       }
       int elapsed_time = timer.elapsed_time()/1000;
       // Handle periodic events -- - AFTER any incoming requests
-      if(elapsed_time >= PERIODICITY_MSEC) {
+      if(elapsed_time >= PERIODICITY) {
 	raft_periodic(cyclone_handle->raft_handle, elapsed_time);
 	timer.reset();
       }
+      timer.start();
+      usleep(10);
     }
   }
 };
