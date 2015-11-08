@@ -40,13 +40,14 @@ typedef struct rpc_st {
 } rpc_t; // Used for both requests and replies
 
 // Possble values for code follow
-static const int RPC_REQ_FN       = 0; // Execute
-static const int RPC_REQ_STATUS   = 1; // Check status
-static const int RPC_REP_COMPLETE = 2; // DONE 
-static const int RPC_REP_PENDING  = 3; // PENDING 
-static const int RPC_REP_INVTXID  = 4; // WRONG client txid -- last seen
+static const int RPC_REQ_FN             = 0; // Execute
+static const int RPC_REQ_STATUS         = 1; // Check status (non blocking)
+static const int RPC_REQ_STATUS_BLOCK   = 2; // Check status (blocking)
+static const int RPC_REP_COMPLETE       = 3; // DONE 
+static const int RPC_REP_PENDING        = 4; // PENDING 
+static const int RPC_REP_INVTXID        = 5; // WRONG client txid -- last seen
 				       // client_txid set in reply
-static const int RPC_REP_INVSRV   = 5; // WRONG master  -- master set in reply
+static const int RPC_REP_INVSRV         = 6; // WRONG master  -- master set in reply
 
 static const unsigned long RPC_INIT_TXID = 1; // Initial client txid
 

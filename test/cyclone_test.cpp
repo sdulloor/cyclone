@@ -99,7 +99,7 @@ int main(int argc, char *argv[])
     do {
       cookie = cyclone_add_entry(cyclone_handle, entry, 16);
       if(cookie == NULL) {
-	usleep(throttle_usec);
+	usleep(timeout_msec*1000);
       }
       else {
 	break;
@@ -108,10 +108,7 @@ int main(int argc, char *argv[])
     int result;
     do {
       result = cyclone_check_status(cyclone_handle, cookie);
-      if(result == 0) {
-	usleep(throttle_usec);
-      }
-      else {
+      if(result != 0) {
 	break;
       }
     } while(true);

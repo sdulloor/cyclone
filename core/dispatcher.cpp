@@ -17,6 +17,7 @@
 #include <boost/bind.hpp>
 #include<libpmemobj.h>
 #include "dispatcher_exec.hpp"
+#include "timeouts.hpp"
 
 static void *cyclone_handle;
 static boost::property_tree::ptree pt;
@@ -26,7 +27,7 @@ static PMEMobjpool *state;
 static rpc_callback_t execute_rpc;
 static rpc_gc_callback_t gc_rpc;
 static unsigned long seen_client_txid[MAX_CLIENTS];
-static unsigned long executed_client_txid[MAX_CLIENTS];
+static bool client_blocked[MAX_CLIENTS];
 static int me;
 static unsigned long last_global_txid;
 // Linked list of RPCs yet to be completed
@@ -51,7 +52,8 @@ static void unlock_rpc_list()
   __sync_synchronize();
 }
 
-rpc_info_t * locate_rpc(unsigned long global_txid, bool keep_lock = false)
+static rpc_info_t * locate_rpc(unsigned long global_txid, 
+			       bool keep_lock = false)
 {
   rpc_info_t *rpc_info;
   rpc_info_t *hit = NULL;
@@ -124,28 +126,11 @@ int dispatcher_me()
   return me;
 }
 
+static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
+static unsigned char rx_buffer[DISP_MAX_MSGSIZE];
+static cyclone_switch *router;
 
-static void event_seen(const rpc_t *rpc)
-{
-  if(rpc->client_txid > seen_client_txid[rpc->client_id]) {
-    seen_client_txid[rpc->client_id] = rpc->client_txid;    
-  }
-  if(rpc->global_txid > last_global_txid) {
-    last_global_txid = rpc->global_txid;
-  }
-}
-
-static void event_remove(const rpc_t *rpc)
-{
-  if(rpc->client_txid <= seen_client_txid[rpc->client_id]) {
-    seen_client_txid[rpc->client_id] = rpc->client_txid - 1;    
-  }
-  if(rpc->global_txid <= last_global_txid) {
-    last_global_txid = rpc->global_txid - 1;
-  }
-}
-
-void gc_pending_rpc_list()
+static void gc_pending_rpc_list()
 {
   rpc_info_t *rpc, *deleted, *tmp;
   deleted = NULL;
@@ -167,10 +152,34 @@ void gc_pending_rpc_list()
     pending_rpc_tail = NULL;
   }
   unlock_rpc_list();
-
+  rpc_t *rpc_rep = (rpc_t *)tx_buffer;
+  unsigned long rep_sz;
   while(deleted) {
     tmp = deleted;
     deleted = deleted->next;
+    if(client_blocked[tmp->rpc->client_id]) {
+      rpc_rep->client_id   = tmp->rpc->client_id;
+      rpc_rep->client_txid = tmp->rpc->client_txid;
+      rep_sz = sizeof(rpc_t);
+      if(tmp->rep_failed) {
+	rpc_rep->code = RPC_REP_INVSRV;
+	rpc_rep->master = cyclone_get_leader(cyclone_handle);
+      }
+      else {
+	rpc_rep->code = RPC_REP_COMPLETE;
+	if(tmp->sz > 0) {
+	  memcpy(&rpc_rep->payload,
+		 (void *)tmp->ret_value,
+		 tmp->sz);
+	  rep_sz += tmp->sz;
+	}
+      }
+      cyclone_tx(router->output_socket(tmp->rpc->client_id), 
+		 tx_buffer, 
+		 rep_sz, 
+		 "Dispatch reply");
+      client_blocked[tmp->rpc->client_id] = false;
+    }
     if(tmp->sz != 0) {
       gc_rpc(tmp->ret_value);
     }
@@ -179,7 +188,7 @@ void gc_pending_rpc_list()
   }
 }
 
-void issue_rpc(const rpc_t *rpc, int len)
+static void issue_rpc(const rpc_t *rpc, int len)
 {
   rpc_info_t *rpc_info = new rpc_info_t;
   rpc_info->executed    = false;
@@ -202,6 +211,26 @@ void issue_rpc(const rpc_t *rpc, int len)
   exec_rpc(rpc_info);
   __sync_synchronize();
   gc_pending_rpc_list();
+}
+
+static void event_seen(const rpc_t *rpc)
+{
+  if(rpc->client_txid > seen_client_txid[rpc->client_id]) {
+    seen_client_txid[rpc->client_id] = rpc->client_txid;    
+  }
+  if(rpc->global_txid > last_global_txid) {
+    last_global_txid = rpc->global_txid;
+  }
+}
+
+static void event_remove(const rpc_t *rpc)
+{
+  if(rpc->client_txid <= seen_client_txid[rpc->client_id]) {
+    seen_client_txid[rpc->client_id] = rpc->client_txid - 1;    
+  }
+  if(rpc->global_txid <= last_global_txid) {
+    last_global_txid = rpc->global_txid - 1;
+  }
 }
 
 void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
@@ -260,12 +289,8 @@ void cyclone_pop_cb(void *user_arg, const unsigned char *data, const int len)
 }
 
 
-static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
-static unsigned char rx_buffer[DISP_MAX_MSGSIZE];
-
 struct dispatcher_loop {
   void *zmq_context;
-  cyclone_switch *router;
   int clients;
   
   void handle_rpc(unsigned long sz)
@@ -313,6 +338,7 @@ struct dispatcher_loop {
       }
       break;
     case RPC_REQ_STATUS:
+    case RPC_REQ_STATUS_BLOCK:
       if(!cyclone_is_leader(cyclone_handle)) {
 	rep_sz = sizeof(rpc_t);
 	rpc_rep->code = RPC_REP_INVSRV;
@@ -348,6 +374,10 @@ struct dispatcher_loop {
 	    rep_sz += s->last_return_size;
 	  }
 	}
+	else if(rpc_req->code == RPC_REQ_STATUS_BLOCK) {
+	  rep_sz = 0;
+	  client_blocked[rpc_req->client_id] = true;
+	}
 	else {
 	  rpc_rep->code = RPC_REP_PENDING;
 	}
@@ -357,14 +387,18 @@ struct dispatcher_loop {
       BOOST_LOG_TRIVIAL(fatal) << "DISPATCH: unknown code";
       exit(-1);
     }
-    cyclone_tx(router->output_socket(rpc_req->client_id), 
-	       tx_buffer, 
-	       rep_sz, 
-	       "Dispatch reply");
+    if(rep_sz > 0) {
+      cyclone_tx(router->output_socket(rpc_req->client_id), 
+		 tx_buffer, 
+		 rep_sz, 
+		 "Dispatch reply");
+    }
   }
 
   void operator ()()
   {
+    rtc_clock clock;
+    clock.start();
     while(true) {
       for(int i=0;i<clients;i++) {
 	unsigned long sz = cyclone_rx_noblock(router->input_socket(i),
@@ -376,6 +410,12 @@ struct dispatcher_loop {
 	}
 	handle_rpc(sz);
       }
+      clock.stop();
+      if(clock.elapsed_time() >= PERIODICITY) {
+	gc_pending_rpc_list();
+	clock.reset();
+      }
+      clock.start();
     }
   }
 };
@@ -446,6 +486,7 @@ void dispatcher_start(const char* config_path,
 			  << D_RO(root)->committed_global_txid;
   for(int i=0;i<MAX_CLIENTS;i++) {
    seen_client_txid[i] = D_RO(root)->client_state[i].committed_txid;
+   client_blocked[i]          = false;
   }
   execute_rpc = rpc_callback;
   gc_rpc      = gc_callback;
@@ -465,12 +506,12 @@ void dispatcher_start(const char* config_path,
   dispatcher_loop_obj->clients = pt.get<int>("dispatch.clients");
   int dispatch_server_baseport = pt.get<int>("dispatch.server_baseport");
   int dispatch_client_baseport = pt.get<int>("dispatch.client_baseport");
-  dispatcher_loop_obj->router = new cyclone_switch(zmq_context,
-						   &pt,
-						   me,
-						   dispatcher_loop_obj->clients,
-						   dispatch_server_baseport,
-						   dispatch_client_baseport,
-						   false);
+  router = new cyclone_switch(zmq_context,
+			      &pt,
+			      me,
+			      dispatcher_loop_obj->clients,
+			      dispatch_server_baseport,
+			      dispatch_client_baseport,
+			      false);
   (*dispatcher_loop_obj)();
 }

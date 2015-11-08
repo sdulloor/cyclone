@@ -15,7 +15,6 @@ typedef struct rpc_client_st {
   rpc_t *packet_out;
   rpc_t *packet_in;
   int server;
-  void *poll_item;
   int replicas;
   void update_server()
   {
@@ -23,17 +22,11 @@ typedef struct rpc_client_st {
       << "CLIENT DETECTED POSSIBLE FAILED MASTER "
       << server;
     server = (server + 1)%replicas;
-    delete_cyclone_inpoll(poll_item);
-    void *socket = router->input_socket(server);
-    poll_item = setup_cyclone_inpoll(&socket, 1);
     BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
   }
 
   void set_server()
   {
-    delete_cyclone_inpoll(poll_item);
-    void *socket = router->input_socket(server);
-    poll_item = setup_cyclone_inpoll(&socket, 1);
     BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING MASTER " << server;
   }
 
@@ -43,7 +36,7 @@ typedef struct rpc_client_st {
     unsigned long resp_sz;
     int retcode, e;
     while(true) {
-      packet_out->code        = RPC_REQ_STATUS;
+      packet_out->code        = RPC_REQ_STATUS_BLOCK;
       packet_out->client_id   = me;
       packet_out->client_txid = ctr;
       retcode = cyclone_tx(router->output_socket(server), 
@@ -54,18 +47,12 @@ typedef struct rpc_client_st {
 	update_server();
 	continue;
       }
-      usleep(throttle_usec); // Avoid overwhelming the tx socket
-
-      do {
-	e = cyclone_poll(poll_item, 1, timeout_msec);
-      } while( e < 0 && errno == EINTR); 
-      if(cyclone_socket_has_data(poll_item, 0)) {
-	resp_sz = cyclone_rx(router->input_socket(server), 
-			     (unsigned char *)packet_in, 
-			     DISP_MAX_MSGSIZE, 
-			     "RESULT");
-      }
-      else {
+      resp_sz = cyclone_rx_timeout(router->input_socket(server), 
+				   (unsigned char *)packet_in, 
+				   DISP_MAX_MSGSIZE,
+				   timeout_msec*1000,
+				   "RESULT");
+      if(resp_sz == -1) {
 	update_server();
 	continue;
       }
@@ -110,21 +97,16 @@ typedef struct rpc_client_st {
 	update_server();
 	continue;
       }
-      usleep(throttle_usec); // Avoid overwhelming the tx socket
-      int e;
-      do {
-	e = cyclone_poll(poll_item, 1, timeout_msec);
-      } while(e < 0 && errno == EINTR);
-      if(cyclone_socket_has_data(poll_item, 0)) {
-	resp_sz = cyclone_rx(router->input_socket(server), 
-			     (unsigned char *)packet_in, 
-			     DISP_MAX_MSGSIZE, 
-			     "RESULT");
-      }
-      else {
+      resp_sz = cyclone_rx_timeout(router->input_socket(server), 
+				   (unsigned char *)packet_in, 
+				   DISP_MAX_MSGSIZE, 
+				   timeout_msec*1000,
+				   "RESULT");
+      if(resp_sz == -1) {
 	update_server();
 	continue;
       }
+
       if(packet_in->code == RPC_REP_INVTXID) {
 	BOOST_LOG_TRIVIAL(info)
 	  << "CLIENT UPDATE TXID "
@@ -181,8 +163,6 @@ void* cyclone_client_init(int client_id, const char *config)
   buf = new char[DISP_MAX_MSGSIZE];
   client->packet_in = (rpc_t *)buf;
   client->server    = 0;
-  void *sock = client->router->input_socket(0);
-  client->poll_item = setup_cyclone_inpoll(&sock, 1);
   client->ctr = RPC_INIT_TXID;
   client->replicas = replicas;
   return (void *)client;
