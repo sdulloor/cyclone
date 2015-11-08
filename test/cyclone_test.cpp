@@ -96,11 +96,12 @@ int main(int argc, char *argv[])
       continue;
     *(unsigned int *)entry = node_id;
     *(unsigned int *)(entry + 4) = ctr;
-    *(unsigned long *)(entry + 8) = timer.current_time();
     void *cookie;
     do {
+      *(unsigned long *)(entry + 8) = timer.current_time();
       cookie = cyclone_add_entry(cyclone_handle, entry, 16);
       if(cookie == NULL) {
+	BOOST_LOG_TRIVIAL(info) << "CLIENT: Not on master";
 	usleep(timeout_msec*1000);
       }
       else {
@@ -116,6 +117,8 @@ int main(int argc, char *argv[])
     } while(true);
     free(cookie);
     unsigned long elapsed_usecs = timer.current_time();
+    //throttle
+    usleep(1000);
     if(result == 1) {
       print("CLIENT: ACCEPT ", (void *)entry, 16);
     }
