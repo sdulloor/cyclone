@@ -62,6 +62,9 @@ typedef struct rpc_client_st {
       }
       else if(packet_in->code == RPC_REP_INVSRV) {
 	server = packet_in->master;
+	if(server == -1) { // Startup
+	  server = 0;
+	}
 	set_server();
       }
       else if(packet_in->code == RPC_REP_INVTXID) {
@@ -128,6 +131,9 @@ typedef struct rpc_client_st {
       }
       else if(packet_in->code == RPC_REP_INVSRV) {
 	server = packet_in->master;
+	if(server == -1) {
+	  server = 0;
+	}
 	set_server();
       }
       else if(packet_in->code == RPC_REP_COMPLETE) {
@@ -174,5 +180,7 @@ int make_rpc(void *handle,
 	     void **response)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
+  //throttle
+  usleep(2000);
   return client->make_rpc(payload, sz, response);
 }
