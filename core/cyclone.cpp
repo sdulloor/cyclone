@@ -4,6 +4,7 @@
 #include "timeouts.hpp"
 
 #ifdef TRACING
+extern void trace_send_cmd(void *data, const int size);
 extern void trace_pre_append(void *data, const int size);
 extern void trace_post_append(void *data, const int size);
 extern void trace_send_entry(void *data, const int size);
@@ -284,6 +285,9 @@ void* cyclone_add_entry(void *cyclone_handle, void *data, int size)
   msg.msg_type    = MSG_CLIENT_REQ;
   msg.client.ptr  = data;
   msg.client.size = size;
+#ifdef TRACING
+  trace_send_cmd(data, size);
+#endif
   cyclone_tx(handle->router->output_socket(handle->me), 
 	     (const unsigned char *)&msg, 
 	     sizeof(msg_t), 

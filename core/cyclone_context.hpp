@@ -56,6 +56,7 @@ typedef struct
 
 #ifdef TRACING
 extern void trace_recv_entry(void *data, const int len);
+extern void trace_recv_cmd(void *data, const int size);
 #endif
 
 struct cyclone_monitor;
@@ -260,6 +261,9 @@ typedef struct cyclone_st {
       e = raft_recv_appendentries_response(raft_handle, msg->source, &msg->aer);
       break;
     case MSG_CLIENT_REQ:
+#ifdef TRACING
+      trace_recv_cmd(msg->client.ptr, msg->client.size);
+#endif
       if(!cyclone_is_leader(this)) {
 	client_rep = NULL;
 	cyclone_tx(router->input_socket(me),
@@ -313,7 +317,6 @@ struct cyclone_monitor {
     rtc_clock timer;
     timer.start();
     while(!terminate) {
-      timer.stop();
       // Handle any outstanding requests
       for(int i=0;i<cyclone_handle->replicas;i++) {
 	unsigned long sz = cyclone_rx_noblock(cyclone_handle->router->input_socket(i),
@@ -325,6 +328,7 @@ struct cyclone_monitor {
 	}
 	cyclone_handle->handle_incoming(sz);
       }
+      timer.stop();
       int elapsed_time = timer.elapsed_time();
       // Handle periodic events -- - AFTER any incoming requests
       if(elapsed_time >= PERIODICITY) {
@@ -332,7 +336,6 @@ struct cyclone_monitor {
 	timer.reset();
       }
       timer.start();
-      usleep(10);
     }
   }
 };

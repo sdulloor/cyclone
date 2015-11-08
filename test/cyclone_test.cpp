@@ -28,6 +28,16 @@ void print(const char *prefix,
   }
 }
 
+void trace_send_cmd(void *data, const int size)
+{
+  print("SERVER: SEND_CMD", data, size);
+}
+
+void trace_recv_cmd(void *data, const int size)
+{
+  print("SERVER: RECV_CMD", data, size);
+}
+
 void trace_pre_append(void *data, const int size)
 {
   print("SERVER: PRE_APPEND", data, size);
@@ -87,14 +97,24 @@ int main(int argc, char *argv[])
     *(unsigned long *)(entry + 8) = timer.current_time();
     void *cookie;
     do {
-      usleep(throttle_usec);
       cookie = cyclone_add_entry(cyclone_handle, entry, 16);
-    } while(cookie == NULL);
+      if(cookie == NULL) {
+	usleep(throttle_usec);
+      }
+      else {
+	break;
+      }
+    } while(true);
     int result;
     do {
-      usleep(throttle_usec);
       result = cyclone_check_status(cyclone_handle, cookie);
-    } while(result == 0);
+      if(result == 0) {
+	usleep(throttle_usec);
+      }
+      else {
+	break;
+      }
+    } while(true);
     free(cookie);
     unsigned long elapsed_usecs = timer.current_time();
     if(result == 1) {
