@@ -365,21 +365,16 @@ struct dispatcher_loop {
 
   void operator ()()
   {
-    void *poll_items = setup_cyclone_inpoll(router->input_socket_array(), 
-					    clients);
     while(true) {
-      int e;
-      do {
-	e = cyclone_poll(poll_items, clients, -1);
-      } while(e <= 0); 
       for(int i=0;i<clients;i++) {
-	if(cyclone_socket_has_data(poll_items, i)) {
-	  unsigned long sz = cyclone_rx(router->input_socket(i),
-					rx_buffer,
-					DISP_MAX_MSGSIZE,
-					"DISP RCV");
-	  handle_rpc(sz);
+	unsigned long sz = cyclone_rx_noblock(router->input_socket(i),
+					      rx_buffer,
+					      DISP_MAX_MSGSIZE,
+					      "DISP RCV");
+	if(sz == -1) {
+	  continue;
 	}
+	handle_rpc(sz);
       }
     }
   }
