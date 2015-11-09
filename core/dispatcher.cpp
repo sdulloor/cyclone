@@ -79,24 +79,24 @@ static void mark_done(const rpc_t *rpc,
 {
   int client_id = rpc->client_id;
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  struct client_state_st *state = &D_RW(root)->client_state[client_id];
-  pmemobj_tx_add_range_direct(state, sizeof(struct client_state_st));
-  if(!TOID_IS_NULL(state->last_return_value)) {
-    TX_FREE(state->last_return_value);
+  struct client_state_st *cstate = &D_RW(root)->client_state[client_id];
+  pmemobj_tx_add_range_direct(cstate, sizeof(struct client_state_st));
+  if(!TOID_IS_NULL(cstate->last_return_value)) {
+    TX_FREE(cstate->last_return_value);
   }
   if(ret_size > 0) {
-    state->last_return_value = TX_ALLOC(char, ret_size);
-    TX_MEMCPY(D_RW(state->last_return_value), ret_value, ret_size);
+    cstate->last_return_value = TX_ALLOC(char, ret_size);
+    TX_MEMCPY(D_RW(cstate->last_return_value), ret_value, ret_size);
   }
   else {
-    TOID_ASSIGN(state->last_return_value, OID_NULL);
+    TOID_ASSIGN(cstate->last_return_value, OID_NULL);
   }
-  state->last_return_size = ret_size;
+  cstate->last_return_size = ret_size;
   unsigned long *global_txid_ptr = &D_RW(root)->committed_global_txid;
   pmemobj_tx_add_range_direct(global_txid_ptr, sizeof(unsigned long));
   *global_txid_ptr = rpc->global_txid;
   __sync_synchronize(); // Main thread can return this value now
-  state->committed_txid = rpc->client_txid;
+  cstate->committed_txid = rpc->client_txid;
 }
 
 void exec_rpc_internal(rpc_info_t *rpc)
@@ -113,8 +113,11 @@ void exec_rpc_internal(rpc_info_t *rpc)
       //BOOST_LOG_TRIVIAL(info) << "SUCCESS " << rpc->rpc->global_txid;
     }
     else {
+      //BOOST_LOG_TRIVIAL(info) << "FAILED " << rpc->rpc->global_txid;
       pmemobj_tx_abort(-1);
     }
+  } TX_ONABORT {
+    //BOOST_LOG_TRIVIAL(info) << "TX ABORT  !!!";
   } TX_END
   __sync_synchronize();
   rpc->executed = true; // in case the execution aborted (on all replicas !)
@@ -138,6 +141,7 @@ static void gc_pending_rpc_list()
   rpc = pending_rpc_head;
   while(rpc != NULL) {
     if(rpc->complete) {
+      //BOOST_LOG_TRIVIAL(info) << "GC completed entry for " << rpc->rpc->client_id;
       tmp = rpc;
       rpc = rpc->next;
       tmp->next = deleted;
@@ -158,12 +162,14 @@ static void gc_pending_rpc_list()
     tmp = deleted;
     deleted = deleted->next;
     if(client_blocked[tmp->rpc->client_id]) {
+      //BOOST_LOG_TRIVIAL(info) << "GC sending blocked client wakeup";
       rpc_rep->client_id   = tmp->rpc->client_id;
       rpc_rep->client_txid = tmp->rpc->client_txid;
       rep_sz = sizeof(rpc_t);
       if(tmp->rep_failed) {
 	rpc_rep->code = RPC_REP_INVSRV;
 	rpc_rep->master = cyclone_get_leader(cyclone_handle);
+	//BOOST_LOG_TRIVIAL(info) << "Sending new leader " << rpc_rep->master;
       }
       else {
 	rpc_rep->code = RPC_REP_COMPLETE;
@@ -174,11 +180,11 @@ static void gc_pending_rpc_list()
 	  rep_sz += tmp->sz;
 	}
       }
+      client_blocked[tmp->rpc->client_id] = false;
       cyclone_tx(router->output_socket(tmp->rpc->client_id), 
 		 tx_buffer, 
 		 rep_sz, 
 		 "Dispatch reply");
-      client_blocked[tmp->rpc->client_id] = false;
     }
     if(tmp->sz != 0) {
       gc_rpc(tmp->ret_value);
@@ -329,6 +335,7 @@ struct dispatcher_loop {
 	  rep_sz = sizeof(rpc_t);
 	  rpc_rep->code = RPC_REP_INVSRV;
 	  rpc_rep->master = cyclone_get_leader(cyclone_handle);
+	  //BOOST_LOG_TRIVIAL(info) << "Sending new leader " << rpc_rep->master;
 	}
       }
       else {
@@ -343,6 +350,7 @@ struct dispatcher_loop {
 	rep_sz = sizeof(rpc_t);
 	rpc_rep->code = RPC_REP_INVSRV;
 	rpc_rep->master = cyclone_get_leader(cyclone_handle);
+	//BOOST_LOG_TRIVIAL(info) << "Sending new leader " << rpc_rep->master;
       }
       else {
 	rpc_rep->client_id   = rpc_req->client_id;
@@ -377,6 +385,7 @@ struct dispatcher_loop {
 	else if(rpc_req->code == RPC_REQ_STATUS_BLOCK) {
 	  rep_sz = 0;
 	  client_blocked[rpc_req->client_id] = true;
+	  //BOOST_LOG_TRIVIAL(info) << "Setting blocked for " << rpc_req->client_id;
 	}
 	else {
 	  rpc_rep->code = RPC_REP_PENDING;
