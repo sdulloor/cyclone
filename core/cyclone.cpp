@@ -280,7 +280,7 @@ void* cyclone_add_entry(void *cyclone_handle, void *data, int size)
 {
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
   msg_t msg;
-  void *cookie;
+  void *cookie = NULL;
   msg.source      = handle->me;
   msg.msg_type    = MSG_CLIENT_REQ;
   msg.client.ptr  = data;
