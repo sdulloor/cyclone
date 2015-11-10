@@ -216,7 +216,6 @@ static void issue_rpc(const rpc_t *rpc, int len)
   unlock_rpc_list();
   exec_rpc(rpc_info);
   __sync_synchronize();
-  gc_pending_rpc_list();
 }
 
 static void event_seen(const rpc_t *rpc)

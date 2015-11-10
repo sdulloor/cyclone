@@ -16,11 +16,13 @@ typedef struct rpc_client_st {
   rpc_t *packet_in;
   int server;
   int replicas;
-  void update_server()
+  void update_server(const char *context)
   {
     BOOST_LOG_TRIVIAL(info) 
-      << "CLIENT DETECTED POSSIBLE FAILED MASTER "
-      << server;
+      << "CLIENT DETECTED POSSIBLE FAILED MASTER: "
+      << server
+      << " Reason " 
+      << context;
     server = (server + 1)%replicas;
     BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
   }
@@ -39,12 +41,13 @@ typedef struct rpc_client_st {
       packet_out->code        = RPC_REQ_STATUS_BLOCK;
       packet_out->client_id   = me;
       packet_out->client_txid = ctr;
-      retcode = cyclone_tx(router->output_socket(server), 
-			   (unsigned char *)packet_out, 
-			   sizeof(rpc_t), 
-			   "PROPOSE");
+      retcode = cyclone_tx_timeout(router->output_socket(server), 
+				   (unsigned char *)packet_out, 
+				   sizeof(rpc_t),
+				   timeout_msec*1000,
+				   "PROPOSE");
       if(retcode == -1) {
-	update_server();
+	update_server("tx timeout");
 	continue;
       }
       resp_sz = cyclone_rx_timeout(router->input_socket(server), 
@@ -53,7 +56,7 @@ typedef struct rpc_client_st {
 				   timeout_msec*1000,
 				   "RESULT");
       if(resp_sz == -1) {
-	update_server();
+	update_server("rx timeout");
 	continue;
       }
       if(packet_in->code == RPC_REP_COMPLETE) {
@@ -63,6 +66,7 @@ typedef struct rpc_client_st {
       else if(packet_in->code == RPC_REP_INVSRV) {
 	server = packet_in->master;
 	if(server == -1) { // Startup
+	  BOOST_LOG_TRIVIAL(error) << "Unknown leader - assuming 0";
 	  server = 0;
 	}
 	set_server();
@@ -92,12 +96,13 @@ typedef struct rpc_client_st {
       packet_out->client_txid = ctr;
       memcpy(packet_out + 1, payload, sz);
       txid = ctr;
-      retcode = cyclone_tx(router->output_socket(server), 
-			   (unsigned char *)packet_out, 
-			   sizeof(rpc_t) + sz, 
-			   "PROPOSE");
+      retcode = cyclone_tx_timeout(router->output_socket(server), 
+				   (unsigned char *)packet_out, 
+				   sizeof(rpc_t) + sz, 
+				   timeout_msec*1000,
+				   "PROPOSE");
       if(retcode == -1) {
-	update_server();
+	update_server("tx timeout");
 	continue;
       }
       resp_sz = cyclone_rx_timeout(router->input_socket(server), 
@@ -106,7 +111,7 @@ typedef struct rpc_client_st {
 				   timeout_msec*1000,
 				   "RESULT");
       if(resp_sz == -1) {
-	update_server();
+	update_server("rx timeout");
 	continue;
       }
 
@@ -132,6 +137,7 @@ typedef struct rpc_client_st {
       else if(packet_in->code == RPC_REP_INVSRV) {
 	server = packet_in->master;
 	if(server == -1) {
+	  BOOST_LOG_TRIVIAL(error) << "Unknown leader - assuming 0";
 	  server = 0;
 	}
 	set_server();
@@ -180,7 +186,5 @@ int make_rpc(void *handle,
 	     void **response)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  //throttle
-  usleep(2000);
   return client->make_rpc(payload, sz, response);
 }

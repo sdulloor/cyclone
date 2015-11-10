@@ -117,8 +117,6 @@ int main(int argc, char *argv[])
     } while(true);
     free(cookie);
     unsigned long elapsed_usecs = timer.current_time();
-    //throttle
-    usleep(1000);
     if(result == 1) {
       print("CLIENT: ACCEPT ", (void *)entry, 16);
     }

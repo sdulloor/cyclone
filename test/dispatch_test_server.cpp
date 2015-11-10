@@ -14,17 +14,50 @@ void print(const char *prefix,
 {
   unsigned int elapsed_msecs = timer.current_time()/1000;
   char *buf = (char *)data;
-  if(size != 12) {
-    BOOST_LOG_TRIVIAL(fatal) << "SERVER: Incorrect record size";
+  if(size != 12 && size != (12 + sizeof(rpc_t))) {
+    BOOST_LOG_TRIVIAL(fatal) << "SERVER: Incorrect record size"
+			     << size;
     exit(-1);
   }
-  else {
-    BOOST_LOG_TRIVIAL(info)
-      << prefix << " "
-      << *(const unsigned int *)buf << " "
-      << *(const unsigned int *)(buf + 4) << " " 
-      << (elapsed_msecs - *(const unsigned int *)((char *)buf + 8));
+  if(size > 12) {
+    buf = buf + sizeof(rpc_t);
   }
+    
+  BOOST_LOG_TRIVIAL(info)
+    << prefix << " "
+    << *(const unsigned int *)buf << " "
+    << *(const unsigned int *)(buf + 4) << " " 
+    << (elapsed_msecs - *(const unsigned int *)((char *)buf + 8));
+}
+
+void trace_send_cmd(void *data, const int size)
+{
+  print("SERVER: SEND_CMD", data, size);
+}
+
+void trace_recv_cmd(void *data, const int size)
+{
+  print("SERVER: RECV_CMD", data, size);
+}
+
+void trace_pre_append(void *data, const int size)
+{
+  print("SERVER: PRE_APPEND", data, size);
+}
+
+void trace_post_append(void *data, const int size)
+{
+  print("SERVER: POST_APPEND", data, size); 
+}
+
+void trace_send_entry(void *data, const int size)
+{
+  print("SERVER: SEND_ENTRY", data, size);
+}
+
+void trace_recv_entry(void *data, const int size)
+{
+  print("SERVER: RECV_ENTRY", data, size);
 }
 
 //Print message and reflect back the rpc payload

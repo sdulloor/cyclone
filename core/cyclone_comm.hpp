@@ -4,6 +4,7 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/log/trivial.hpp>
 #include <zmq.h>
+#include <unistd.h>
 #include "clock.hpp"
 
 // Cyclone communication
@@ -27,6 +28,38 @@ static int cyclone_tx(void *socket,
   else {
     return 0;
   }
+}
+
+static int cyclone_tx_timeout(void *socket,
+			      const unsigned char *data,
+			      unsigned long size,
+			      unsigned long timeout_usecs,
+			      const char *context) 
+{
+  rtc_clock clock;
+  int rc;
+  clock.start();
+  while (true) {
+    rc = zmq_send(socket, data, size, ZMQ_NOBLOCK);
+    if(rc >= 0) {
+      break;
+    }
+    if(rc == -1) {
+      if (errno != EAGAIN) {
+	BOOST_LOG_TRIVIAL(warning) 
+	  << "CYCLONE: Unable to transmit "
+	  << context << " "
+	  << zmq_strerror(zmq_errno());
+	exit(-1);
+      }
+    }
+    clock.stop();
+    if(clock.elapsed_time() >= timeout_usecs) {
+      break;
+    }
+    clock.start();
+  }
+  return rc;
 }
 
 static unsigned long cyclone_rx(void *socket,
