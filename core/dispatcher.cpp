@@ -520,6 +520,7 @@ void dispatcher_start(const char* config_path,
 			      dispatcher_loop_obj->clients,
 			      dispatch_server_baseport,
 			      dispatch_client_baseport,
+			      false,
 			      false);
   (*dispatcher_loop_obj)();
 }

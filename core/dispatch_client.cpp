@@ -169,6 +169,7 @@ void* cyclone_client_init(int client_id, const char *config)
 				      replicas,
 				      client_port,
 				      server_port,
+				      false,
 				      false);
   void *buf = new char[DISP_MAX_MSGSIZE];
   client->packet_out = (rpc_t *)buf;

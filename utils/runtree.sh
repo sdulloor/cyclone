@@ -1,6 +1,6 @@
 #!/bin/bash
-rm -f /tmp/raftdata*
-rm -f /tmp/dispdata*
+rm -f /mnt/tmpfs/raftdata*
+rm -f /mnt/tmpfs/dispdata*
 echo "starting servers"
 cd test1
 ./rbtree_map_server &> output &

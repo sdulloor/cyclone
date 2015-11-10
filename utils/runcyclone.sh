@@ -1,5 +1,5 @@
 #!/bin/bash
-rm -f /tmp/raftdata*
+rm -f /mnt/tmpfs/raftdata*
 cd test1
 ./cyclone_test 0 &>  output &
 echo $!

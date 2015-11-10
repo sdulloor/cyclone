@@ -165,18 +165,20 @@ static int cyclone_socket_has_data(void *poll_handle, int index)
 }
 
 
-static void* cyclone_socket_out(void *context)
+static void* cyclone_socket_out(void *context, bool use_hwm)
 {
   void *socket;
   int hwm = 5;
   socket = zmq_socket(context, ZMQ_PUSH);
-  int e = zmq_setsockopt(socket, ZMQ_SNDHWM, &hwm, sizeof(int));
-  if (e == -1) {
-    BOOST_LOG_TRIVIAL(fatal) 
-      << "CYCLONE_COMM: Unable to set sock HWM "
-      << context << " "
-      << zmq_strerror(zmq_errno());
-    exit(-1);
+  if(use_hwm) {
+    int e = zmq_setsockopt(socket, ZMQ_SNDHWM, &hwm, sizeof(int));
+    if (e == -1) {
+      BOOST_LOG_TRIVIAL(fatal) 
+	<< "CYCLONE_COMM: Unable to set sock HWM "
+	<< context << " "
+	<< zmq_strerror(zmq_errno());
+      exit(-1);
+    }
   }
   return socket;
 }
@@ -240,7 +242,8 @@ public:
 		 int machines_in, 
 		 int baseport_local,
 		 int baseport_remote,
-		 bool loopback) // loopback = true means other end is same process
+		 bool loopback,
+		 bool use_hwm)
     :machines(machines_in)
   {
     sockets_in = new void *[machines];
@@ -267,7 +270,7 @@ public:
 	sockets_out[i] = cyclone_socket_out_loopback(context);
       }
       else {
-	sockets_out[i] = cyclone_socket_out(context);
+	sockets_out[i] = cyclone_socket_out(context, use_hwm);
       }
       key.str("");key.clear();
       addr.str("");addr.clear();

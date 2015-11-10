@@ -436,6 +436,7 @@ void* cyclone_boot(const char *config_path,
 					      cyclone_handle->replicas,
 					      baseport,
 					      baseport,
+					      true,
 					      true);
   for(int i=0;i<cyclone_handle->replicas;i++) {
     raft_add_peer(cyclone_handle->raft_handle,
