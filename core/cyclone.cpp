@@ -153,6 +153,9 @@ static int __raft_logentry_offer(raft_server_t* raft,
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   void *chunk = ety->data.buf;
+#ifdef TRACING
+    trace_pre_append((unsigned char *)chunk, ety->data.len);
+#endif
   TX_BEGIN(cyclone_handle->pop_raft_state) {
 #ifdef TRACING
     trace_pre_append((unsigned char *)chunk, ety->data.len);
@@ -175,6 +178,9 @@ static int __raft_logentry_offer(raft_server_t* raft,
   } TX_ONABORT {
     result = -1;
   } TX_END
+#ifdef TRACING
+    trace_post_append(chunk, ety->data.len);
+#endif
   if(cyclone_handle->cyclone_rep_cb != NULL) {    
     cyclone_handle->cyclone_rep_cb(cyclone_handle->user_arg,
 				   (const unsigned char *)chunk,
