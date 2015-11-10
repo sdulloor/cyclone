@@ -10,9 +10,9 @@ void print(const char *prefix,
 	   const void *data,
 	   const int size)
 {
-  unsigned int elapsed_msecs = timer.current_time()/1000;
+  unsigned long elapsed_usecs = timer.current_time();
   char *buf = (char *)data;
-  if(size != 12) {
+  if(size != 16) {
     BOOST_LOG_TRIVIAL(fatal) << "CLIENT: Incorrect record size";
     exit(-1);
   }
@@ -21,7 +21,7 @@ void print(const char *prefix,
       << prefix << " "
       << *(const unsigned int *)buf << " "
       << *(const unsigned int *)(buf + 4) << " " 
-      << (elapsed_msecs - *(const unsigned int *)((char *)buf + 8));
+      << (elapsed_usecs - *(const unsigned long *)((char *)buf + 8));
   }
 }
 
@@ -69,15 +69,15 @@ int main(int argc, char *argv[])
   while(true) {
     *(unsigned int *)&proposal[0] = me;
     *(unsigned int *)&proposal[4] = ctr;
-    *(unsigned int *)&proposal[8] = (unsigned int)(timer.current_time()/1000);
+    *(unsigned long *)&proposal[8] = timer.current_time();
     void *resp;
-    print("PROPOSE", proposal, 12);
-    int sz = make_rpc(handle, proposal, 12, &resp);
-    if(sz != 12 || memcmp(proposal, resp, 12) != 0) {
-      print("ERROR", proposal, 12);
+    print("PROPOSE", proposal, 16);
+    int sz = make_rpc(handle, proposal, 16, &resp);
+    if(sz != 16 || memcmp(proposal, resp, 16) != 0) {
+      print("ERROR", proposal, 16);
     }
     else {
-      print("ACCEPTED", proposal, 12);
+      print("ACCEPTED", proposal, 16);
     }
     ctr++;
   }

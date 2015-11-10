@@ -12,14 +12,14 @@ void print(const char *prefix,
 	   const void *data,
 	   const int size)
 {
-  unsigned int elapsed_msecs = timer.current_time()/1000;
+  unsigned long elapsed_usecs = timer.current_time();
   char *buf = (char *)data;
-  if(size != 12 && size != (12 + sizeof(rpc_t))) {
+  if(size != 16 && size != (16 + sizeof(rpc_t))) {
     BOOST_LOG_TRIVIAL(fatal) << "SERVER: Incorrect record size"
 			     << size;
     exit(-1);
   }
-  if(size > 12) {
+  if(size > 16) {
     buf = buf + sizeof(rpc_t);
   }
     
@@ -27,7 +27,7 @@ void print(const char *prefix,
     << prefix << " "
     << *(const unsigned int *)buf << " "
     << *(const unsigned int *)(buf + 4) << " " 
-    << (elapsed_msecs - *(const unsigned int *)((char *)buf + 8));
+    << (elapsed_usecs - *(const unsigned long *)((char *)buf + 8));
 }
 
 void trace_send_cmd(void *data, const int size)
