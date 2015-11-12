@@ -44,10 +44,6 @@
 #include <libcyclone.hpp>
 
 
-#define	MAX_INSERTS 100
-static uint64_t nkeys;
-static uint64_t keys[MAX_INSERTS];
-
 void trace_send_cmd(void *data, const int size)
 {
 
@@ -90,41 +86,27 @@ int main(int argc, const char *argv[]) {
   char *buffer = new char[CLIENT_MAXPAYLOAD];
   struct proposal *prop = (struct proposal *)buffer;
   srand(time(NULL));
-  struct kv insert_data;
-  struct k query_data;
   int sz;
   void *resp;
-  nkeys = 0;
   unsigned long order = 0;
-  for (int i = 0; i < MAX_INSERTS; ++i) {
-    insert_data.key = rand();
-    insert_data.value = rand();
+  unsigned long tx_block_cnt   = 0;
+  unsigned long tx_block_begin = clock.current_time();
+  while(true) {
+  //for(int i=0;i<10000;i++) {
     prop->fn = FN_INSERT;
-    prop->kv_data = insert_data;
+    prop->kv_data.key = rand();
+    prop->kv_data.value = rand();
     prop->timestamp = clock.current_time();
     prop->src       = me;
     prop->order     = (order++);
     sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp);
-    BOOST_LOG_TRIVIAL(info) << "RPC TIME = " 
-			    << (clock.current_time() - prop->timestamp);
-    keys[nkeys++] = insert_data.key;
-  }
-  for (int i = 0; i < MAX_INSERTS; ++i) {
-    query_data.key = keys[i];
-    prop->fn = FN_LOOKUP;
-    prop->k_data = query_data;
-    prop->timestamp = clock.current_time();
-    prop->src       = me;
-    prop->order     = (order++);
-    sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp);
-    BOOST_LOG_TRIVIAL(info) << "RPC TIME = " 
-			    << (clock.current_time() - prop->timestamp);
-    struct proposal *rep = (struct proposal *)resp;
-    if(rep->code != CODE_OK) {
-      BOOST_LOG_TRIVIAL(error) << "Key not found !";
-    }
-    else {
-      BOOST_LOG_TRIVIAL(info) << "Success: " << rep->kv_data.key;
+    tx_block_cnt++;
+    if(clock.current_time() - tx_block_begin >= 1000000 || tx_block_cnt >= 10) {
+      BOOST_LOG_TRIVIAL(info) << "BLOCK THROUGHPUT = "
+			      << ((double)1000000*tx_block_cnt)/(clock.current_time() - tx_block_begin)
+			      << " tx/sec ";
+      tx_block_begin = clock.current_time();
+      tx_block_cnt   = 0;
     }
   }
   return 0;
