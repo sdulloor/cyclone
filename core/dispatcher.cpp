@@ -72,6 +72,19 @@ static rpc_info_t * locate_rpc(unsigned long global_txid,
   return hit;
 }
 
+static void dump_active_list()
+{
+  rpc_info_t *rpc_info;
+  rpc_info_t *hit = NULL;
+  lock_rpc_list();
+  rpc_info = pending_rpc_head;
+  while(rpc_info != NULL) {
+    BOOST_LOG_TRIVIAL(info) << "ACTIVE  " << rpc_info->rpc->global_txid;
+    rpc_info = rpc_info->next;
+  }
+  unlock_rpc_list(); 
+}
+
 // This function must be executed in the context of a tx
 static void mark_done(const rpc_t *rpc,
 		      const void* ret_value,
@@ -102,6 +115,7 @@ static void mark_done(const rpc_t *rpc,
 void exec_rpc_internal(rpc_info_t *rpc)
 {
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+  bool aborted = false;
   TX_BEGIN(state) {
     rpc->sz = execute_rpc((const unsigned char *)(rpc->rpc + 1),
 			  rpc->len - sizeof(rpc_t),
@@ -110,15 +124,26 @@ void exec_rpc_internal(rpc_info_t *rpc)
     while(!rpc->rep_success && !rpc->rep_failed);
     if(rpc->rep_success) {
       mark_done(rpc->rpc, rpc->ret_value, rpc->sz);
-      //BOOST_LOG_TRIVIAL(info) << "SUCCESS " << rpc->rpc->global_txid;
     }
     else {
-      //BOOST_LOG_TRIVIAL(info) << "FAILED " << rpc->rpc->global_txid;
       pmemobj_tx_abort(-1);
     }
   } TX_ONABORT {
-    //BOOST_LOG_TRIVIAL(info) << "TX ABORT  !!!";
+    aborted= true;
   } TX_END
+  if(aborted) { // cleanup
+    rpc->sz = 0;
+    // Wait for replication to finish
+    while(!rpc->rep_success && !rpc->rep_failed);
+    TX_BEGIN(state) {
+      unsigned long *global_txid_ptr = &D_RW(root)->committed_global_txid;
+      pmemobj_tx_add_range_direct(global_txid_ptr, sizeof(unsigned long));
+      *global_txid_ptr = rpc->rpc->global_txid;
+    } TX_ONABORT{
+      BOOST_LOG_TRIVIAL(fatal) << "Dispatcher tx abort !\n";
+      exit(-1);
+    } TX_END
+  }
   __sync_synchronize();
   rpc->executed = true; // in case the execution aborted (on all replicas !)
   rpc->complete = true; // note: rpc will be freed after this
@@ -141,7 +166,6 @@ static void gc_pending_rpc_list()
   rpc = pending_rpc_head;
   while(rpc != NULL) {
     if(rpc->complete) {
-      //BOOST_LOG_TRIVIAL(info) << "GC completed entry for " << rpc->rpc->client_id;
       tmp = rpc;
       rpc = rpc->next;
       tmp->next = deleted;
@@ -160,16 +184,14 @@ static void gc_pending_rpc_list()
   unsigned long rep_sz;
   while(deleted) {
     tmp = deleted;
-    deleted = deleted->next;
+    deleted = deleted->next;    
     if(client_blocked[tmp->rpc->client_id]) {
-      //BOOST_LOG_TRIVIAL(info) << "GC sending blocked client wakeup";
       rpc_rep->client_id   = tmp->rpc->client_id;
       rpc_rep->client_txid = tmp->rpc->client_txid;
       rep_sz = sizeof(rpc_t);
       if(tmp->rep_failed) {
 	rpc_rep->code = RPC_REP_INVSRV;
 	rpc_rep->master = cyclone_get_leader(cyclone_handle);
-	//BOOST_LOG_TRIVIAL(info) << "Sending new leader " << rpc_rep->master;
       }
       else {
 	rpc_rep->code = RPC_REP_COMPLETE;
@@ -248,7 +270,12 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
     if(rpc->global_txid > D_RO(root)->committed_global_txid) {
       BOOST_LOG_TRIVIAL(fatal) 
 	<< "Unable to locate replicated RPC id = "
-	<< rpc->global_txid;
+	<< rpc->global_txid
+	<< " last seen global txid = "
+	<< last_global_txid
+	<< " committed global txid "
+	<< D_RO(root)->committed_global_txid;
+      dump_active_list();
       exit(-1);
     }
   }
