@@ -30,6 +30,7 @@ static const int DISP_MAX_MSGSIZE = 4194304; // 4MB max msg size
 
 typedef struct rpc_st {
   int code;
+  int hint_flags;
   int client_id;
   unsigned long global_txid;
   union {
@@ -50,6 +51,11 @@ static const int RPC_REP_INVTXID        = 5; // WRONG client txid -- last seen
 static const int RPC_REP_INVSRV         = 6; // WRONG master  -- master set in reply
 
 static const unsigned long RPC_INIT_TXID = 1; // Initial client txid
+
+// Possible flags for hint follow
+static const int RPC_HINT_NONE  = 0; // No hint
+static const int RPC_HINT_RO    = 1; // Read-only
+static const int RPC_HINT_DET   = 2; // Fully deterministic
 
 ////// RPC Server side interface
 // Returns the size of the return value blob

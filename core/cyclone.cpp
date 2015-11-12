@@ -41,6 +41,24 @@ static int __send_appendentries(raft_server_t* raft,
   void *socket      = raft_node_get_udata(node);
   unsigned char *ptr = cyclone_handle->cyclone_buffer_out;
   msg_t msg;
+  rtc_clock clock;
+  if(m->term == cyclone_handle->throttles[nodeidx].term &&
+     m->prev_log_idx   == cyclone_handle->throttles[nodeidx].prev_log_idx) {
+    if((clock.current_time() - cyclone_handle->throttles[nodeidx].last_tx_time) <=
+       cyclone_handle->throttles[nodeidx].timeout) {
+      return 0; // throttle retx
+    }
+    else {
+      cyclone_handle->throttles[nodeidx].last_tx_time = clock.current_time();
+      cyclone_handle->throttles[nodeidx].timeout = 2*cyclone_handle->throttles[nodeidx].timeout;
+    }
+  }
+  else {
+    cyclone_handle->throttles[nodeidx].term = m->term;
+    cyclone_handle->throttles[nodeidx].prev_log_idx = m->prev_log_idx;
+    cyclone_handle->throttles[nodeidx].last_tx_time = clock.current_time();
+    cyclone_handle->throttles[nodeidx].timeout = RAFT_REQUEST_TIMEOUT;
+  }
   msg.msg_type         = MSG_APPENDENTRIES;
   msg.source           = cyclone_handle->me;
   msg.ae.term          = m->term;
@@ -58,6 +76,7 @@ static int __send_appendentries(raft_server_t* raft,
     (void)cyclone_handle->read_from_log(ptr,
 					(unsigned long)m->entries[i].data.buf);
 #ifdef TRACING
+    BOOST_LOG_TRIVIAL(info) << "SENDING CMD TO " << nodeidx;
     trace_send_entry(ptr, m->entries[i].data.len);
 #endif
     ptr += m->entries[i].data.len;
@@ -434,6 +453,14 @@ void* cyclone_boot(const char *config_path,
   raft_set_election_timeout(cyclone_handle->raft_handle, RAFT_ELECTION_TIMEOUT);
   raft_set_request_timeout(cyclone_handle->raft_handle, RAFT_REQUEST_TIMEOUT);
 
+  cyclone_handle->throttles   = new throttle_st[cyclone_handle->replicas];
+
+  for(int i=0;i<cyclone_handle->replicas;i++) {
+    cyclone_handle->throttles[i].term           = -1;
+    cyclone_handle->throttles[i].prev_log_idx   = -1;
+    cyclone_handle->throttles[i].timeout = RAFT_REQUEST_TIMEOUT;
+  }
+
   /* setup connections */
   cyclone_handle->zmq_context  = zmq_init(1); // One thread should be enough ?
   cyclone_handle->router = new cyclone_switch(cyclone_handle->zmq_context,
@@ -443,7 +470,7 @@ void* cyclone_boot(const char *config_path,
 					      baseport,
 					      baseport,
 					      true,
-					      true);
+					      false);
   for(int i=0;i<cyclone_handle->replicas;i++) {
     raft_add_peer(cyclone_handle->raft_handle,
 		  cyclone_handle->router->output_socket(i),

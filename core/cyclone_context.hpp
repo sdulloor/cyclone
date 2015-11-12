@@ -59,9 +59,17 @@ extern void trace_recv_entry(void *data, const int len);
 extern void trace_recv_cmd(void *data, const int size);
 #endif
 
+struct throttle_st {
+  int term;
+  int prev_log_idx;
+  unsigned long last_tx_time;
+  unsigned long timeout;
+};
+
 struct cyclone_monitor;
 typedef struct cyclone_st {
   boost::property_tree::ptree pt;
+  struct throttle_st *throttles;
   void *zmq_context;
   cyclone_switch *router;
   int replicas;
@@ -244,6 +252,7 @@ typedef struct cyclone_st {
 		(unsigned char *)&resp, sizeof(msg_t), "APPENDENTRIES RESP");
     break;
     case MSG_APPENDENTRIES_RESPONSE:
+      throttles[msg->source].timeout = RAFT_REQUEST_TIMEOUT;
       e = raft_recv_appendentries_response(raft_handle, msg->source, &msg->aer);
       break;
     case MSG_CLIENT_REQ:
