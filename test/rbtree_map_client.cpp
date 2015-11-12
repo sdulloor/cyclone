@@ -44,53 +44,92 @@
 #include <libcyclone.hpp>
 
 
-rtc_clock timer;
 #define	MAX_INSERTS 100
 static uint64_t nkeys;
 static uint64_t keys[MAX_INSERTS];
 
+static const double point_lookup = 0.75;
+static const double point_insert = 0.875;
+
+
+void trace_send_cmd(void *data, const int size)
+{
+
+}
+
+void trace_recv_cmd(void *data, const int size)
+{
+
+}
+
+void trace_pre_append(void *data, const int size)
+{
+
+}
+
+void trace_post_append(void *data, const int size)
+{
+
+}
+
+void trace_send_entry(void *data, const int size)
+{
+
+}
+
+void trace_recv_entry(void *data, const int size)
+{
+
+}
+
 int main(int argc, const char *argv[]) {
   boost::log::keywords::auto_flush = true;
+  rtc_clock clock;
   if(argc != 2) {
     printf("Usage: %s client_id\n", argv[0]);
     exit(-1);
   }
   int me = atoi(argv[1]);
   void * handle = cyclone_client_init(me, "cyclone_test.ini");
-  char *proposal = new char[CLIENT_MAXPAYLOAD];
+  char *buffer = new char[CLIENT_MAXPAYLOAD];
+  struct proposal *prop = (struct proposal *)buffer;
   srand(time(NULL));
   struct kv insert_data;
   struct k query_data;
   int sz;
   void *resp;
   nkeys = 0;
+  unsigned long order = 0;
   for (int i = 0; i < MAX_INSERTS; ++i) {
     insert_data.key = rand();
     insert_data.value = rand();
-    *(int *)proposal = FN_INSERT;
-    *(struct kv *)(proposal + sizeof(int)) = insert_data; 
-    timer.start();
-    sz = make_rpc(handle, proposal, sizeof(int) + sizeof(struct kv), &resp);
-    timer.stop();
-    timer.print("Time: ");
-    timer.reset();
+    prop->fn = FN_INSERT;
+    prop->kv_data = insert_data;
+    prop->timestamp = clock.current_time();
+    prop->src       = me;
+    prop->order     = (order++);
+    sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp);
+    BOOST_LOG_TRIVIAL(info) << "RPC TIME = " 
+			    << (clock.current_time() - prop->timestamp);
     keys[nkeys++] = insert_data.key;
   }
   for (int i = 0; i < MAX_INSERTS; ++i) {
     query_data.key = keys[i];
-    *(int *)proposal = FN_LOOKUP;
-    *(struct k *)(proposal + sizeof(int)) = query_data; 
-    timer.start();
-    sz = make_rpc(handle, proposal, sizeof(int) + sizeof(struct k), &resp);
-    timer.stop();
-    if(sz != sizeof(struct kv)) {
+    prop->fn = FN_LOOKUP;
+    prop->k_data = query_data;
+    prop->timestamp = clock.current_time();
+    prop->src       = me;
+    prop->order     = (order++);
+    sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp);
+    BOOST_LOG_TRIVIAL(info) << "RPC TIME = " 
+			    << (clock.current_time() - prop->timestamp);
+    struct proposal *rep = (struct proposal *)resp;
+    if(rep->code != CODE_OK) {
       BOOST_LOG_TRIVIAL(error) << "Key not found !";
     }
     else {
-      BOOST_LOG_TRIVIAL(info) << "Success: " << ((struct kv *)resp)->key;
+      BOOST_LOG_TRIVIAL(info) << "Success: " << rep->kv_data.key;
     }
-    timer.print("Time: ");
-    timer.reset();
   }
   return 0;
 }

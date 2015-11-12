@@ -77,7 +77,24 @@ const int FN_INSERT = 0;
 const int FN_DELETE = 1;
 const int FN_LOOKUP = 2;
 
+const int CODE_OK   = 0;
+const int CODE_NOK  = 1;
+
 struct k {uint64_t key;};
 struct kv {uint64_t key; uint64_t value;};
+struct proposal {
+  union {
+    int fn;
+    int code;
+  };
+  unsigned long timestamp;
+  unsigned long src;
+  unsigned long order;
+  union {
+    struct kv kv_data;
+    struct k k_data;
+  };
+};
+
 
 #endif /* TREE_MAP_H */
