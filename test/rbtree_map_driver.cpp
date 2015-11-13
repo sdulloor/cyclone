@@ -93,27 +93,28 @@ int main(int argc, const char *argv[]) {
   unsigned long order = 0;
   unsigned long tx_block_cnt   = 0;
   unsigned long tx_block_begin = clock.current_time();
+  
+  for(int i=0;i<KEYS;i++) {
+    prop->fn = FN_INSERT;
+    prop->kv_data.key   = me*KEYS + i;
+    prop->kv_data.value = me*KEYS + i;
+    prop->timestamp = clock.current_time();
+    prop->src       = me;
+    prop->order     = (order++);
+    sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp);
+    tx_block_cnt++;
+    if(clock.current_time() - tx_block_begin >= 10000) {
+      BOOST_LOG_TRIVIAL(info) << "BLOCK THROUGHPUT = "
+				<< ((double)1000000*tx_block_cnt)/(clock.current_time() - tx_block_begin)
+			      << " tx/sec ";
+      tx_block_begin = clock.current_time();
+      tx_block_cnt   = 0;
+    }
+  }
 
   while(true) {
     for(int i=0;i<KEYS;i++) {
-      prop->fn = FN_INSERT;
-      prop->kv_data.key   = me*KEYS + i;
-      prop->kv_data.value = me*KEYS + i;
-      prop->timestamp = clock.current_time();
-      prop->src       = me;
-      prop->order     = (order++);
-      sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp);
-      tx_block_cnt++;
-      if(clock.current_time() - tx_block_begin >= 10000) {
-	BOOST_LOG_TRIVIAL(info) << "BLOCK THROUGHPUT = "
-				<< ((double)1000000*tx_block_cnt)/(clock.current_time() - tx_block_begin)
-				<< " tx/sec ";
-	tx_block_begin = clock.current_time();
-	tx_block_cnt   = 0;
-      }
-    }
-    for(int i=0;i<KEYS;i++) {
-      prop->fn = FN_DELETE;
+      prop->fn = FN_BUMP;
       prop->k_data.key = me*KEYS + i;
       prop->timestamp = clock.current_time();
       prop->src       = me;

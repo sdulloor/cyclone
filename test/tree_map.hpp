@@ -76,6 +76,7 @@ int tree_map_is_empty(TOID(struct tree_map) map);
 const int FN_INSERT = 0;
 const int FN_DELETE = 1;
 const int FN_LOOKUP = 2;
+const int FN_BUMP   = 3;
 
 const int CODE_OK   = 0;
 const int CODE_NOK  = 1;

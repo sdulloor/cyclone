@@ -570,6 +570,24 @@ int callback(const unsigned char *data,
     print("SERVER:APPLY", data, len);
     return sizeof(struct proposal);
   }
+  else if(code == FN_BUMP) {
+    *return_value  = malloc(sizeof(struct proposal));
+    struct proposal *rep  = (struct proposal *)*return_value;
+    PMEMoid item = tree_map_get(the_tree, req->k_data.key);
+    if(OID_IS_NULL(item)) {
+      rep->code = CODE_NOK;
+    }
+    else {
+      rep->code = CODE_OK;
+      rep->kv_data.key     = req->k_data.key;
+      uint64_t *ptr = (uint64_t *)pmemobj_direct(item);
+      pmemobj_tx_add_range_direct(ptr, sizeof(uint64_t));
+      (*ptr)++;
+      rep->kv_data.value = *ptr;
+    }
+    print("SERVER:APPLY", data, len);
+    return sizeof(struct proposal);
+  }
   else {
     BOOST_LOG_TRIVIAL(fatal) << "Tree: unknown fn !";
     exit(-1);
