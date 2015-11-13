@@ -138,7 +138,8 @@ void exec_rpc_internal(rpc_info_t *rpc)
       pmemobj_tx_add_range_direct(global_txid_ptr, sizeof(unsigned long));
       *global_txid_ptr = rpc->rpc->global_txid;
       if(rpc->rep_success) { // User tx aborted 
-	struct client_state_st *cstate = &D_RW(root)->client_state[client_id];
+	struct client_state_st *cstate = 
+	  &D_RW(root)->client_state[rpc->rpc->client_id];
 	pmemobj_tx_add_range_direct(cstate, sizeof(struct client_state_st));
 	if(!TOID_IS_NULL(cstate->last_return_value)) {
 	  TX_FREE(cstate->last_return_value);
@@ -147,7 +148,7 @@ void exec_rpc_internal(rpc_info_t *rpc)
 	TOID_ASSIGN(cstate->last_return_value, OID_NULL);
 	cstate->last_return_size = 0;
 	__sync_synchronize();
-	cstate->committed_txid = rpc->client_txid;
+	cstate->committed_txid = rpc->rpc->client_txid;
       }
     } TX_ONABORT{
       BOOST_LOG_TRIVIAL(fatal) << "Dispatcher tx abort !\n";
@@ -327,6 +328,8 @@ struct dispatcher_loop {
     rpc_t *rpc_rep = (rpc_t *)tx_buffer;
     rpc_info_t *rpc_info;
     unsigned long rep_sz = 0;
+    void *cookie;
+    unsigned long last_tx_committed;
     switch(rpc_req->code) {
     case RPC_REQ_FN:
       rpc_rep->client_id   = rpc_req->client_id;
@@ -335,7 +338,7 @@ struct dispatcher_loop {
       rpc_req->global_txid = (++last_global_txid);
       issue_rpc(rpc_req, sz);
       // TBD: Conditional on rpc being deterministic
-      void *cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
+      cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
       if(cookie != NULL) {
 	event_seen(rpc_req);
 	rep_sz = sizeof(rpc_t);
@@ -517,8 +520,7 @@ void dispatcher_start(const char* config_path,
   BOOST_LOG_TRIVIAL(info) << "committed global txid = " 
 			  << D_RO(root)->committed_global_txid;
   for(int i=0;i<MAX_CLIENTS;i++) {
-   seen_client_txid[i] = D_RO(root)->client_state[i].committed_txid;
-   client_blocked[i]          = false;
+    client_blocked[i]          = false;
   }
   execute_rpc = rpc_callback;
   gc_rpc      = gc_callback;

@@ -87,13 +87,13 @@ typedef struct rpc_client_st {
 	  update_server("rx timeout");
 	  continue;
 	}
-	if(rpc_in->code == RPC_REP_PENDING) {
+	if(packet_in->code == RPC_REP_PENDING) {
 	  continue;
 	}
 	break;
       }
 
-      if(rpc_in->code -- RPC_REP_REDO) {
+      if(packet_in->code == RPC_REP_REDO) {
 	continue;
       }
       break;
