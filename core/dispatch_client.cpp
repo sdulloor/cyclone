@@ -64,8 +64,14 @@ typedef struct rpc_client_st {
 	  continue;
 	}
 	if(packet_in->code == RPC_REP_INVSRV) {
-	  server = packet_in->master;
-	  set_server();
+	  if(packet_in->master == -1) {
+	    BOOST_LOG_TRIVIAL(info) << "Unknown master !";
+	    update_server("unknown master");
+	  }
+	  else {
+	    server = packet_in->master;
+	    set_server();
+	  }
 	  continue;
 	}
 	break;
@@ -93,8 +99,14 @@ typedef struct rpc_client_st {
 	  continue;
 	}
 	if(packet_in->code == RPC_REP_INVSRV) {
-	  server = packet_in->master;
-	  set_server();
+	  if(packet_in->master == -1) {
+	    BOOST_LOG_TRIVIAL(info) << "Unknown master !";
+	    update_server("unknown master");
+	  }
+	  else {
+	    server = packet_in->master;
+	    set_server();
+	  }
 	  continue;
 	}
 	if(packet_in->code == RPC_REP_PENDING) {
