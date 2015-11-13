@@ -26,7 +26,6 @@ static boost::property_tree::ptree pt;
 static PMEMobjpool *state;
 static rpc_callback_t execute_rpc;
 static rpc_gc_callback_t gc_rpc;
-static unsigned long seen_client_txid[MAX_CLIENTS];
 static bool client_blocked[MAX_CLIENTS];
 static int me;
 static unsigned long last_global_txid;
@@ -120,7 +119,6 @@ void exec_rpc_internal(rpc_info_t *rpc)
     rpc->sz = execute_rpc((const unsigned char *)(rpc->rpc + 1),
 			  rpc->len - sizeof(rpc_t),
 			  &rpc->ret_value);
-    rpc->executed = true;
     while(!rpc->rep_success && !rpc->rep_failed);
     if(rpc->rep_success) {
       mark_done(rpc->rpc, rpc->ret_value, rpc->sz);
@@ -139,13 +137,24 @@ void exec_rpc_internal(rpc_info_t *rpc)
       unsigned long *global_txid_ptr = &D_RW(root)->committed_global_txid;
       pmemobj_tx_add_range_direct(global_txid_ptr, sizeof(unsigned long));
       *global_txid_ptr = rpc->rpc->global_txid;
+      if(rpc->rep_success) { // User tx aborted 
+	struct client_state_st *cstate = &D_RW(root)->client_state[client_id];
+	pmemobj_tx_add_range_direct(cstate, sizeof(struct client_state_st));
+	if(!TOID_IS_NULL(cstate->last_return_value)) {
+	  TX_FREE(cstate->last_return_value);
+	  
+	}
+	TOID_ASSIGN(cstate->last_return_value, OID_NULL);
+	cstate->last_return_size = 0;
+	__sync_synchronize();
+	cstate->committed_txid = rpc->client_txid;
+      }
     } TX_ONABORT{
       BOOST_LOG_TRIVIAL(fatal) << "Dispatcher tx abort !\n";
       exit(-1);
     } TX_END
   }
   __sync_synchronize();
-  rpc->executed = true; // in case the execution aborted (on all replicas !)
   rpc->complete = true; // note: rpc will be freed after this
 }
 
@@ -219,7 +228,6 @@ static void gc_pending_rpc_list()
 static void issue_rpc(const rpc_t *rpc, int len)
 {
   rpc_info_t *rpc_info = new rpc_info_t;
-  rpc_info->executed    = false;
   rpc_info->rep_success = false;
   rpc_info->rep_failed  = false;
   rpc_info->complete    = false;
@@ -242,21 +250,8 @@ static void issue_rpc(const rpc_t *rpc, int len)
 
 static void event_seen(const rpc_t *rpc)
 {
-  if(rpc->client_txid > seen_client_txid[rpc->client_id]) {
-    seen_client_txid[rpc->client_id] = rpc->client_txid;    
-  }
   if(rpc->global_txid > last_global_txid) {
     last_global_txid = rpc->global_txid;
-  }
-}
-
-static void event_remove(const rpc_t *rpc)
-{
-  if(rpc->client_txid <= seen_client_txid[rpc->client_id]) {
-    seen_client_txid[rpc->client_id] = rpc->client_txid - 1;    
-  }
-  if(rpc->global_txid <= last_global_txid) {
-    last_global_txid = rpc->global_txid - 1;
   }
 }
 
@@ -310,7 +305,6 @@ void cyclone_pop_cb(void *user_arg, const unsigned char *data, const int len)
 {
   const rpc_t *rpc = (const rpc_t *)data;
   rpc_info_t *rpc_info;
-  event_remove(rpc);
   rpc_info = locate_rpc(rpc->global_txid);
   if(rpc_info == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Unable to locate failed replication RPC !";
@@ -328,8 +322,7 @@ struct dispatcher_loop {
   void handle_rpc(unsigned long sz)
   {
     TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-    bool is_correct_txid, last_tx_committed;
-
+    unsigned long last_committed;
     rpc_t *rpc_req = (rpc_t *)rx_buffer;
     rpc_t *rpc_rep = (rpc_t *)tx_buffer;
     rpc_info_t *rpc_info;
@@ -338,36 +331,23 @@ struct dispatcher_loop {
     case RPC_REQ_FN:
       rpc_rep->client_id   = rpc_req->client_id;
       rpc_rep->client_txid = rpc_req->client_txid;
-      is_correct_txid =
-	((seen_client_txid[rpc_req->client_id] + 1) == rpc_req->client_txid);
-      last_tx_committed =
-	(D_RO(root)->client_state[rpc_req->client_id].committed_txid ==
-	 seen_client_txid[rpc_req->client_id]);
-      if(is_correct_txid && last_tx_committed) {
-	// Initiate replication
-	rpc_req->global_txid = (++last_global_txid);
-	issue_rpc(rpc_req, sz);
-	// TBD: Conditional on rpc being deterministic
-	void *cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
-	if(cookie != NULL) {
-	  event_seen(rpc_req);
-	  rep_sz = sizeof(rpc_t);
-	  rpc_rep->code = RPC_REP_PENDING;
-	  free(cookie);
-	}
-	else {
-	  // Roll this back
-	  cyclone_pop_cb(NULL, (const unsigned char *)rpc_req, sz);
-	  rep_sz = sizeof(rpc_t);
-	  rpc_rep->code = RPC_REP_INVSRV;
-	  rpc_rep->master = cyclone_get_leader(cyclone_handle);
-	  //BOOST_LOG_TRIVIAL(info) << "Sending new leader " << rpc_rep->master;
-	}
+      // Initiate replication
+      rpc_req->global_txid = (++last_global_txid);
+      issue_rpc(rpc_req, sz);
+      // TBD: Conditional on rpc being deterministic
+      void *cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
+      if(cookie != NULL) {
+	event_seen(rpc_req);
+	rep_sz = sizeof(rpc_t);
+	rpc_rep->code = RPC_REP_PENDING;
+	free(cookie);
       }
       else {
+	// Roll this back
+	cyclone_pop_cb(NULL, (const unsigned char *)rpc_req, sz);
 	rep_sz = sizeof(rpc_t);
-	rpc_rep->code = RPC_REP_INVTXID;
-	rpc_rep->client_txid = seen_client_txid[rpc_req->client_id];
+	rpc_rep->code = RPC_REP_INVSRV;
+	rpc_rep->master = cyclone_get_leader(cyclone_handle);
       }
       break;
     case RPC_REQ_STATUS:
@@ -376,12 +356,12 @@ struct dispatcher_loop {
 	rep_sz = sizeof(rpc_t);
 	rpc_rep->code = RPC_REP_INVSRV;
 	rpc_rep->master = cyclone_get_leader(cyclone_handle);
-	//BOOST_LOG_TRIVIAL(info) << "Sending new leader " << rpc_rep->master;
       }
       else {
 	rpc_rep->client_id   = rpc_req->client_id;
 	rpc_rep->client_txid = rpc_req->client_txid;
 	rep_sz = sizeof(rpc_t);
+	lock_rpc_list();
 	rpc_info = pending_rpc_head;
 	while(rpc_info != NULL) {
 	  if(rpc_info->rpc->client_id == rpc_req->client_id &&
@@ -390,31 +370,48 @@ struct dispatcher_loop {
 	  }
 	  rpc_info = rpc_info->next;
 	}
-
-	if(seen_client_txid[rpc_req->client_id] != rpc_req->client_txid) {
-	  rpc_rep->code = RPC_REP_INVTXID;
-	  rpc_rep->client_txid = seen_client_txid[rpc_req->client_id];
-	}
-	else if(D_RO(root)->client_state[rpc_req->client_id].committed_txid
-		== rpc_req->client_txid &&
-		(rpc_info == NULL || rpc_info->complete)) {
-	  const struct client_state_st * s =
-	    &D_RO(root)->client_state[rpc_req->client_id];
-	  rpc_rep->code = RPC_REP_COMPLETE;
-	  if(s->last_return_size > 0) {
-	    memcpy(&rpc_rep->payload,
-		   (void *)D_RO(s->last_return_value),
-		   s->last_return_size);
-	    rep_sz += s->last_return_size;
+	if(rpc_info != NULL) {
+	  if(rpc_info->complete) {
+	    unlock_rpc_list();
+	    rpc_rep->code = RPC_REP_COMPLETE;
+	    const struct client_state_st * s =
+	      &D_RO(root)->client_state[rpc_req->client_id];
+	    rpc_rep->code = RPC_REP_COMPLETE;
+	    if(s->last_return_size > 0) {
+	      memcpy(&rpc_rep->payload,
+		     (void *)D_RO(s->last_return_value),
+		     s->last_return_size);
+	      rep_sz += s->last_return_size;
+	    }
+	  }
+	  else {
+	    unlock_rpc_list();
+	    rpc_rep->code = RPC_REP_PENDING;
 	  }
 	}
-	else if(rpc_req->code == RPC_REQ_STATUS_BLOCK) {
+	else {
+	  unlock_rpc_list();
+	  last_tx_committed =
+	    D_RO(root)->client_state[rpc_req->client_id].committed_txid;
+	  if(last_tx_committed == rpc_req->client_txid) {
+	    const struct client_state_st * s =
+	      &D_RO(root)->client_state[rpc_req->client_id];
+	    rpc_rep->code = RPC_REP_COMPLETE;
+	    if(s->last_return_size > 0) {
+	      memcpy(&rpc_rep->payload,
+		     (void *)D_RO(s->last_return_value),
+		     s->last_return_size);
+	      rep_sz += s->last_return_size;
+	    }
+	  }
+	  else {
+	    rpc_rep->code = RPC_REP_REDO;
+	  }
+	}
+	if(rpc_rep->code == RPC_REQ_STATUS_BLOCK &&
+	   rpc_rep->code == RPC_REP_PENDING) {
 	  rep_sz = 0;
 	  client_blocked[rpc_req->client_id] = true;
-	  //BOOST_LOG_TRIVIAL(info) << "Setting blocked for " << rpc_req->client_id;
-	}
-	else {
-	  rpc_rep->code = RPC_REP_PENDING;
 	}
       }
       break;
