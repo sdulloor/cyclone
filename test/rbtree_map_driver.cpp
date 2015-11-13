@@ -97,8 +97,8 @@ int main(int argc, const char *argv[]) {
   while(true) {
     for(int i=0;i<KEYS;i++) {
       prop->fn = FN_INSERT;
-      prop->kv_data.key   = i;
-      prop->kv_data.value = i;
+      prop->kv_data.key   = me*KEYS + i;
+      prop->kv_data.value = me*KEYS + i;
       prop->timestamp = clock.current_time();
       prop->src       = me;
       prop->order     = (order++);
@@ -114,7 +114,7 @@ int main(int argc, const char *argv[]) {
     }
     for(int i=0;i<KEYS;i++) {
       prop->fn = FN_DELETE;
-      prop->k_data.key = i;
+      prop->k_data.key = me*KEYS + i;
       prop->timestamp = clock.current_time();
       prop->src       = me;
       prop->order     = (order++);
