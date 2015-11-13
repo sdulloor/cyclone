@@ -63,6 +63,11 @@ typedef struct rpc_client_st {
 	  update_server("rx timeout");
 	  continue;
 	}
+	if(packet_in->code == RPC_REP_INVSRV) {
+	  server = packet_in->master;
+	  set_server();
+	  continue;
+	}
 	break;
       }
 
@@ -85,6 +90,11 @@ typedef struct rpc_client_st {
 				     "RESULT");
 	if(resp_sz == -1) {
 	  update_server("rx timeout");
+	  continue;
+	}
+	if(packet_in->code == RPC_REP_INVSRV) {
+	  server = packet_in->master;
+	  set_server();
 	  continue;
 	}
 	if(packet_in->code == RPC_REP_PENDING) {

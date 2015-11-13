@@ -200,8 +200,7 @@ static void gc_pending_rpc_list()
       rpc_rep->client_txid = tmp->rpc->client_txid;
       rep_sz = sizeof(rpc_t);
       if(tmp->rep_failed) {
-	rpc_rep->code = RPC_REP_INVSRV;
-	rpc_rep->master = cyclone_get_leader(cyclone_handle);
+	rpc_rep->code = RPC_REP_REDO;
       }
       else {
 	rpc_rep->code = RPC_REP_COMPLETE;
@@ -261,7 +260,7 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
   const rpc_t *rpc = (const rpc_t *)data;
   rpc_info_t *rpc_info;
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  rpc_info = locate_rpc(rpc->global_txid);
+  rpc_info = locate_rpc(rpc->global_txid, true);
   if(rpc_info == NULL) {
     if(rpc->global_txid > D_RO(root)->committed_global_txid) {
       BOOST_LOG_TRIVIAL(fatal) 
@@ -279,6 +278,7 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
     rpc_info->rep_success = true;
     __sync_synchronize();
   }
+  unlock_rpc_list();
 }
 
 // Note: node cannot become master while this function is in progress
@@ -306,12 +306,13 @@ void cyclone_pop_cb(void *user_arg, const unsigned char *data, const int len)
 {
   const rpc_t *rpc = (const rpc_t *)data;
   rpc_info_t *rpc_info;
-  rpc_info = locate_rpc(rpc->global_txid);
+  rpc_info = locate_rpc(rpc->global_txid, true);
   if(rpc_info == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Unable to locate failed replication RPC !";
     exit(-1);
   }
   rpc_info->rep_failed = true;
+  unlock_rpc_list();
   __sync_synchronize();
 }
 
