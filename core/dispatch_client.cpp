@@ -1,3 +1,4 @@
+#include "cyclone.hpp"
 #include "libcyclone.hpp"
 #include "../core/clock.hpp"
 #include "../core/cyclone_comm.hpp"

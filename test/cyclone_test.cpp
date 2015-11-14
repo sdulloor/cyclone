@@ -2,7 +2,7 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<unistd.h>
-#include<libcyclone.hpp>
+#include "../core/cyclone.hpp"
 #include "../core/clock.hpp"
 #include<boost/log/trivial.hpp>
 #include "../core/timeouts.hpp"

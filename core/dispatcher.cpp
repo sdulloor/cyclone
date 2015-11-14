@@ -4,6 +4,7 @@
 #include<string.h>
 #include<errno.h>
 #include<unistd.h>
+#include "cyclone.hpp"
 #include "libcyclone.hpp"
 #include "dispatcher_layout.hpp"
 #include "../core/clock.hpp"
