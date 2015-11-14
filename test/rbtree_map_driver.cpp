@@ -44,36 +44,6 @@
 #include <libcyclone.hpp>
 
 
-void trace_send_cmd(void *data, const int size)
-{
-
-}
-
-void trace_recv_cmd(void *data, const int size)
-{
-
-}
-
-void trace_pre_append(void *data, const int size)
-{
-
-}
-
-void trace_post_append(void *data, const int size)
-{
-
-}
-
-void trace_send_entry(void *data, const int size)
-{
-
-}
-
-void trace_recv_entry(void *data, const int size)
-{
-
-}
-
 #define KEYS 100
 
 int main(int argc, const char *argv[]) {

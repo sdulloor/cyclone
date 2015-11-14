@@ -48,36 +48,6 @@
 static uint64_t nkeys;
 static uint64_t keys[MAX_INSERTS];
 
-void trace_send_cmd(void *data, const int size)
-{
-
-}
-
-void trace_recv_cmd(void *data, const int size)
-{
-
-}
-
-void trace_pre_append(void *data, const int size)
-{
-
-}
-
-void trace_post_append(void *data, const int size)
-{
-
-}
-
-void trace_send_entry(void *data, const int size)
-{
-
-}
-
-void trace_recv_entry(void *data, const int size)
-{
-
-}
-
 int main(int argc, const char *argv[]) {
   boost::log::keywords::auto_flush = true;
   rtc_clock clock;

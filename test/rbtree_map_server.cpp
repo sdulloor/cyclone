@@ -491,37 +491,6 @@ TOID(uint64_t) new_store_item(uint64_t val)
   return item;
 }
 
-
-void print(const char *prefix,
-	   const void *data,
-	   const int size)
-{
-#ifdef TRACING
-  rtc_clock timer;
-  char *buf = (char *)data;
-  struct proposal *prop;
-  int prop_size = sizeof(struct proposal);
-  if(size != prop_size && size != (prop_size + sizeof(rpc_t))) {
-    BOOST_LOG_TRIVIAL(fatal) << "SERVER: Incorrect record size"
-			     << size;
-    exit(-1);
-  }
-  if(size > prop_size) {
-    prop = (struct proposal *)(buf + sizeof(rpc_t));
-  }
-  else {
-    prop = (struct proposal *)buf;
-  }
-  
-  BOOST_LOG_TRIVIAL(info)
-    << prefix << " "
-    << prop->src << " "
-    << prop->order << " "
-    << (timer.current_time() - prop->timestamp);
-#endif
-}
-
-//Print message and reflect back the rpc payload
 int callback(const unsigned char *data,
 	     const int len,
 	     void **return_value)
@@ -533,7 +502,6 @@ int callback(const unsigned char *data,
 		    the_tree, 
 		    req->kv_data.key,
 		    new_store_item(req->kv_data.value).oid);
-    print("SERVER:APPLY", data, len);
     return 0;
   }
   else if(code == FN_DELETE) {
@@ -541,7 +509,6 @@ int callback(const unsigned char *data,
 				   the_tree, 
 				   req->k_data.key);
     if(OID_IS_NULL(item)) {
-      print("SERVER:APPLY", data, len);
       return 0;
     }
     else {
@@ -551,7 +518,6 @@ int callback(const unsigned char *data,
       rep->kv_data.key   = req->k_data.key;
       rep->kv_data.value = *(uint64_t *)pmemobj_direct(item);
       pmemobj_tx_free(item);
-      print("SERVER:APPLY", data, len);
       return sizeof(struct proposal);
     }
   }
@@ -567,7 +533,6 @@ int callback(const unsigned char *data,
       rep->kv_data.key     = req->k_data.key;
       rep->kv_data.value = *(uint64_t *)pmemobj_direct(item);
     }
-    print("SERVER:APPLY", data, len);
     return sizeof(struct proposal);
   }
   else if(code == FN_BUMP) {
@@ -585,7 +550,6 @@ int callback(const unsigned char *data,
       (*ptr)++;
       rep->kv_data.value = *ptr;
     }
-    print("SERVER:APPLY", data, len);
     return sizeof(struct proposal);
   }
   else {
@@ -626,32 +590,3 @@ int main(int argc, char *argv[])
 }
 
 
-void trace_send_cmd(void *data, const int size)
-{
-  print("SERVER: SEND_CMD", data, size);
-}
-
-void trace_recv_cmd(void *data, const int size)
-{
-  print("SERVER: RECV_CMD", data, size);
-}
-
-void trace_pre_append(void *data, const int size)
-{
-  print("SERVER: PRE_APPEND", data, size);
-}
-
-void trace_post_append(void *data, const int size)
-{
-  print("SERVER: POST_APPEND", data, size); 
-}
-
-void trace_send_entry(void *data, const int size)
-{
-  print("SERVER: SEND_ENTRY", data, size);
-}
-
-void trace_recv_entry(void *data, const int size)
-{
-  print("SERVER: RECV_ENTRY", data, size);
-}

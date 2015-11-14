@@ -18,3 +18,48 @@ void exec_rpc(rpc_info_t *rpc)
   ioService.post(boost::bind(exec_rpc_internal, rpc));
 }
 
+static void print(const char *prefix,
+		  const void *data,
+		  const int size)
+{
+  rtc_clock timer;
+  const rpc_t *rpc = (const rpc_t *)data;
+
+  BOOST_LOG_TRIVIAL(info)
+    << prefix << " "
+    << rpc->client_id  << " "
+    << rpc->client_txid << " "
+    << (timer.current_time() - rpc->timestamp);
+}
+
+void trace_send_cmd(void *data, const int size)
+{
+  print("SERVER: SEND_CMD", data, size);
+}
+
+void trace_recv_cmd(void *data, const int size)
+{
+  print("SERVER: RECV_CMD", data, size);
+}
+
+void trace_pre_append(void *data, const int size)
+{
+  print("SERVER: PRE_APPEND", data, size);
+}
+
+void trace_post_append(void *data, const int size)
+{
+  print("SERVER: POST_APPEND", data, size); 
+}
+
+void trace_send_entry(void *data, const int size)
+{
+  print("SERVER: SEND_ENTRY", data, size);
+}
+
+void trace_recv_entry(void *data, const int size)
+{
+  print("SERVER: RECV_ENTRY", data, size);
+}
+
+

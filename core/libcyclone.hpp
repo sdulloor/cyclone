@@ -2,6 +2,11 @@
 #define _CYCLONE_HPP_
 #include<libpmemobj.h>
 
+TOID_DECLARE(char, 0);
+#define TOID_NUM_BASE 1000
+static const int MAX_CLIENTS      = 10000; // Should be enough ?
+static const int DISP_MAX_MSGSIZE = 4194304; // 4MB max msg size 
+
 ////// RPC Server side interface
 // Returns the size of the return value blob
 typedef 
@@ -27,7 +32,7 @@ int dispatcher_me();
 
 
 ////// RPC client side interface
-static const int CLIENT_MAXPAYLOAD = (DISP_MAX_MSGSIZE - sizeof(rpc_t));
+static const int CLIENT_MAXPAYLOAD = (DISP_MAX_MSGSIZE - 512);
 void* cyclone_client_init(int client_id, const char *config);
 // Make an rpc call -- returns size of response
 int make_rpc(void *handle,

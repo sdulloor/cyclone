@@ -6,9 +6,9 @@
 
 rtc_clock timer;
 
-void print(const char *prefix,
-	   const void *data,
-	   const int size)
+static void print(const char *prefix,
+		  const void *data,
+		  const int size)
 {
   unsigned long elapsed_usecs = timer.current_time();
   char *buf = (char *)data;
@@ -23,36 +23,6 @@ void print(const char *prefix,
       << *(const unsigned int *)(buf + 4) << " " 
       << (elapsed_usecs - *(const unsigned long *)((char *)buf + 8));
   }
-}
-
-void trace_send_cmd(void *data, const int size)
-{
-  print("SERVER: SEND_CMD", data, size);
-}
-
-void trace_recv_cmd(void *data, const int size)
-{
-  print("SERVER: RECV_CMD", data, size);
-}
-
-void trace_pre_append(void *data, const int size)
-{
-  print("SERVER: PRE_APPEND", data, size);
-}
-
-void trace_post_append(void *data, const int size)
-{
-  print("SERVER: POST_APPEND", data, size); 
-}
-
-void trace_send_entry(void *data, const int size)
-{
-  print("SERVER: SEND_ENTRY", data, size);
-}
-
-void trace_recv_entry(void *data, const int size)
-{
-  print("SERVER: RECV_ENTRY", data, size);
 }
 
 int main(int argc, char *argv[])

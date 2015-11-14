@@ -38,12 +38,14 @@ typedef struct rpc_client_st {
     int retcode;
     int resp_sz;
     int txid;
+    rtc_clock clock;
     while(true) {
       // Make request
       while(true) {
 	packet_out->code        = RPC_REQ_FN;
 	packet_out->client_id   = me;
 	packet_out->client_txid = ctr;
+	packet_out->timestamp   = clock.current_time();
 	memcpy(packet_out + 1, payload, sz);
 	txid = ctr;
 	retcode = cyclone_tx_timeout(router->output_socket(server), 

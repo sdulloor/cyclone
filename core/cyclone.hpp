@@ -1,6 +1,7 @@
 #ifndef _CYCLONE_
 #define _CYCLONE_
-
+#include<libpmemobj.h>
+#include "libcyclone.hpp"
 
 //////// Direct interface
 int cyclone_is_leader(void *cyclone_handle); // returns 1 if true
@@ -22,16 +23,12 @@ extern void* cyclone_boot(const char *config_path,
 extern void cyclone_shutdown(void *cyclone_handle);
 
 //////// RPC interface
-TOID_DECLARE(char, 0);
-#define TOID_NUM_BASE 1000
-static const int MAX_CLIENTS      = 10000; // Should be enough ?
-static const int DISP_MAX_MSGSIZE = 4194304; // 4MB max msg size 
-
 typedef struct rpc_st {
   int code;
   int hint_flags;
   int client_id;
   unsigned long global_txid;
+  unsigned long timestamp;
   union {
     unsigned long client_txid; 
     int master;
