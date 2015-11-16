@@ -25,6 +25,6 @@ cp test/rbtree_map_server test3/
 cp test/rbtree_map_client test3/
 cp test/rbtree_map_driver test3/
 
-cp test/config1.ini test1/cyclone_test.ini
-cp test/config2.ini test2/cyclone_test.ini
-cp test/config3.ini test3/cyclone_test.ini
+cp test/config_local.ini test1/cyclone_test.ini
+cp test/config_local.ini test2/cyclone_test.ini
+cp test/config_local.ini test3/cyclone_test.ini

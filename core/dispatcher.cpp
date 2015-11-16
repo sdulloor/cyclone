@@ -464,6 +464,9 @@ void dispatcher_start(const char* config_path,
   boost::log::keywords::auto_flush = true;
   // Load/Setup state
   std::string file_path = pt.get<std::string>("dispatch.filepath");
+  char me_str[100];
+  sprintf(me_str,"%d", me);
+  file_path.append(me_str);
   dispatcher_exec_startup();
   if(access(file_path.c_str(), F_OK)) {
     state = pmemobj_create(file_path.c_str(),

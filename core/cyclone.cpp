@@ -369,6 +369,9 @@ void* cyclone_boot(const char *config_path,
   
   boost::property_tree::read_ini(config_path, cyclone_handle->pt);
   std::string path_raft           = cyclone_handle->pt.get<std::string>("storage.raftpath");
+  char me_str[100];
+  sprintf(me_str, "%d", me);
+  path_raft.append(me_str);
   cyclone_handle->RAFT_LOGSIZE    = cyclone_handle->pt.get<unsigned long>("storage.logsize");
   cyclone_handle->replicas        = cyclone_handle->pt.get<int>("network.replicas");
   cyclone_handle->me              = me;
