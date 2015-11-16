@@ -3,15 +3,15 @@ rm -f /mnt/tmpfs/raftdata*
 rm -f /mnt/tmpfs/dispdata*
 echo "starting servers"
 cd test1
-./dispatch_test_server &> output &
+./dispatch_test_server 0 &> output &
 echo $!
 #sleep 3
 cd ../test2
-./dispatch_test_server &> output &
+./dispatch_test_server 1 &> output &
 echo $!
 #sleep 1
 cd ../test3
-./dispatch_test_server &> output &
+./dispatch_test_server 2 &> output &
 echo $!
 sleep 3
 echo "starting clients"

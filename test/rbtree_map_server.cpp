@@ -42,6 +42,7 @@
 #include<stdlib.h>
 #include<boost/log/trivial.hpp>
 #include "../core/clock.hpp"
+#include<stdio.h>
 
 TOID_DECLARE(struct tree_map_node, TREE_MAP_TYPE_OFFSET + 1);
 
@@ -585,8 +586,12 @@ void gc(void *data)
 
 int main(int argc, char *argv[])
 {
-  server_id = dispatcher_me();
-  dispatcher_start("cyclone_test.ini", callback, gc, nvheap_setup);
+  if(argc != 2) {
+    printf("Usage: %s server_id\n", argv[0]);
+    exit(-1);
+  }
+  server_id = atoi(argv[1]);
+  dispatcher_start("cyclone_test.ini", callback, gc, nvheap_setup, server_id);
 }
 
 

@@ -25,11 +25,8 @@ typedef TOID(char) (*rpc_nvheap_setup_callback_t)(TOID(char) recovered,
 void dispatcher_start(const char* config_path, 
 		      rpc_callback_t rpc_callback,
 		      rpc_gc_callback_t gc_callback,
-		      rpc_nvheap_setup_callback_t nvheap_setup_callback);
-
-// My id
-int dispatcher_me();
-
+		      rpc_nvheap_setup_callback_t nvheap_setup_callback,
+		      int me);
 
 ////// RPC client side interface
 static const int CLIENT_MAXPAYLOAD = (DISP_MAX_MSGSIZE - 512);

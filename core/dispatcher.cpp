@@ -160,11 +160,6 @@ void exec_rpc_internal(rpc_info_t *rpc)
   rpc->complete = true; // note: rpc will be freed after this
 }
 
-int dispatcher_me()
-{
-  return me;
-}
-
 static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
 static unsigned char rx_buffer[DISP_MAX_MSGSIZE];
 static cyclone_switch *router;
@@ -462,7 +457,8 @@ static dispatcher_loop * dispatcher_loop_obj;
 void dispatcher_start(const char* config_path,
 		      rpc_callback_t rpc_callback,
 		      rpc_gc_callback_t gc_callback,
-		      rpc_nvheap_setup_callback_t nvheap_setup_callback)
+		      rpc_nvheap_setup_callback_t nvheap_setup_callback,
+		      int me)
 {
   boost::property_tree::read_ini(config_path, pt);
   boost::log::keywords::auto_flush = true;
@@ -533,10 +529,10 @@ void dispatcher_start(const char* config_path,
 				&cyclone_rep_cb,
 				&cyclone_pop_cb,
 				&cyclone_commit_cb,
+				me,
 				NULL);
   // Listen on port
   void *zmq_context = zmq_init(1);
-  me = pt.get<int>("network.me");
   dispatcher_loop_obj    = new dispatcher_loop();
   dispatcher_loop_obj->zmq_context = zmq_context;
   dispatcher_loop_obj->clients = pt.get<int>("dispatch.clients");

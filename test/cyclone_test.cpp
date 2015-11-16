@@ -90,6 +90,7 @@ int main(int argc, char *argv[])
 				&cyclone_rep_cb,
 				&cyclone_pop_cb,
 				&cyclone_cb,
+				node_id,
 				NULL);
   while(true) {
     if(cyclone_is_leader(cyclone_handle) == 0)

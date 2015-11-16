@@ -19,6 +19,7 @@ extern void* cyclone_boot(const char *config_path,
 			  cyclone_callback_t cyclone_rep_callback,
 			  cyclone_callback_t cyclone_pop_callback,
 			  cyclone_callback_t cyclone_commit_callback,
+			  int me,
 			  void *user_arg);
 extern void cyclone_shutdown(void *cyclone_handle);
 

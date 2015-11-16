@@ -4,15 +4,15 @@ rm -f /mnt/tmpfs/dispdata*
 export LD_LIBRARY_PATH=/usr/local/lib
 echo "starting servers"
 cd test1
-./rbtree_map_server &> output &
+./rbtree_map_server 0 &> output &
 echo $!
 #sleep 3
 cd ../test2
-./rbtree_map_server &> output &
+./rbtree_map_server 1 &> output &
 echo $!
 #sleep 1
 cd ../test3
-./rbtree_map_server &> output &
+./rbtree_map_server 2 &> output &
 echo $!
 sleep 3
 echo "starting clients"
