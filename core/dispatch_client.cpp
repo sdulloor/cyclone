@@ -124,6 +124,7 @@ typedef struct rpc_client_st {
       break;
     }
     *response = (void *)(packet_in + 1);
+    ctr++;
     return (int)(resp_sz - sizeof(rpc_t));
   }
 } rpc_client_t;

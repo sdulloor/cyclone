@@ -1,6 +1,7 @@
 #!/bin/bash
 rm -f /mnt/tmpfs/raftdata*
 rm -f /mnt/tmpfs/dispdata*
+export LD_LIBRARY_PATH=/usr/local/lib
 echo "starting servers"
 cd test1
 ./rbtree_map_server &> output &
