@@ -49,11 +49,12 @@
 int main(int argc, const char *argv[]) {
   boost::log::keywords::auto_flush = true;
   rtc_clock clock;
-  if(argc != 2) {
-    printf("Usage: %s client_id\n", argv[0]);
+  if(argc != 3) {
+    printf("Usage: %s client_id sleep_usecs\n", argv[0]);
     exit(-1);
   }
   int me = atoi(argv[1]);
+  unsigned long sleep_time = atol(argv[2]);
   void * handle = cyclone_client_init(me, "cyclone_test.ini");
   char *buffer = new char[CLIENT_MAXPAYLOAD];
   struct proposal *prop = (struct proposal *)buffer;
@@ -63,7 +64,7 @@ int main(int argc, const char *argv[]) {
   unsigned long order = 0;
   unsigned long tx_block_cnt   = 0;
   unsigned long tx_block_begin = clock.current_time();
-  
+  unsigned long total_latency  = 0;
   for(int i=0;i<KEYS;i++) {
     prop->fn = FN_INSERT;
     prop->kv_data.key   = me*KEYS + i;
@@ -71,17 +72,28 @@ int main(int argc, const char *argv[]) {
     prop->timestamp = clock.current_time();
     prop->src       = me;
     prop->order     = (order++);
+    unsigned long tx_begin_time = clock.current_time();
     sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp);
+    total_latency += (clock.current_time() - tx_begin_time);
+    usleep(sleep_time);
     tx_block_cnt++;
     if(clock.current_time() - tx_block_begin >= 10000) {
-      BOOST_LOG_TRIVIAL(info) << "BLOCK THROUGHPUT = "
-				<< ((double)1000000*tx_block_cnt)/(clock.current_time() - tx_block_begin)
-			      << " tx/sec ";
+      BOOST_LOG_TRIVIAL(info) << "LOAD = "
+			      << ((double)1000000*tx_block_cnt)/(clock.current_time() - tx_block_begin)
+			      << " tx/sec "
+			      << "LATENCY = "
+			      << ((double)total_latency)/tx_block_cnt
+			      << " us ";
       tx_block_begin = clock.current_time();
       tx_block_cnt   = 0;
+      total_latency  = 0;
     }
   }
 
+  total_latency = 0;
+  tx_blcok_cnt  = 0;
+  tx_block_begin = clock.current_time();
+  
   while(true) {
     for(int i=0;i<KEYS;i++) {
       prop->fn = FN_BUMP;
@@ -89,14 +101,21 @@ int main(int argc, const char *argv[]) {
       prop->timestamp = clock.current_time();
       prop->src       = me;
       prop->order     = (order++);
+      unsigned long tx_begin_time = clock.current_time();
       sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp);
+      total_latency += (clock.current_time() - tx_begin_time);
+      usleep(sleep_time);
       tx_block_cnt++;
       if(clock.current_time() - tx_block_begin >= 10000) {
-	BOOST_LOG_TRIVIAL(info) << "BLOCK THROUGHPUT = "
+	BOOST_LOG_TRIVIAL(info) << "LOAD = "
 				<< ((double)1000000*tx_block_cnt)/(clock.current_time() - tx_block_begin)
-				<< " tx/sec ";
+				<< " tx/sec "
+				<< "LATENCY = "
+				<< ((double)total_latency)/tx_block_cnt
+				<< " us ";
 	tx_block_begin = clock.current_time();
 	tx_block_cnt   = 0;
+	total_latency  = 0;
       }
     }
   }
