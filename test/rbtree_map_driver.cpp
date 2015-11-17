@@ -91,7 +91,7 @@ int main(int argc, const char *argv[]) {
   }
 
   total_latency = 0;
-  tx_blcok_cnt  = 0;
+  tx_block_cnt  = 0;
   tx_block_begin = clock.current_time();
   
   while(true) {
