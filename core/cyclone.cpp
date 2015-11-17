@@ -355,6 +355,7 @@ void* cyclone_boot(const char *config_path,
 		   cyclone_callback_t cyclone_pop_callback,
 		   cyclone_callback_t cyclone_commit_callback,
 		   int me,
+		   int replicas,
 		   void *user_arg)
 {
   cyclone_t *cyclone_handle;
@@ -373,9 +374,9 @@ void* cyclone_boot(const char *config_path,
   sprintf(me_str, "%d", me);
   path_raft.append(me_str);
   cyclone_handle->RAFT_LOGSIZE    = cyclone_handle->pt.get<unsigned long>("storage.logsize");
-  cyclone_handle->replicas        = cyclone_handle->pt.get<int>("network.replicas");
+  cyclone_handle->replicas        = replicas;
   cyclone_handle->me              = me;
-  int baseport  = cyclone_handle->pt.get<int>("network.baseport"); 
+  int baseport  = cyclone_handle->pt.get<int>("quorum.baseport"); 
   cyclone_handle->raft_handle = raft_new();
   
   /* Setup raft state */
@@ -471,6 +472,8 @@ void* cyclone_boot(const char *config_path,
 					      &cyclone_handle->pt,
 					      cyclone_handle->me,
 					      cyclone_handle->replicas,
+					      cyclone_handle->replicas,
+					      pt.get<int>("machines.machines"),
 					      baseport,
 					      baseport,
 					      true,

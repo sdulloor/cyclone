@@ -49,13 +49,15 @@
 int main(int argc, const char *argv[]) {
   boost::log::keywords::auto_flush = true;
   rtc_clock clock;
-  if(argc != 3) {
-    printf("Usage: %s client_id sleep_usecs\n", argv[0]);
+  if(argc != 5) {
+    printf("Usage: %s client_id replicas clients sleep_usecs\n", argv[0]);
     exit(-1);
   }
   int me = atoi(argv[1]);
-  unsigned long sleep_time = atol(argv[2]);
-  void * handle = cyclone_client_init(me, "cyclone_test.ini");
+  int replicas = atoi(argv[2]);
+  int clients  = atoi(argv[3]);
+  unsigned long sleep_time = atol(argv[4]);
+  void * handle = cyclone_client_init(me, replicas, clients, "cyclone_test.ini");
   char *buffer = new char[CLIENT_MAXPAYLOAD];
   struct proposal *prop = (struct proposal *)buffer;
   srand(time(NULL));

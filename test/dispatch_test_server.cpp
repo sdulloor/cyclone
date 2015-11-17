@@ -30,10 +30,14 @@ void gc(void *data)
 
 int main(int argc, char *argv[])
 {
-  if(argc != 2) {
-    printf("Usage: %s server_id\n", argv[0]);
+  if(argc != 4) {
+    printf("Usage: %s server_id replicas clients\n", argv[0]);
     exit(-1);
   }
   server_id = atoi(argv[1]);
-  dispatcher_start("cyclone_test.ini", callback, gc, nvheap_setup, server_id);
+  int replicas = atoi(argv[2]);
+  int clients  = atoi(argv[3]);
+  dispatcher_start("cyclone_test.ini", 
+		   callback, gc, nvheap_setup, server_id,
+		   replicas, clients);
 }

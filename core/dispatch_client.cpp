@@ -130,19 +130,19 @@ typedef struct rpc_client_st {
 } rpc_client_t;
 
 
-void* cyclone_client_init(int client_id, const char *config)
+void* cyclone_client_init(int client_id, int replicas, int clients, const char *config)
 {
   rpc_client_t * client = new rpc_client_t();
   client->me = client_id;
   boost::property_tree::ptree pt;
   boost::property_tree::read_ini(config, pt);
   void *zmq_context = zmq_init(1);
-  int replicas = pt.get<int>("network.replicas");
   unsigned long server_port = pt.get<unsigned long>("dispatch.server_baseport");
   unsigned long client_port = pt.get<unsigned long>("dispatch.client_baseport");
   client->router = new cyclone_switch(zmq_context,
 				      &pt,
 				      client_id,
+				      clients,
 				      replicas,
 				      client_port,
 				      server_port,

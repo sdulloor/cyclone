@@ -26,11 +26,13 @@ void dispatcher_start(const char* config_path,
 		      rpc_callback_t rpc_callback,
 		      rpc_gc_callback_t gc_callback,
 		      rpc_nvheap_setup_callback_t nvheap_setup_callback,
-		      int me);
+		      int me,
+		      int replicas,
+		      int clients);
 
 ////// RPC client side interface
 static const int CLIENT_MAXPAYLOAD = (DISP_MAX_MSGSIZE - 512);
-void* cyclone_client_init(int client_id, const char *config);
+void* cyclone_client_init(int client_id, int replicas, int clients, const char *config);
 // Make an rpc call -- returns size of response
 int make_rpc(void *handle,
 	     void *payload,

@@ -78,12 +78,13 @@ int main(int argc, char *argv[])
 {
   void *cyclone_handle;
   boost::log::keywords::auto_flush = true;
-  if(argc != 2) {
-    printf("Usage %s node_id\n", argv[0]);
+  if(argc != 3) {
+    printf("Usage %s node_id replicas\n", argv[0]);
     exit(-1);
   }
   timer.start();
   unsigned int node_id = atoi(argv[1]);
+  unsigned int replicas = atoi(argv[2]);
   unsigned char entry[16];
   int ctr = 0;
   cyclone_handle = cyclone_boot("cyclone_test.ini",
@@ -91,6 +92,7 @@ int main(int argc, char *argv[])
 				&cyclone_pop_cb,
 				&cyclone_cb,
 				node_id,
+				replicas,
 				NULL);
   while(true) {
     if(cyclone_is_leader(cyclone_handle) == 0)

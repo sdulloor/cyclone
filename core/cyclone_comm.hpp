@@ -243,7 +243,8 @@ static void cyclone_bind_endpoint(void *socket, const char *endpoint)
 }
 
 class cyclone_switch {
-  int machines;
+  int nodes_local;
+  int nodes_remote;
   void **sockets_out;
   void **sockets_in;
   std::stringstream key;
@@ -252,17 +253,22 @@ public:
   cyclone_switch(void *context, 
 		 boost::property_tree::ptree *pt,
 		 int me,
-		 int machines_in, 
+		 int nodes_local_in,
+		 int nodes_remote_in,
+		 int machines,
 		 int baseport_local,
 		 int baseport_remote,
 		 bool loopback,
 		 bool use_hwm)
-    :machines(machines_in)
+    :nodes_local(nodes_local_in),
+     nodes_remote(nodes_remote_in)
   {
-    sockets_in = new void *[machines];
-    sockets_out = new void *[machines];
+    sockets_in = new void *[nodes_remote];
+    sockets_out = new void *[nodes_local];
     unsigned long port;
-    for(int i=0;i<machines;i++) {
+    int mc_me = me % machines;
+
+    for(int i=0;i<nodes_remote;i++) {
       // input wire from i
       if(i == me && loopback) {
 	sockets_in[i] = cyclone_socket_in_loopback(context);
@@ -272,12 +278,13 @@ public:
       }
       key.str("");key.clear();
       addr.str("");addr.clear();
-      key << "network.iface" << i;
+      key << "machines.iface" << mc_me;
       addr << "tcp://";
       addr << pt->get<std::string>(key.str().c_str());
-      port = baseport_local + me*machines + i;
+      port = baseport_local + me*nodes_remote + i;
       addr << ":" << port;
       cyclone_bind_endpoint(sockets_in[i], addr.str().c_str());
+      
       // output wire to i
       if(i == me && loopback) {
 	sockets_out[i] = cyclone_socket_out_loopback(context);
@@ -285,12 +292,14 @@ public:
       else {
 	sockets_out[i] = cyclone_socket_out(context, use_hwm);
       }
+
+      int mc_remote = i % machines;
       key.str("");key.clear();
       addr.str("");addr.clear();
-      key << "network.addr" << i;
+      key << "machines.addr" << mc_remote;
       addr << "tcp://";
       addr << pt->get<std::string>(key.str().c_str());
-      port = baseport_remote + i*machines + me ;
+      port = baseport_remote + i*nodes_local + me ;
       addr << ":" << port;
       cyclone_connect_endpoint(sockets_out[i], addr.str().c_str());
     }

@@ -458,7 +458,9 @@ void dispatcher_start(const char* config_path,
 		      rpc_callback_t rpc_callback,
 		      rpc_gc_callback_t gc_callback,
 		      rpc_nvheap_setup_callback_t nvheap_setup_callback,
-		      int me)
+		      int me,
+		      int replicas,
+		      int clients)
 {
   boost::property_tree::read_ini(config_path, pt);
   boost::log::keywords::auto_flush = true;
@@ -533,18 +535,20 @@ void dispatcher_start(const char* config_path,
 				&cyclone_pop_cb,
 				&cyclone_commit_cb,
 				me,
+				replicas,
 				NULL);
   // Listen on port
   void *zmq_context = zmq_init(1);
   dispatcher_loop_obj    = new dispatcher_loop();
   dispatcher_loop_obj->zmq_context = zmq_context;
-  dispatcher_loop_obj->clients = pt.get<int>("dispatch.clients");
+  dispatcher_loop_obj->clients = clients;
   int dispatch_server_baseport = pt.get<int>("dispatch.server_baseport");
   int dispatch_client_baseport = pt.get<int>("dispatch.client_baseport");
   router = new cyclone_switch(zmq_context,
 			      &pt,
 			      me,
-			      dispatcher_loop_obj->clients,
+			      replicas,
+			      clients,
 			      dispatch_server_baseport,
 			      dispatch_client_baseport,
 			      false,

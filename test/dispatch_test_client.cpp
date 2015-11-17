@@ -28,12 +28,14 @@ static void print(const char *prefix,
 int main(int argc, char *argv[])
 {
   boost::log::keywords::auto_flush = true;
-  if(argc != 2) {
-    printf("Usage: %s client_id\n", argv[0]);
+  if(argc != 4) {
+    printf("Usage: %s client_id replicas clients\n", argv[0]);
     exit(-1);
   }
   int me = atoi(argv[1]);
-  void * handle = cyclone_client_init(me, "cyclone_test.ini");
+  int replicas = atoi(argv[2]);
+  int clients  = atoi(argv[3]);
+  void * handle = cyclone_client_init(me, replicas, clients, "cyclone_test.ini");
   char *proposal = new char[CLIENT_MAXPAYLOAD];
   int ctr = 0;
   while(true) {
