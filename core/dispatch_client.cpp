@@ -144,6 +144,7 @@ void* cyclone_client_init(int client_id, int replicas, int clients, const char *
 				      client_id,
 				      clients,
 				      replicas,
+				      pt.get<int>("machines.machines"),
 				      client_port,
 				      server_port,
 				      false,

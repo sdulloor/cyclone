@@ -264,7 +264,7 @@ public:
      nodes_remote(nodes_remote_in)
   {
     sockets_in = new void *[nodes_remote];
-    sockets_out = new void *[nodes_local];
+    sockets_out = new void *[nodes_remote];
     unsigned long port;
     int mc_me = me % machines;
 
@@ -323,7 +323,7 @@ public:
 
   ~cyclone_switch()
   {
-    for(int i=0;i<=machines;i++) {
+    for(int i=0;i<=nodes_remote;i++) {
       zmq_close(sockets_out[i]);
       zmq_close(sockets_in[i]);
     }
