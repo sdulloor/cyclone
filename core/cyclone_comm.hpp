@@ -164,6 +164,17 @@ static int cyclone_socket_has_data(void *poll_handle, int index)
   return ((items[index].revents & ZMQ_POLLIN) != 0) ? 1:0;
 }
 
+static void socket_set_nolinger(void *socket)
+{
+  int linger = 0;
+  int e = zmq_setsockopt(socket, ZMQ_LINGER, &linger, sizeof(int));
+  if (e == -1) {
+    BOOST_LOG_TRIVIAL(fatal) 
+      << "CYCLONE_COMM: Unable to set sock linger "
+      << zmq_strerror(zmq_errno());
+    exit(-1);
+  }
+}
 
 static void* cyclone_socket_out(void *context, bool use_hwm)
 {
@@ -180,6 +191,7 @@ static void* cyclone_socket_out(void *context, bool use_hwm)
       exit(-1);
     }
   }
+  socket_set_nolinger(socket);
   return socket;
 }
 
@@ -187,6 +199,7 @@ static void* cyclone_socket_out_loopback(void *context)
 {
   void *socket;
   socket = zmq_socket(context, ZMQ_REQ);
+  socket_set_nolinger(socket);
   return socket;
 }
 
