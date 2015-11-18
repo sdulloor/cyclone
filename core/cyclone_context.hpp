@@ -60,7 +60,7 @@ extern void trace_recv_cmd(void *data, const int size);
 #endif
 
 struct throttle_st {
-  int term;
+  int prev_log_term;
   int prev_log_idx;
   unsigned long last_tx_time;
   unsigned long timeout;
