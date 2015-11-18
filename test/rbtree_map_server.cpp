@@ -546,8 +546,8 @@ int callback(const unsigned char *data,
     else {
       rep->code = CODE_OK;
       rep->kv_data.key     = req->k_data.key;
+      pmemobj_tx_add_range(item, 0, sizeof(uint64_t));
       uint64_t *ptr = (uint64_t *)pmemobj_direct(item);
-      pmemobj_tx_add_range_direct(ptr, sizeof(uint64_t));
       (*ptr)++;
       rep->kv_data.value = *ptr;
     }
