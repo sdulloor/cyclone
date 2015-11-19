@@ -15,6 +15,9 @@ apt-get -y install cscope
 apt-get -y install git
 apt-get -y install ctags
 apt-get -y install libboost.*1.55.*dev
+apt-get -y install ntp
+
+service ntp reload
 
 # Build zmq
 rm -rf $CYCLONE_ROOT_DIR/zeromq
