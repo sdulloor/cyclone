@@ -117,19 +117,19 @@ typedef struct cyclone_st {
       exit(-1);
     }
     unsigned long new_tail = D_RO(log)->log_tail;
-    copy_to_circular_log(log,
+    copy_to_circular_log(pop_raft_state, log,
 			 RAFT_LOGSIZE,
 			 D_RO(log)->log_tail,
 			 (unsigned char *)&size,
 			 sizeof(int));
     new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
-    copy_to_circular_log(log,
+    copy_to_circular_log(pop_raft_state, log,
 			 RAFT_LOGSIZE,
 			 new_tail,
 			 data,
 			 size);
     new_tail = circular_log_advance_ptr(new_tail, size, RAFT_LOGSIZE);
-    copy_to_circular_log(log,
+    copy_to_circular_log(pop_raft_state, log,
 			 RAFT_LOGSIZE,
 			 new_tail,
 			 (unsigned char *)&size,

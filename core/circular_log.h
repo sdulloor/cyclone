@@ -11,14 +11,14 @@ void copy_from_circular_log(log_t log,
   unsigned long chunk1 = (offset + size) > LOGSIZE ?
     (LOGSIZE - offset):size;
   unsigned long chunk2 = size - chunk1;
-  TX_MEMCPY(dst, D_RO(log)->data + offset, chunk1);
+  memcpy(dst, D_RO(log)->data + offset, chunk1);
   if(chunk2 > 0) {
     dst += chunk1;
-    TX_MEMCPY(dst, D_RO(log)->data, chunk2);
+    memcpy(dst, D_RO(log)->data, chunk2);
   }
 }
 
-void copy_to_circular_log(log_t log,
+void copy_to_circular_log(PMEMobjpool *pop, log_t log,
 			  unsigned long LOGSIZE,
 			  unsigned long offset,
 			  unsigned char *src,
@@ -27,10 +27,10 @@ void copy_to_circular_log(log_t log,
   unsigned long chunk1 = (offset + size) > LOGSIZE ?
     (LOGSIZE - offset):size;
   unsigned long chunk2 = size - chunk1;
-  TX_MEMCPY(D_RW(log)->data + offset, src, chunk1);
+  pmemobj_memcpy_persist(pop, D_RW(log)->data + offset, src, chunk1);
   if(chunk2 > 0) {
     src += chunk1;
-    TX_MEMCPY(D_RW(log)->data, src, chunk2);
+    pmemobj_memcpy_persist(pop, D_RW(log)->data, src, chunk2);
   }
 }
 
