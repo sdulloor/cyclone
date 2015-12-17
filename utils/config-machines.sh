@@ -48,7 +48,12 @@ cp libcraft.* /usr/lib/
 ## Build cyclone
 cd $CYCLONE_ROOT_DIR
 git clone https://github.com/sdulloor/cyclone cyclone.git
+cd cyclone.git
+git submodule init
+git submodule update
 cd nvml.git
 make && make install prefix=/usr
-cd cyclone.git/core
+cd ../core
 make && make install
+cd ../test
+make
