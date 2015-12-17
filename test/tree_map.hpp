@@ -34,44 +34,11 @@
  * tree_map.c -- TreeMap sorted collection implementation
  */
 
-#ifndef	TREE_MAP_H
-#define	TREE_MAP_H
+#ifndef	TREE_MAP_HPP
+#define	TREE_MAP_HPP
 
 #include <libpmemobj.h>
 #include <libcyclone.hpp>
-
-#define	TREE_MAP_TYPE_OFFSET TOID_NUM_BASE + 1
-TOID_DECLARE(uint64_t, TOID_NUM_BASE);
-TOID_DECLARE(struct tree_map, TREE_MAP_TYPE_OFFSET + 0);
-
-struct tree_map;
-
-int tree_map_new(PMEMobjpool *pop, TOID(struct tree_map) *map);
-
-int tree_map_delete(PMEMobjpool *pop, TOID(struct tree_map) *map);
-
-int tree_map_insert(PMEMobjpool *pop,
-	TOID(struct tree_map) map, uint64_t key, PMEMoid value);
-
-int tree_map_insert_new(PMEMobjpool *pop,
-	TOID(struct tree_map) map, uint64_t key, size_t size,
-		unsigned int type_num,
-		void (*constructor)(PMEMobjpool *pop, void *ptr, void *arg),
-		void *arg);
-
-PMEMoid tree_map_remove(PMEMobjpool *pop,
-	TOID(struct tree_map) map, uint64_t key);
-
-int tree_map_remove_free(PMEMobjpool *pop,
-	TOID(struct tree_map) map, uint64_t key);
-
-int tree_map_clear(PMEMobjpool *pop,
-	TOID(struct tree_map) map);
-
-PMEMoid tree_map_get(TOID(struct tree_map) map, uint64_t key);
-
-int tree_map_is_empty(TOID(struct tree_map) map);
-
 
 const int FN_INSERT = 0;
 const int FN_DELETE = 1;

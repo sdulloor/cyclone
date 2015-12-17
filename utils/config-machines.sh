@@ -37,13 +37,6 @@ cd zeromq-4.1.3
 make
 make install
 
-# Build nvml
-cd $CYCLONE_ROOT_DIR
-rm -rf nvml.git
-git clone https://github.com/pmem/nvml/ nvml.git 
-cd nvml.git
-make && make install prefix=/usr
-
 # Build raft
 cd $CYCLONE_ROOT_DIR
 git clone https://github.com/willemt/raft raft.git 
@@ -53,7 +46,9 @@ cp include/raft.h /usr/include/
 cp libcraft.* /usr/lib/ 
 
 ## Build cyclone
-#cd $CYCLONE_ROOT_DIR
-#git clone https://github.com/sdulloor/cyclone cyclone.git
-#cd cyclone.git/core
-#make && make install
+cd $CYCLONE_ROOT_DIR
+git clone https://github.com/sdulloor/cyclone cyclone.git
+cd nvml.git
+make && make install prefix=/usr
+cd cyclone.git/core
+make && make install

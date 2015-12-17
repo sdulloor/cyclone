@@ -1,0 +1,3 @@
+[submodule "nvml.git"]
+	path = nvml.git
+	url = https://github.com/pmem/nvml
