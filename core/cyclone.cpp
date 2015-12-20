@@ -13,11 +13,10 @@ extern void trace_send_entry(void *data, const int size);
 /** Raft callback for sending request vote message */
 static int __send_requestvote(raft_server_t* raft,
 			      void *user_data,
-			      int nodeidx,
+			      raft_node_t *node,
 			      msg_requestvote_t* m)
 {
   cyclone_t* cyclone_handle = (cyclone_t *)user_data;
-  raft_node_t* node = raft_get_node(raft, nodeidx);
   void *socket      = raft_node_get_udata(node);
   msg_t msg;
   msg.source      = cyclone_handle->me;
@@ -33,15 +32,15 @@ static int __send_requestvote(raft_server_t* raft,
 /** Raft callback for sending appendentries message */
 static int __send_appendentries(raft_server_t* raft,
 				void *udata,
-				int nodeidx,
+				raft_node_t *node,
 				msg_appendentries_t* m)
 {
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  raft_node_t* node = raft_get_node(raft, nodeidx);
   void *socket      = raft_node_get_udata(node);
   unsigned char *ptr = cyclone_handle->cyclone_buffer_out;
   msg_t msg;
   rtc_clock clock;
+  int nodeidx = raft_node_get_id(node);
   if(m->prev_log_term == cyclone_handle->throttles[nodeidx].prev_log_term &&
      m->prev_log_idx   == cyclone_handle->throttles[nodeidx].prev_log_idx) {
     if((clock.current_time() - cyclone_handle->throttles[nodeidx].last_tx_time) <=
@@ -267,8 +266,19 @@ static int __raft_logentry_pop(raft_server_t* raft,
   return result;
 }
 
+/** Raft callback for detecting when a node has sufficient logs */
+void __raft_has_sufficient_logs(raft_server_t *raft,
+				void *user_data,
+				raft_node_t *node)
+{
+  // TBD
+}
+
 /** Raft callback for displaying debugging information */
-void __raft_log(raft_server_t* raft, void *udata, const char *buf)
+void __raft_log(raft_server_t* raft, 
+		raft_node_t *node,
+		void *udata, 
+		const char *buf)
 {
   //BOOST_LOG_TRIVIAL(debug) << "CYCLONE::RAFT " << buf;
 }
@@ -284,9 +294,9 @@ raft_cbs_t raft_funcs = {
   .log_offer                   = __raft_logentry_offer,
   .log_poll                    = __raft_logentry_poll,
   .log_pop                     = __raft_logentry_pop,
+  .node_has_sufficient_logs    = __raft_has_sufficient_logs,
   .log                         = __raft_log,
 };
-
 
 int cyclone_is_leader(void *cyclone_handle)
 {
@@ -424,8 +434,11 @@ void* cyclone_boot(const char *config_path,
     BOOST_LOG_TRIVIAL(info) << "CYCLONE: Recovering state";
     TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state, raft_pstate_t);
     log_t log = D_RO(root)->log;
-    raft_vote(cyclone_handle->raft_handle, D_RO(root)->voted_for);
-    raft_set_current_term(cyclone_handle->raft_handle, D_RO(root)->term);
+    raft_vote(cyclone_handle->raft_handle, 
+	      raft_get_node(cyclone_handle->raft_handle,
+			    D_RO(root)->voted_for));
+    raft_set_current_term(cyclone_handle->raft_handle, 
+			  D_RO(root)->term);
     unsigned long ptr = D_RO(log)->log_head;
     raft_entry_t ety;
     while(ptr != D_RO(log)->log_tail) {
@@ -481,6 +494,7 @@ void* cyclone_boot(const char *config_path,
   for(int i=0;i<cyclone_handle->replicas;i++) {
     raft_add_peer(cyclone_handle->raft_handle,
 		  cyclone_handle->router->output_socket(i),
+		  i,
 		  i == cyclone_handle->me ? 1:0);
   }
 

@@ -223,14 +223,19 @@ typedef struct cyclone_st {
     switch (msg->msg_type) {
     case MSG_REQUESTVOTE:
       resp.msg_type = MSG_REQUESTVOTE_RESPONSE;
-      e = raft_recv_requestvote(raft_handle, msg->source, &msg->rv, &resp.rvr);
+      e = raft_recv_requestvote(raft_handle, 
+				raft_get_node(raft_handle, msg->source), 
+				&msg->rv, 
+				&resp.rvr);
       /* send response */
       resp.source = me;
       cyclone_tx(router->output_socket(msg->source),
 		 (unsigned char *)&resp, sizeof(msg_t), "REQVOTE RESP");
       break;
     case MSG_REQUESTVOTE_RESPONSE:
-      e = raft_recv_requestvote_response(raft_handle, msg->source, &msg->rvr);
+      e = raft_recv_requestvote_response(raft_handle, 
+					 raft_get_node(raft_handle, msg->source), 
+					 &msg->rvr);
       break;
     case MSG_APPENDENTRIES:
     resp.msg_type = MSG_APPENDENTRIES_RESPONSE;
@@ -246,14 +251,19 @@ typedef struct cyclone_st {
 #endif
       ptr += msg->ae.entries[i].data.len;
     }
-    e = raft_recv_appendentries(raft_handle, msg->source, &msg->ae, &resp.aer);
+    e = raft_recv_appendentries(raft_handle, 
+				raft_get_node(raft_handle, msg->source), 
+				&msg->ae, 
+				&resp.aer);
     resp.source = me;
     cyclone_tx(router->output_socket(msg->source),
 		(unsigned char *)&resp, sizeof(msg_t), "APPENDENTRIES RESP");
     break;
     case MSG_APPENDENTRIES_RESPONSE:
       throttles[msg->source].timeout = RAFT_REQUEST_TIMEOUT;
-      e = raft_recv_appendentries_response(raft_handle, msg->source, &msg->aer);
+      e = raft_recv_appendentries_response(raft_handle, 
+					   raft_get_node(raft_handle, msg->source), 
+					   &msg->aer);
       break;
     case MSG_CLIENT_REQ:
 #ifdef TRACING
@@ -275,7 +285,9 @@ typedef struct cyclone_st {
 	client_req.data.len = msg->client.size;
 	// TBD: Handle error
 	client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
-	(void)raft_recv_entry(raft_handle, me, &client_req, client_rep);
+	(void)raft_recv_entry(raft_handle, 
+			      &client_req, 
+			      client_rep);
 	cyclone_tx(router->input_socket(me),
 		    (unsigned char *)&client_rep,
 		    sizeof(void *),
