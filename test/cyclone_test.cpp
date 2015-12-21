@@ -4,9 +4,8 @@
 #include<unistd.h>
 #include "../core/cyclone.hpp"
 #include "../core/clock.hpp"
-#include<boost/log/trivial.hpp>
+#include "../core/logging.hpp"
 #include "../core/timeouts.hpp"
-#include <boost/log/utility/setup.hpp>
 
 rtc_clock timer;
 
@@ -77,7 +76,6 @@ void cyclone_pop_cb(void *user_arg, const unsigned char *data, const int len)
 int main(int argc, char *argv[])
 {
   void *cyclone_handle;
-  boost::log::keywords::auto_flush = true;
   if(argc != 3) {
     printf("Usage %s node_id replicas\n", argv[0]);
     exit(-1);

@@ -5,7 +5,7 @@
 #include <libpmemobj.h>
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
-#include <boost/log/trivial.hpp>
+#include "logging.hpp"
 #include <zmq.h>
 extern "C" {
 #include <raft.h>
@@ -14,7 +14,6 @@ extern "C" {
 #include <boost/thread.hpp>
 #include <boost/asio/io_service.hpp>
 #include <boost/bind.hpp>
-#include <boost/lockfree/queue.hpp>
 #include "pmem_layout.h"
 #include "circular_log.h"
 #include "clock.hpp"

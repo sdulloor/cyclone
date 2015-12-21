@@ -286,16 +286,16 @@ void __raft_log(raft_server_t* raft,
 
 
 raft_cbs_t raft_funcs = {
-  .send_requestvote            = __send_requestvote,
-  .send_appendentries          = __send_appendentries,
-  .applylog                    = __applylog,
-  .persist_vote                = __persist_vote,
-  .persist_term                = __persist_term,
-  .log_offer                   = __raft_logentry_offer,
-  .log_poll                    = __raft_logentry_poll,
-  .log_pop                     = __raft_logentry_pop,
-  .node_has_sufficient_logs    = __raft_has_sufficient_logs,
-  .log                         = __raft_log,
+  __send_requestvote,
+  __send_appendentries,
+  __applylog,
+  __persist_vote,
+  __persist_term,
+  __raft_logentry_offer,
+  __raft_logentry_poll,
+  __raft_logentry_pop,
+  __raft_has_sufficient_logs,
+  __raft_log,
 };
 
 int cyclone_is_leader(void *cyclone_handle)

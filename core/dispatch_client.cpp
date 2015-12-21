@@ -2,8 +2,7 @@
 #include "libcyclone.hpp"
 #include "../core/clock.hpp"
 #include "../core/cyclone_comm.hpp"
-#include<boost/log/trivial.hpp>
-#include <boost/log/utility/setup.hpp>
+#include "../core/logging.hpp"
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <unistd.h>

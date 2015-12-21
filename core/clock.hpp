@@ -1,7 +1,7 @@
 #ifndef _CLOCK_
 #define _CLOCK_
 #include<sys/time.h>
-#include<boost/log/trivial.hpp>
+#include "logging.hpp"
 
 //! Real time clock
 class rtc_clock {

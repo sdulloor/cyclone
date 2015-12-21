@@ -1,7 +1,9 @@
 #ifndef _CYCLONE_HPP_
 #define _CYCLONE_HPP_
 #include<libpmemobj.h>
-
+#ifndef UINT64_MAX
+#define UINT64_MAX (-1UL)
+#endif
 TOID_DECLARE(char, 0);
 #define TOID_NUM_BASE 1000
 static const int MAX_CLIENTS      = 10000; // Should be enough ?

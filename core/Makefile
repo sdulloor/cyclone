@@ -5,10 +5,17 @@ CXXFLAGS = -O3 -fPIC -DBOOST_LOG_DYN_LINK
 
 #CXXFLAGS += -DTRACING
 
+#BOOST_THREAD_LIB=-lboost_thread-mt
+BOOST_THREAD_LIB=-lboost_thread
+
+#BOOST_LOG_LIB=
+BOOST_LOG_LIB=-lboost_log
+
+
 libcyclone.so: libcyclone.o dispatcher.o dispatcher_exec.o dispatch_client.o
 	$(CXX) -shared -Wl,-soname,libcyclone.so -o libcyclone.so libcyclone.o\
 	 dispatcher.o dispatcher_exec.o dispatch_client.o \
-	-lc -lcraft -lpmemobj -lpmemlog -lzmq -lboost_thread -lboost_log
+	-lc -lcraft -lpmemobj -lpmemlog -lzmq -lboost_system $(BOOST_THREAD_LIB) $(BOOST_LOG_LIB)
 
 libcyclone.o: cyclone.cpp libcyclone.hpp
 	$(CXX) $(CXXFLAGS) cyclone.cpp -c -o $@

@@ -1,8 +1,8 @@
 // Dispatcher test client
 #include "../core/clock.hpp"
-#include<boost/log/trivial.hpp>
-#include <boost/log/utility/setup.hpp>
+#include "../core/logging.hpp"
 #include <libcyclone.hpp>
+#include <stdio.h>
 
 rtc_clock timer;
 
@@ -27,7 +27,6 @@ static void print(const char *prefix,
 
 int main(int argc, char *argv[])
 {
-  boost::log::keywords::auto_flush = true;
   if(argc != 4) {
     printf("Usage: %s client_id replicas clients\n", argv[0]);
     exit(-1);

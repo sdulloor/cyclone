@@ -1,6 +1,5 @@
 #include <boost/asio/io_service.hpp>
 #include <boost/bind.hpp>
-#include <boost/lockfree/queue.hpp>
 #include <boost/thread.hpp>
 #include "dispatcher_exec.hpp"
 

@@ -39,8 +39,7 @@
 #include <assert.h>
 #include "tree_map.hpp"
 #include "../core/clock.hpp"
-#include<boost/log/trivial.hpp>
-#include <boost/log/utility/setup.hpp>
+#include "../core/logging.hpp"
 #include <libcyclone.hpp>
 
 
@@ -49,7 +48,6 @@ static uint64_t nkeys;
 static uint64_t keys[MAX_INSERTS];
 
 int main(int argc, const char *argv[]) {
-  boost::log::keywords::auto_flush = true;
   rtc_clock clock;
   if(argc != 4) {
     printf("Usage: %s client_id replicas clients\n", argv[0]);

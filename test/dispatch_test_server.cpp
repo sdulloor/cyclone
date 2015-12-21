@@ -2,7 +2,7 @@
 #include<libcyclone.hpp>
 #include<string.h>
 #include "../core/clock.hpp"
-#include<boost/log/trivial.hpp>
+#include "../core/logging.hpp"
 #include<stdio.h>
 
 unsigned long server_id;

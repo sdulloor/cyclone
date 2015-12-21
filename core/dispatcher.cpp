@@ -11,8 +11,7 @@
 #include "cyclone_comm.hpp"
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
-#include <boost/log/utility/setup.hpp>
-#include<boost/log/trivial.hpp>
+#include "logging.hpp"
 #include <boost/thread.hpp>
 #include <boost/asio/io_service.hpp>
 #include <boost/bind.hpp>
@@ -463,7 +462,6 @@ void dispatcher_start(const char* config_path,
 		      int clients)
 {
   boost::property_tree::read_ini(config_path, pt);
-  boost::log::keywords::auto_flush = true;
   // Load/Setup state
   std::string file_path = pt.get<std::string>("dispatch.filepath");
   char me_str[100];

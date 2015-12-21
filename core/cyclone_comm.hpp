@@ -2,7 +2,7 @@
 #define _CYCLONE_COMM_
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
-#include <boost/log/trivial.hpp>
+#include "logging.hpp"
 #include <zmq.h>
 #include <unistd.h>
 #include "clock.hpp"

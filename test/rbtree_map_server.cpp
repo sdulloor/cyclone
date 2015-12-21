@@ -36,7 +36,7 @@
 #include<libcyclone.hpp>
 #include<string.h>
 #include<stdlib.h>
-#include<boost/log/trivial.hpp>
+#include "../core/logging.hpp"
 #include "../core/clock.hpp"
 #include<stdio.h>
 extern "C" {

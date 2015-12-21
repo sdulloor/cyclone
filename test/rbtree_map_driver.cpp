@@ -39,15 +39,13 @@
 #include <assert.h>
 #include "tree_map.hpp"
 #include "../core/clock.hpp"
-#include<boost/log/trivial.hpp>
-#include <boost/log/utility/setup.hpp>
+#include "../core/logging.hpp"
 #include <libcyclone.hpp>
 
 
 #define KEYS 100
 
 int main(int argc, const char *argv[]) {
-  boost::log::keywords::auto_flush = true;
   rtc_clock clock;
   if(argc != 5) {
     printf("Usage: %s client_id replicas clients sleep_usecs\n", argv[0]);
