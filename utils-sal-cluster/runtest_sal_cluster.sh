@@ -6,7 +6,7 @@ REPLICAS=4
 GROUP=sal-sdv[1-4]
 
 
-clush -w ${GROUP} cp $BASE_DIR/cyclone.git/test/config_sal.ini $BASE_DIR/cyclone_test.ini
+clush -w ${GROUP} cp $BASE_DIR/cyclone.git/utils-sal-cluster/config_sal.ini $BASE_DIR/cyclone_test.ini
 clush -w ${GROUP} cp $BASE_DIR/cyclone.git/test/rbtree_map_server $BASE_DIR
 clush -w ${GROUP} cp $BASE_DIR/cyclone.git/test/rbtree_map_driver $BASE_DIR
 clush -w ${GROUP} cp $BASE_DIR/cyclone.git/test/cyclone_test $BASE_DIR
