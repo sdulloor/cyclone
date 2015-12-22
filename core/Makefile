@@ -15,7 +15,7 @@ BOOST_LOG_LIB=-lboost_log
 libcyclone.so: libcyclone.o dispatcher.o dispatcher_exec.o dispatch_client.o
 	$(CXX) -shared -Wl,-soname,libcyclone.so -o libcyclone.so libcyclone.o\
 	 dispatcher.o dispatcher_exec.o dispatch_client.o \
-	-lc -lcraft -lpmemobj -lpmemlog -lzmq -lboost_system $(BOOST_THREAD_LIB) $(BOOST_LOG_LIB)
+	-lc -lcraft -lpmemobj -lpmemlog -lzmq -lboost_system -lboost_date_time $(BOOST_THREAD_LIB) $(BOOST_LOG_LIB)
 
 libcyclone.o: cyclone.cpp libcyclone.hpp
 	$(CXX) $(CXXFLAGS) cyclone.cpp -c -o $@

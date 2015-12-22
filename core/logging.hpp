@@ -4,6 +4,7 @@
 #include<string>
 #include<sstream>
 #include<boost/thread.hpp>
+#include<boost/date_time/posix_time/posix_time.hpp>
 enum log_state {
   fatal = 0,
   error = 1,
@@ -37,6 +38,7 @@ public:
   {
     std::stringstream final;
     final << "<" << log_headers[level] << " ";
+    final << boost::posix_time::to_simple_string(boost::posix_time::microsec_clock::local_time()) << " ";
     final << boost::this_thread::get_id() << "> ";
     final << state.str() << std::endl;
     std::cerr << final.str();
