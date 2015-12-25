@@ -42,7 +42,8 @@ static int __send_appendentries(raft_server_t* raft,
   rtc_clock clock;
   int nodeidx = raft_node_get_id(node);
   if(m->prev_log_term == cyclone_handle->throttles[nodeidx].prev_log_term &&
-     m->prev_log_idx   == cyclone_handle->throttles[nodeidx].prev_log_idx) {
+     m->prev_log_idx   == cyclone_handle->throttles[nodeidx].prev_log_idx &&
+     m->n_entries == cyclone_handle->throttles[nodeidx].prev_entries) {
     if((clock.current_time() - cyclone_handle->throttles[nodeidx].last_tx_time) <=
        cyclone_handle->throttles[nodeidx].timeout) {
       return 0; // throttle retx
@@ -55,6 +56,7 @@ static int __send_appendentries(raft_server_t* raft,
   else {
     cyclone_handle->throttles[nodeidx].prev_log_term = m->prev_log_term;
     cyclone_handle->throttles[nodeidx].prev_log_idx = m->prev_log_idx;
+    cyclone_handle->throttles[nodeidx].prev_entries = m->n_entries;
     cyclone_handle->throttles[nodeidx].last_tx_time = clock.current_time();
     cyclone_handle->throttles[nodeidx].timeout = RAFT_REQUEST_TIMEOUT;
   }
@@ -476,6 +478,8 @@ void* cyclone_boot(const char *config_path,
   for(int i=0;i<cyclone_handle->replicas;i++) {
     cyclone_handle->throttles[i].prev_log_term  = -1;
     cyclone_handle->throttles[i].prev_log_idx   = -1;
+    cyclone_handle->throttles[i].prev_entries   = 0;
+    
     cyclone_handle->throttles[i].timeout = RAFT_REQUEST_TIMEOUT;
   }
 
