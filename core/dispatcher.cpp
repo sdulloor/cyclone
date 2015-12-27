@@ -407,7 +407,7 @@ struct dispatcher_loop {
 	    rpc_rep->code = RPC_REP_REDO;
 	  }
 	}
-	if(rpc_rep->code == RPC_REQ_STATUS_BLOCK &&
+	if(rpc_req->code == RPC_REQ_STATUS_BLOCK &&
 	   rpc_rep->code == RPC_REP_PENDING) {
 	  rep_sz = 0;
 	  client_blocked[rpc_req->client_id] = true;
