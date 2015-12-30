@@ -116,9 +116,17 @@ void exec_rpc_internal(rpc_info_t *rpc)
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   bool aborted = false;
   TX_BEGIN(state) {
-    rpc->sz = execute_rpc((const unsigned char *)(rpc->rpc + 1),
-			  rpc->len - sizeof(rpc_t),
-			  &rpc->ret_value);
+    if(rpc->rpc->flags & RPC_FLAG_PRECOMMIT) {
+      while(!rpc->rep_success && !rpc->rep_failed);
+    }
+    if(!rpc->rep_failed) {
+      rpc->sz = execute_rpc((const unsigned char *)(rpc->rpc + 1),
+			    rpc->len - sizeof(rpc_t),
+			    &rpc->ret_value);
+    }
+    else {
+      rpc->sz = 0;
+    }
     while(!rpc->rep_success && !rpc->rep_failed);
     if(rpc->rep_success) {
       mark_done(rpc->rpc, rpc->ret_value, rpc->sz);

@@ -27,7 +27,7 @@ extern void cyclone_shutdown(void *cyclone_handle);
 //////// RPC interface
 typedef struct rpc_st {
   int code;
-  int hint_flags;
+  int flags;
   int client_id;
   unsigned long global_txid;
   unsigned long timestamp;
@@ -49,9 +49,6 @@ static const int RPC_REP_INVSRV         = 6; // WRONG master  -- master set in r
 
 static const unsigned long RPC_INIT_TXID = 1; // Initial client txid
 
-// Possible flags for hint follow
-static const int RPC_HINT_NONE  = 0; // No hint
-static const int RPC_HINT_RO    = 1; // Read-only
-static const int RPC_HINT_DET   = 2; // Fully deterministic
-
+// Possible flags 
+static const int RPC_FLAG_PRECOMMIT  = 1; // Commit before executing
 #endif
