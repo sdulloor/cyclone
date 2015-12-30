@@ -32,7 +32,7 @@ typedef struct rpc_client_st {
     BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING MASTER " << server;
   }
 
-  int make_rpc(void *payload, int sz, void **response)
+  int make_rpc(void *payload, int sz, void **response, int flags)
   {
     int retcode;
     int resp_sz;
@@ -42,6 +42,7 @@ typedef struct rpc_client_st {
       // Make request
       while(true) {
 	packet_out->code        = RPC_REQ_FN;
+	packet_out->flags       = flags;
 	packet_out->client_id   = me;
 	packet_out->client_txid = ctr;
 	packet_out->timestamp   = clock.current_time();
@@ -161,8 +162,9 @@ void* cyclone_client_init(int client_id, int replicas, int clients, const char *
 int make_rpc(void *handle,
 	     void *payload,
 	     int sz,
-	     void **response)
+	     void **response,
+	     int flags)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->make_rpc(payload, sz, response);
+  return client->make_rpc(payload, sz, response, flags);
 }

@@ -49,6 +49,4 @@ static const int RPC_REP_INVSRV         = 6; // WRONG master  -- master set in r
 
 static const unsigned long RPC_INIT_TXID = 1; // Initial client txid
 
-// Possible flags 
-static const int RPC_FLAG_PRECOMMIT  = 1; // Commit before executing
 #endif

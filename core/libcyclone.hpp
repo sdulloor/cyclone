@@ -39,7 +39,11 @@ void* cyclone_client_init(int client_id, int replicas, int clients, const char *
 int make_rpc(void *handle,
 	     void *payload,
 	     int sz,
-	     void **response);
+	     void **response,
+	     int rpc_flags);
 
+
+// Possible flags 
+static const int RPC_FLAG_PRECOMMIT  = 1; // Commit before executing
 
 #endif

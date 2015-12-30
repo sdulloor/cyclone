@@ -43,7 +43,7 @@ int main(int argc, char *argv[])
     *(unsigned long *)&proposal[8] = timer.current_time();
     void *resp;
     print("PROPOSE", proposal, 16);
-    int sz = make_rpc(handle, proposal, 16, &resp);
+    int sz = make_rpc(handle, proposal, 16, &resp, 0);
     if(sz != 16 || memcmp(proposal, resp, 16) != 0) {
       print("ERROR", proposal, 16);
     }

@@ -73,7 +73,7 @@ int main(int argc, const char *argv[]) {
     prop->src       = me;
     prop->order     = (order++);
     unsigned long tx_begin_time = clock.current_time();
-    sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, 0);
+    sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, RPC_FLAG_PRECOMMIT);
     total_latency += (clock.current_time() - tx_begin_time);
     usleep(sleep_time);
     tx_block_cnt++;
@@ -102,7 +102,7 @@ int main(int argc, const char *argv[]) {
       prop->src       = me;
       prop->order     = (order++);
       unsigned long tx_begin_time = clock.current_time();
-      sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, 0);
+      sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, RPC_FLAG_PRECOMMIT);
       total_latency += (clock.current_time() - tx_begin_time);
       usleep(sleep_time);
       tx_block_cnt++;
