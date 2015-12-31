@@ -23,9 +23,10 @@ static void *cyclone_handle;
 static boost::property_tree::ptree pt;
 
 struct client_ro_state_st {
-  unsigned long completed_txid;
+  unsigned long committed_txid;
   char * last_return_value;
   int last_return_size;
+  
 } client_ro_state [MAX_CLIENTS];
 
 
@@ -182,18 +183,19 @@ void exec_rpc_internal_ro(rpc_info_t *rpc)
 			rpc->len - sizeof(rpc_t),
 			&rpc->ret_value);
   rpc->rep_success = true; // No replication needed
-  if(client_ro_state[rpc->client_id] != NULL) {
-    free(client_ro_state[rpc->client_id]);
-    client_ro_state[rpc->client_id].last_return_size = 0;
+  struct client_ro_state_st *cstate = &client_ro_state[rpc->rpc->client_id];
+  if(cstate->last_return_value != NULL) {
+    free(cstate->last_return_value);
+    cstate->last_return_size = 0;
   }
   if(rpc->sz > 0) {
-    client_ro_state[rpc->client_id] = (char *)malloc(rpc->sz);
-    memcpy(client_ro_state[rpc->client_id],
+    cstate->last_return_value = (char *)malloc(rpc->sz);
+    memcpy(cstate->last_return_value,
 	   rpc->ret_value,
 	   rpc->sz);
-    client_ro_state[rpc->client_id].last_return_size = rpc->sz;
+    cstate->last_return_size = rpc->sz;
     __sync_synchronize();
-    client_ro_state[rpc->client_id].committed_txid = rpc->rpc->client_txid;
+    cstate->committed_txid = rpc->rpc->client_txid;
   }
   __sync_synchronize();
   rpc->complete = true; // note: rpc will be freed after this
@@ -570,7 +572,7 @@ void dispatcher_start(const char* config_path,
   for(int i = 0;i < MAX_CLIENTS;i++) {
     client_ro_state[i].committed_txid    = 0UL;
     client_ro_state[i].last_return_size  = 0;
-    client_ro_state[i].last_return_value = NULL);
+    client_ro_state[i].last_return_value = NULL;
   }
   
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
