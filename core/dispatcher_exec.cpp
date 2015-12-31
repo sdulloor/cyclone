@@ -14,7 +14,12 @@ void dispatcher_exec_startup()
 
 void exec_rpc(rpc_info_t *rpc)
 {
-  ioService.post(boost::bind(exec_rpc_internal, rpc));
+  if((rpc->rpc->flags & RPC_FLAG_RO) == 0) {
+    ioService.post(boost::bind(exec_rpc_internal, rpc));
+  }
+  else {
+    ioService.post(boost::bind(exec_rpc_internal_ro, rpc));
+  }
 }
 
 static void print(const char *prefix,

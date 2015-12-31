@@ -118,7 +118,7 @@ typedef struct rpc_client_st {
 	break;
       }
 
-      if(packet_in->code == RPC_REP_REDO) {
+      if(packet_in->code == RPC_REP_UNKNOWN) {
 	continue;
       }
       break;

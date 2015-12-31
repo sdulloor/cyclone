@@ -44,7 +44,7 @@ static const int RPC_REQ_STATUS         = 1; // Check status (non blocking)
 static const int RPC_REQ_STATUS_BLOCK   = 2; // Check status (blocking)
 static const int RPC_REP_COMPLETE       = 3; // DONE 
 static const int RPC_REP_PENDING        = 4; // PENDING 
-static const int RPC_REP_REDO           = 5; // Redo RPC
+static const int RPC_REP_UNKNOWN        = 5; // UNKNOWN RPC
 static const int RPC_REP_INVSRV         = 6; // WRONG master  -- master set in reply
 
 static const unsigned long RPC_INIT_TXID = 1; // Initial client txid

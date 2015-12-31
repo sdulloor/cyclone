@@ -18,4 +18,5 @@ typedef struct rpc_info_st {
 extern void dispatcher_exec_startup();
 extern void exec_rpc(rpc_info_t *rpc);
 extern void exec_rpc_internal(rpc_info_t *rpc);
+extern void exec_rpc_internal_ro(rpc_info_t *rpc);
 #endif

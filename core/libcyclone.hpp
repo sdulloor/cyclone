@@ -45,5 +45,6 @@ int make_rpc(void *handle,
 
 // Possible flags 
 static const int RPC_FLAG_PRECOMMIT  = 1; // Commit before executing
+static const int RPC_FLAG_RO         = 2; // Read-only RPC
 
 #endif
