@@ -322,6 +322,9 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
 {
   const rpc_t *rpc = (const rpc_t *)data;
   rpc_info_t *rpc_info;
+  if(rpc->code == RPC_REQ_MARKER) {
+    return;
+  }
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   rpc_info = locate_rpc(rpc->global_txid, true);
   if(rpc_info == NULL) {
@@ -350,6 +353,9 @@ void cyclone_rep_cb(void *user_arg, const unsigned char *data, const int len)
   const rpc_t *rpc = (const rpc_t *)data;
   bool issue_it;
   rpc_info_t *match;
+  if(rpc->code == RPC_REQ_MARKER) {
+    return;
+  }
   event_seen(rpc);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   issue_it = (D_RO(root)->committed_global_txid < rpc->global_txid); // not committed
@@ -369,6 +375,9 @@ void cyclone_pop_cb(void *user_arg, const unsigned char *data, const int len)
 {
   const rpc_t *rpc = (const rpc_t *)data;
   rpc_info_t *rpc_info;
+  if(rpc->code == RPC_REQ_MARKER) {
+    return;
+  }
   rpc_info = locate_rpc(rpc->global_txid, true);
   if(rpc_info == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Unable to locate failed replication RPC !";
@@ -383,6 +392,16 @@ void cyclone_pop_cb(void *user_arg, const unsigned char *data, const int len)
 struct dispatcher_loop {
   void *zmq_context;
   int clients;
+
+  void send_kicker()
+  {
+    rpc_t *rpc_req = (rpc_t *)rx_buffer;
+    rpc_req->code = RPC_REQ_MARKER;
+    cookie = cyclone_add_entry(cyclone_handle, rpc_req, sizeof(rpc_t));
+    if(cookie != NULL) {
+      free(cookie);
+    }
+  }
   
   void handle_rpc(unsigned long sz)
   {
@@ -505,6 +524,7 @@ struct dispatcher_loop {
   void operator ()()
   {
     rtc_clock clock;
+    bool is_master = false;
     clock.start();
     while(true) {
       for(int i=0;i<clients;i++) {
@@ -520,6 +540,16 @@ struct dispatcher_loop {
       clock.stop();
       if(clock.elapsed_time() >= PERIODICITY) {
 	gc_pending_rpc_list();
+	// Leadership change ?
+	if(cyclone_is_leader(cyclone_handle)) {
+	  if(!is_master) {
+	    is_master = true;
+	    send_kicker();
+	  }
+	}
+	else {
+	  is_master = false;
+	}
 	clock.reset();
       }
       clock.start();

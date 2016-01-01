@@ -28,7 +28,11 @@ static void print(const char *prefix,
 {
   rtc_clock timer;
   const rpc_t *rpc = (const rpc_t *)data;
-
+  if(rpc->code == RPC_REQ_MARKER) {
+    BOOST_LOG_TRIVIAL(info)
+      << "KICKER";
+    return;
+  }
   BOOST_LOG_TRIVIAL(info)
     << prefix << " "
     << rpc->client_id  << " "
