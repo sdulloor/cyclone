@@ -95,8 +95,9 @@ static void dump_active_list()
 static int get_max_client_txid(int client_id)
 {
   int max_client_txid = 0;
+  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   lock_rpc_list();
-  rpc_info = pending_rpc_head;
+  rpc_info_t *rpc_info = pending_rpc_head;
   while(rpc_info != NULL) {
     if(rpc_info->rpc->client_id == client_id) {
       if(rpc_info->rpc->client_txid > max_client_txid) {
@@ -107,7 +108,7 @@ static int get_max_client_txid(int client_id)
   }
   unlock_rpc_list();
   int last_rw_txid = D_RO(root)->client_state[client_id].committed_txid;
-  int last_ro_txid = client_ro_state[rpc->rpc->client_id];
+  int last_ro_txid = client_ro_state[client_id].committed_txid;
   if(last_rw_txid > max_client_txid) {
     max_client_txid = last_rw_txid;
   }
@@ -396,7 +397,7 @@ struct dispatcher_loop {
     switch(rpc_req->code) {
     case RPC_REQ_LAST_TXID:
       rep_sz = sizeof(rpc_t);
-      rpc_rep->code = RPC_COMPLETE;
+      rpc_rep->code = RPC_REP_COMPLETE;
       rpc_rep->client_txid = rpc_req->client_txid;
       rpc_rep->last_client_txid = get_max_client_txid(rpc_req->client_id);
       break;
@@ -450,8 +451,8 @@ struct dispatcher_loop {
 	  rpc_rep->code = RPC_REP_UNKNOWN;
 	}
 	else {
-	  int last_rw_txid = D_RO(root)->client_state[client_id].committed_txid;
-	  int last_ro_txid = client_ro_state[rpc->rpc->client_id];
+	  int last_rw_txid = D_RO(root)->client_state[rpc_req->client_id].committed_txid;
+	  int last_ro_txid = client_ro_state[rpc_req->client_id].committed_txid;
 	  if(last_rw_txid < rpc_req->client_txid &&
 	     last_ro_txid < rpc_req->client_txid ) {
 	    rpc_rep->code = RPC_REP_PENDING;

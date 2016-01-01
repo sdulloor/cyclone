@@ -43,7 +43,7 @@ int make_rpc(void *handle,
 	     int txid,
 	     int rpc_flags);
 // Get last accepred txid
-int get_last_txid(void *handle)l
+int get_last_txid(void *handle);
 
 // Possible flags 
 static const int RPC_FLAG_PRECOMMIT  = 1; // Commit before executing

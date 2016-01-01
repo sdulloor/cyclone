@@ -32,7 +32,7 @@ typedef struct rpc_st {
   union {
     unsigned long global_txid;
     int last_client_txid;
-  }
+  };
   unsigned long timestamp;
   union {
     unsigned long client_txid; 

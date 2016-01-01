@@ -36,7 +36,7 @@ int main(int argc, char *argv[])
   int clients  = atoi(argv[3]);
   void * handle = cyclone_client_init(me, replicas, clients, "cyclone_test.ini");
   char *proposal = new char[CLIENT_MAXPAYLOAD];
-  int ctr = get_last_txid();
+  int ctr = get_last_txid(handle);
   while(true) {
     *(unsigned int *)&proposal[0] = me;
     *(unsigned int *)&proposal[4] = ctr;

@@ -41,10 +41,9 @@ typedef struct rpc_client_st {
       packet_out->client_id   = me;
       packet_out->timestamp   = clock.current_time();
       packet_out->client_txid = (int)packet_out->timestamp;
-      memcpy(packet_out + 1, payload, sz);
       retcode = cyclone_tx_timeout(router->output_socket(server), 
 				   (unsigned char *)packet_out, 
-				   sizeof(rpc_t) + sz, 
+				   sizeof(rpc_t), 
 				   timeout_msec*1000,
 				   "PROPOSE");
       if(retcode == -1) {
