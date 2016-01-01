@@ -397,7 +397,7 @@ struct dispatcher_loop {
   {
     rpc_t *rpc_req = (rpc_t *)rx_buffer;
     rpc_req->code = RPC_REQ_MARKER;
-    cookie = cyclone_add_entry(cyclone_handle, rpc_req, sizeof(rpc_t));
+    void *cookie = cyclone_add_entry(cyclone_handle, rpc_req, sizeof(rpc_t));
     if(cookie != NULL) {
       free(cookie);
     }
