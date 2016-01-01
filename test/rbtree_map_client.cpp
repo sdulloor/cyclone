@@ -66,7 +66,7 @@ int main(int argc, const char *argv[]) {
   void *resp;
   nkeys = 0;
   unsigned long order = 0;
-  int ctr = get_last_txid(handle);
+  int ctr = get_last_txid(handle) + 1;
   for (int i = 0; i < MAX_INSERTS; ++i) {
     insert_data.key = rand();
     insert_data.value = rand();

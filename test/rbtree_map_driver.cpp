@@ -65,7 +65,7 @@ int main(int argc, const char *argv[]) {
   unsigned long tx_block_cnt   = 0;
   unsigned long tx_block_begin = clock.current_time();
   unsigned long total_latency  = 0;
-  int ctr = get_last_txid(handle);
+  int ctr = get_last_txid(handle) + 1;
   
   for(int i=0;i<KEYS;i++) {
     prop->fn = FN_INSERT;
