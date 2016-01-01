@@ -57,6 +57,7 @@ typedef struct rpc_client_st {
 				     timeout_msec*1000,
 				     "RESULT");
 	if(resp_sz != -1 &&
+	   packet_in->code != RPC_REP_INVSRV &&
 	   packet_in->client_txid != packet_out->client_txid) {
 	  continue;
 	}
@@ -64,6 +65,17 @@ typedef struct rpc_client_st {
       }
       if(resp_sz == -1) {
 	update_server("rx timeout");
+	continue;
+      }
+      if(packet_in->code == RPC_REP_INVSRV) {
+	if(packet_in->master == -1) {
+	  BOOST_LOG_TRIVIAL(info) << "Unknown master !";
+	  update_server("unknown master");
+	}
+	else {
+	  server = packet_in->master;
+	  set_server();
+	}
 	continue;
       }
       break;
@@ -100,7 +112,9 @@ typedef struct rpc_client_st {
 				       DISP_MAX_MSGSIZE, 
 				       timeout_msec*1000,
 				       "RESULT");
-	  if(resp_sz != -1 && packet_in->client_txid != txid) {
+	  if(resp_sz != -1 && 
+	     packet_in->code != RPC_REP_INVSRV &&
+	     packet_in->client_txid != txid) {
 	    continue; // Ignore response
 	  }
 	  break;
@@ -141,7 +155,9 @@ typedef struct rpc_client_st {
 				       DISP_MAX_MSGSIZE, 
 				       timeout_msec*1000,
 				       "RESULT");
-	  if(resp_sz != -1 && packet_in->client_txid != txid) {
+	  if(resp_sz != -1 && 
+	     packet_in->client_txid != txid &&
+	     packet_in->code != RPC_REP_INVSRV) {
 	    continue; // Ignore response
 	  }
 	  break;

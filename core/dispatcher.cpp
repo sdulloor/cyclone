@@ -396,10 +396,17 @@ struct dispatcher_loop {
     unsigned long last_tx_committed;
     switch(rpc_req->code) {
     case RPC_REQ_LAST_TXID:
-      rep_sz = sizeof(rpc_t);
-      rpc_rep->code = RPC_REP_COMPLETE;
-      rpc_rep->client_txid = rpc_req->client_txid;
-      rpc_rep->last_client_txid = get_max_client_txid(rpc_req->client_id);
+      if(!cyclone_is_leader(cyclone_handle)) {
+	rep_sz = sizeof(rpc_t);
+	rpc_rep->code = RPC_REP_INVSRV;
+	rpc_rep->master = cyclone_get_leader(cyclone_handle);
+      }
+      else {
+	rep_sz = sizeof(rpc_t);
+	rpc_rep->code = RPC_REP_COMPLETE;
+	rpc_rep->client_txid = rpc_req->client_txid;
+	rpc_rep->last_client_txid = get_max_client_txid(rpc_req->client_id);
+      }
       break;
     case RPC_REQ_FN:
       rpc_rep->client_id   = rpc_req->client_id;
