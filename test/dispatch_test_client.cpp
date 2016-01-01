@@ -36,14 +36,14 @@ int main(int argc, char *argv[])
   int clients  = atoi(argv[3]);
   void * handle = cyclone_client_init(me, replicas, clients, "cyclone_test.ini");
   char *proposal = new char[CLIENT_MAXPAYLOAD];
-  int ctr = 0;
+  int ctr = get_last_txid();
   while(true) {
     *(unsigned int *)&proposal[0] = me;
     *(unsigned int *)&proposal[4] = ctr;
     *(unsigned long *)&proposal[8] = timer.current_time();
     void *resp;
     print("PROPOSE", proposal, 16);
-    int sz = make_rpc(handle, proposal, 16, &resp, 0);
+    int sz = make_rpc(handle, proposal, 16, &resp, ctr, 0);
     if(sz != 16 || memcmp(proposal, resp, 16) != 0) {
       print("ERROR", proposal, 16);
     }

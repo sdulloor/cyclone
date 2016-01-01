@@ -66,6 +66,7 @@ int main(int argc, const char *argv[]) {
   void *resp;
   nkeys = 0;
   unsigned long order = 0;
+  int ctr = get_last_txid(handle);
   for (int i = 0; i < MAX_INSERTS; ++i) {
     insert_data.key = rand();
     insert_data.value = rand();
@@ -74,7 +75,8 @@ int main(int argc, const char *argv[]) {
     prop->timestamp = clock.current_time();
     prop->src       = me;
     prop->order     = (order++);
-    sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, 0);
+    sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, ctr, 0);
+    ctr++;
     BOOST_LOG_TRIVIAL(info) << "RPC TIME = " 
 			    << (clock.current_time() - prop->timestamp);
     keys[nkeys++] = insert_data.key;
@@ -86,7 +88,8 @@ int main(int argc, const char *argv[]) {
     prop->timestamp = clock.current_time();
     prop->src       = me;
     prop->order     = (order++);
-    sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, 0);
+    sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, ctr, 0);
+    ctr++;
     BOOST_LOG_TRIVIAL(info) << "RPC TIME = " 
 			    << (clock.current_time() - prop->timestamp);
     struct proposal *rep = (struct proposal *)resp;

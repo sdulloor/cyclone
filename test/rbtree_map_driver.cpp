@@ -65,6 +65,8 @@ int main(int argc, const char *argv[]) {
   unsigned long tx_block_cnt   = 0;
   unsigned long tx_block_begin = clock.current_time();
   unsigned long total_latency  = 0;
+  int ctr = get_last_txid(handle);
+  
   for(int i=0;i<KEYS;i++) {
     prop->fn = FN_INSERT;
     prop->kv_data.key   = me*KEYS + i;
@@ -73,7 +75,8 @@ int main(int argc, const char *argv[]) {
     prop->src       = me;
     prop->order     = (order++);
     unsigned long tx_begin_time = clock.current_time();
-    sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, 0);
+    sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, ctr, 0);
+    ctr++;
     total_latency += (clock.current_time() - tx_begin_time);
     usleep(sleep_time);
     tx_block_cnt++;
@@ -102,7 +105,8 @@ int main(int argc, const char *argv[]) {
       prop->src       = me;
       prop->order     = (order++);
       unsigned long tx_begin_time = clock.current_time();
-      sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, 0);
+      sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, ctr, 0);
+      ctr++;
       total_latency += (clock.current_time() - tx_begin_time);
       usleep(sleep_time);
       tx_block_cnt++;

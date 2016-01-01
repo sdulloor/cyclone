@@ -10,7 +10,6 @@
 
 typedef struct rpc_client_st {
   int me;
-  int ctr;
   cyclone_switch *router;
   rpc_t *packet_out;
   rpc_t *packet_in;
@@ -32,11 +31,51 @@ typedef struct rpc_client_st {
     BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING MASTER " << server;
   }
 
-  int make_rpc(void *payload, int sz, void **response, int flags)
+  int get_last_txid()
   {
     int retcode;
     int resp_sz;
-    int txid;
+    rtc_clock clock;
+    while(true) {
+      packet_out->code        = RPC_REQ_LAST_TXID;
+      packet_out->client_id   = me;
+      packet_out->timestamp   = clock.current_time();
+      packet_out->client_txid = (int)packet_out->timestamp;
+      memcpy(packet_out + 1, payload, sz);
+      retcode = cyclone_tx_timeout(router->output_socket(server), 
+				   (unsigned char *)packet_out, 
+				   sizeof(rpc_t) + sz, 
+				   timeout_msec*1000,
+				   "PROPOSE");
+      if(retcode == -1) {
+	update_server("tx timeout");
+	continue;
+      }
+      while(true) {
+	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
+				     (unsigned char *)packet_in, 
+				     DISP_MAX_MSGSIZE, 
+				     timeout_msec*1000,
+				     "RESULT");
+	if(resp_sz != -1 &&
+	   packet_in->client_txid != packet_out->client_txid) {
+	  continue;
+	}
+	break;
+      }
+      if(resp_sz == -1) {
+	update_server("rx timeout");
+	continue;
+      }
+      break;
+    }
+    return packet_in->last_client_txid;
+  }
+
+  int make_rpc(void *payload, int sz, void **response, int txid, int flags)
+  {
+    int retcode;
+    int resp_sz;
     rtc_clock clock;
     while(true) {
       // Make request
@@ -44,10 +83,9 @@ typedef struct rpc_client_st {
 	packet_out->code        = RPC_REQ_FN;
 	packet_out->flags       = flags;
 	packet_out->client_id   = me;
-	packet_out->client_txid = ctr;
+	packet_out->client_txid = txid;
 	packet_out->timestamp   = clock.current_time();
 	memcpy(packet_out + 1, payload, sz);
-	txid = ctr;
 	retcode = cyclone_tx_timeout(router->output_socket(server), 
 				     (unsigned char *)packet_out, 
 				     sizeof(rpc_t) + sz, 
@@ -57,11 +95,17 @@ typedef struct rpc_client_st {
 	  update_server("tx timeout");
 	  continue;
 	}
-	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
-				     (unsigned char *)packet_in, 
-				     DISP_MAX_MSGSIZE, 
-				     timeout_msec*1000,
-				     "RESULT");
+	while(true) {
+	  resp_sz = cyclone_rx_timeout(router->input_socket(server), 
+				       (unsigned char *)packet_in, 
+				       DISP_MAX_MSGSIZE, 
+				       timeout_msec*1000,
+				       "RESULT");
+	  if(resp_sz != -1 && packet_in->client_txid != txid) {
+	    continue; // Ignore response
+	  }
+	  break;
+	}
 	if(resp_sz == -1) {
 	  update_server("rx timeout");
 	  continue;
@@ -82,7 +126,6 @@ typedef struct rpc_client_st {
 
       while(true) {
 	packet_out->code        = RPC_REQ_STATUS_BLOCK;
-	txid = ctr;
 	retcode = cyclone_tx_timeout(router->output_socket(server), 
 				     (unsigned char *)packet_out, 
 				     sizeof(rpc_t), 
@@ -92,11 +135,18 @@ typedef struct rpc_client_st {
 	  update_server("tx timeout");
 	  continue;
 	}
-	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
-				     (unsigned char *)packet_in, 
-				     DISP_MAX_MSGSIZE, 
-				     timeout_msec*1000,
-				     "RESULT");
+
+	while(true) {
+	  resp_sz = cyclone_rx_timeout(router->input_socket(server), 
+				       (unsigned char *)packet_in, 
+				       DISP_MAX_MSGSIZE, 
+				       timeout_msec*1000,
+				       "RESULT");
+	  if(resp_sz != -1 && packet_in->client_txid != txid) {
+	    continue; // Ignore response
+	  }
+	  break;
+	}
 	if(resp_sz == -1) {
 	  update_server("rx timeout");
 	  continue;
@@ -124,7 +174,6 @@ typedef struct rpc_client_st {
       break;
     }
     *response = (void *)(packet_in + 1);
-    ctr++;
     return (int)(resp_sz - sizeof(rpc_t));
   }
 } rpc_client_t;
@@ -154,7 +203,6 @@ void* cyclone_client_init(int client_id, int replicas, int clients, const char *
   buf = new char[DISP_MAX_MSGSIZE];
   client->packet_in = (rpc_t *)buf;
   client->server    = 0;
-  client->ctr = RPC_INIT_TXID;
   client->replicas = replicas;
   return (void *)client;
 }
@@ -163,8 +211,15 @@ int make_rpc(void *handle,
 	     void *payload,
 	     int sz,
 	     void **response,
+	     int txid,
 	     int flags)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->make_rpc(payload, sz, response, flags);
+  return client->make_rpc(payload, sz, response, txid, flags);
+}
+
+int get_last_txid(void *handle)
+{
+  rpc_client_t *client = (rpc_client_t *)handle;
+  return client->get_last_txid();
 }

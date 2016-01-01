@@ -29,7 +29,10 @@ typedef struct rpc_st {
   int code;
   int flags;
   int client_id;
-  unsigned long global_txid;
+  union {
+    unsigned long global_txid;
+    int last_client_txid;
+  }
   unsigned long timestamp;
   union {
     unsigned long client_txid; 
@@ -42,11 +45,10 @@ typedef struct rpc_st {
 static const int RPC_REQ_FN             = 0; // Execute
 static const int RPC_REQ_STATUS         = 1; // Check status (non blocking)
 static const int RPC_REQ_STATUS_BLOCK   = 2; // Check status (blocking)
-static const int RPC_REP_COMPLETE       = 3; // DONE 
-static const int RPC_REP_PENDING        = 4; // PENDING 
-static const int RPC_REP_UNKNOWN        = 5; // UNKNOWN RPC
-static const int RPC_REP_INVSRV         = 6; // WRONG master  -- master set in reply
-
-static const unsigned long RPC_INIT_TXID = 1; // Initial client txid
+static const int RPC_REQ_LAST_TXID      = 3; // Check status (blocking)
+static const int RPC_REP_COMPLETE       = 4; // DONE 
+static const int RPC_REP_PENDING        = 5; // PENDING 
+static const int RPC_REP_UNKNOWN        = 6; // UNKNOWN RPC
+static const int RPC_REP_INVSRV         = 7; // WRONG master  -- master set in reply
 
 #endif

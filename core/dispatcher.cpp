@@ -92,6 +92,31 @@ static void dump_active_list()
   unlock_rpc_list(); 
 }
 
+static int get_max_client_txid(int client_id)
+{
+  int max_client_txid = 0;
+  lock_rpc_list();
+  rpc_info = pending_rpc_head;
+  while(rpc_info != NULL) {
+    if(rpc_info->rpc->client_id == client_id) {
+      if(rpc_info->rpc->client_txid > max_client_txid) {
+	max_client_txid = rpc_info->rpc->client_txid;
+      }
+    }
+    rpc_info = rpc_info->next;
+  }
+  unlock_rpc_list();
+  int last_rw_txid = D_RO(root)->client_state[client_id].committed_txid;
+  int last_ro_txid = client_ro_state[rpc->rpc->client_id];
+  if(last_rw_txid > max_client_txid) {
+    max_client_txid = last_rw_txid;
+  }
+  if(last_ro_txid > max_client_txid) {
+    max_client_txid = last_ro_txid;
+  }
+  return max_client_txid;
+}
+
 // This function must be executed in the context of a tx
 static void mark_done(const rpc_t *rpc,
 		      const void* ret_value,
@@ -369,9 +394,18 @@ struct dispatcher_loop {
     void *cookie;
     unsigned long last_tx_committed;
     switch(rpc_req->code) {
+    case RPC_REQ_LAST_TXID:
+      rep_sz = sizeof(rpc_t);
+      rpc_rep->code = RPC_COMPLETE;
+      rpc_rep->client_txid = rpc_req->client_txid;
+      rpc_rep->last_client_txid = get_max_client_txid(rpc_req->client_id);
+      break;
     case RPC_REQ_FN:
       rpc_rep->client_id   = rpc_req->client_id;
-      if((rpc_req->flags & RPC_FLAG_RO) == 0) {
+      if(get_max_client_txid(rpc_req->client_id) >= rpc_req->client_txid) {
+	// Repeat request - ignore
+      }
+      else if((rpc_req->flags & RPC_FLAG_RO) == 0) {
 	rpc_rep->client_txid = rpc_req->client_txid;
 	// Initiate replication
 	rpc_req->global_txid = (++last_global_txid);
@@ -412,33 +446,17 @@ struct dispatcher_loop {
 	rpc_rep->client_id   = rpc_req->client_id;
 	rpc_rep->client_txid = rpc_req->client_txid;
 	rep_sz = sizeof(rpc_t);
-	lock_rpc_list();
-	rpc_info = pending_rpc_head;
-	while(rpc_info != NULL) {
-	  if(rpc_info->rpc->client_id == rpc_req->client_id &&
-	     rpc_info->rpc->client_txid == rpc_req->client_txid) {
-	    break;
-	  }
-	  rpc_info = rpc_info->next;
-	}
-	unlock_rpc_list();
-	if((rpc_req->flags & RPC_FLAG_RO)  == 0) {
-	  last_tx_committed =
-	    D_RO(root)->client_state[rpc_req->client_id].committed_txid;
-	} else {
-	  last_tx_committed =
-	    client_ro_state[rpc_req->client_id].committed_txid;
-	}
-	
-	if(rpc_info == NULL && last_tx_committed != rpc_req->client_txid) {
+	if(get_max_client_txid(rpc_req->client_id) < rpc_req->client_txid) {
 	  rpc_rep->code = RPC_REP_UNKNOWN;
 	}
-	else if(last_tx_committed != rpc_req->client_txid) {
-	  rpc_rep->code = RPC_REP_PENDING;
-	}
 	else {
-	  rpc_rep->code = RPC_REP_COMPLETE;
-	  if((rpc_req->flags & RPC_FLAG_RO)  == 0) {
+	  int last_rw_txid = D_RO(root)->client_state[client_id].committed_txid;
+	  int last_ro_txid = client_ro_state[rpc->rpc->client_id];
+	  if(last_rw_txid < rpc_req->client_txid &&
+	     last_ro_txid < rpc_req->client_txid ) {
+	    rpc_rep->code = RPC_REP_PENDING;
+	  }
+	  else if(last_rw_txid == rpc_req->client_txid) {
 	    const struct client_state_st * s =
 	      &D_RO(root)->client_state[rpc_req->client_id];
 	    if(s->last_return_size > 0) {
@@ -447,20 +465,20 @@ struct dispatcher_loop {
 		     s->last_return_size);
 	      rep_sz += s->last_return_size;
 	    }
+	    rpc_rep->code = RPC_REP_COMPLETE;
 	  }
-	  else {
+	  else if(last_ro_txid == rpc_req->client_txid) {
 	    if(client_ro_state[rpc_req->client_id].last_return_size > 0) {
 	      memcpy(&rpc_rep->payload,
 		     client_ro_state[rpc_req->client_id].last_return_value,
 		     client_ro_state[rpc_req->client_id].last_return_size);
 	      rep_sz += client_ro_state[rpc_req->client_id].last_return_size;
 	    }
+	    rpc_rep->code = RPC_REP_COMPLETE;
 	  }
-	}
-	if(rpc_req->code == RPC_REQ_STATUS_BLOCK &&
-	   rpc_rep->code == RPC_REP_PENDING) {
-	  rep_sz = 0;
-	  client_blocked[rpc_req->client_id] = true;
+	  else { // Don't remember old results
+	    rpc_rep->code = RPC_REP_COMPLETE;
+	  }
 	}
       }
       break;
