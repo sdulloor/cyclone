@@ -236,7 +236,7 @@ static cyclone_switch *router;
 
 static void gc_pending_rpc_list(bool is_master)
 {
-  rpc_info_t **rpcp, *rpc, *deleted;
+  rpc_info_t * volatile *rpcp, *rpc, *deleted, *tmp;
   void *cookie;
   deleted = NULL;
   lock_rpc_list();
@@ -244,7 +244,7 @@ static void gc_pending_rpc_list(bool is_master)
   while((*rpcp) != NULL) {
     rpc = *rpcp;
     if(rpc->need_replication && is_master) {
-      cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
+      cookie = cyclone_add_entry(cyclone_handle, rpc->rpc, rpc->len);
       if(cookie != NULL) {
 	free(cookie);
       }
