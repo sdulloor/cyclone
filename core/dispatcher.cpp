@@ -238,13 +238,11 @@ static cyclone_switch *router;
 
 static void gc_pending_rpc_list(bool is_master)
 {
-  rpc_info_t * volatile *rpcp, *rpc, *deleted, *tmp;
+  rpc_info_t *rpc, *deleted, *tmp;
   void *cookie;
   deleted = NULL;
-  lock_rpc_list();
-  rpcp = &pending_rpc_head;
-  while((*rpcp) != NULL) {
-    rpc = *rpcp;
+  rpc = pending_rpc_head;
+  while(rpc != NULL) {
     if(rpc->need_replication && !rpc->rep_failed && is_master) {
       cookie = cyclone_add_entry(cyclone_handle, rpc->rpc, rpc->len);
       if(cookie != NULL) {
@@ -252,14 +250,17 @@ static void gc_pending_rpc_list(bool is_master)
 	rpc->need_replication = false;
       }
     }
-    if(rpc->complete) {
-      *rpcp = rpc->next;
-      rpc->next = deleted;
-      deleted = rpc;
+    rpc = rpc->next;
+  }
+  lock_rpc_list();
+  while(pending_rpc_head != NULL) {
+    if(!pending_rpc_head->complete) {
+      break;
     }
-    else {
-      rpcp = &(rpc->next);
-    }
+    tmp = pending_rpc_head;
+    pending_rpc_head = pending_rpc_head->next;
+    tmp->next = deleted;
+    deleted = tmp;
   }
   if(pending_rpc_head == NULL) {
     pending_rpc_tail = NULL;
