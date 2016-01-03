@@ -8,6 +8,7 @@ typedef struct rpc_info_st {
   int len;
   int sz;
   void *ret_value;
+  volatile bool need_replication;
   volatile bool rep_success;
   volatile bool rep_failed;
   volatile bool complete;

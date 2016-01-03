@@ -161,6 +161,9 @@ void exec_rpc_internal(rpc_info_t *rpc)
     else {
       rpc->sz = 0;
     }
+    if(rpc->rpc->flags & RPC_FLAG_POSTREPLICATE) {
+      rpc->need_replication = true;
+    }
     while(!rpc->rep_success && !rpc->rep_failed);
     if(rpc->rep_success) {
       mark_done(rpc->rpc, rpc->ret_value, rpc->sz);
@@ -231,25 +234,32 @@ static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
 static unsigned char rx_buffer[DISP_MAX_MSGSIZE];
 static cyclone_switch *router;
 
-static void gc_pending_rpc_list()
+static void gc_pending_rpc_list(bool is_master)
 {
-  rpc_info_t *rpc, *deleted, *tmp;
+  rpc_info_t **rpcp, *rpc, *deleted;
+  void *cookie;
   deleted = NULL;
   lock_rpc_list();
-  rpc = pending_rpc_head;
-  while(rpc != NULL) {
+  rpcp = &pending_rpc_head;
+  while((*rpcp) != NULL) {
+    rpc = *rpcp;
+    if(rpc->need_replication && is_master) {
+      cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
+      if(cookie != NULL) {
+	free(cookie);
+      }
+      rpc->need_replication = false;
+    }
     if(rpc->complete) {
-      tmp = rpc;
-      rpc = rpc->next;
-      tmp->next = deleted;
-      deleted = tmp;
+      *rpcp = rpc->next;
+      rpc->next = deleted;
+      deleted = rpc;
     }
     else {
-      break;
+      rpcp = &(rpc->next);
     }
   }
-  pending_rpc_head = rpc;
-  if(rpc == NULL) {
+  if(pending_rpc_head == NULL) {
     pending_rpc_tail = NULL;
   }
   unlock_rpc_list();
@@ -293,6 +303,7 @@ static void issue_rpc(const rpc_t *rpc, int len)
   rpc_info_t *rpc_info = new rpc_info_t;
   rpc_info->rep_success = false;
   rpc_info->rep_failed  = false;
+  rpc_info->need_replication = false;
   rpc_info->complete    = false;
   rpc_info->len = len;
   rpc_info->rpc = (rpc_t *)(new char[len]);
@@ -437,19 +448,21 @@ struct dispatcher_loop {
 	// Initiate replication
 	rpc_req->global_txid = (++last_global_txid);
 	issue_rpc(rpc_req, sz);
-	cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
-	if(cookie != NULL) {
-	  event_seen(rpc_req);
-	  rep_sz = sizeof(rpc_t);
-	  rpc_rep->code = RPC_REP_PENDING;
-	  free(cookie);
-	}
-	else {
-	  // Roll this back
-	  cyclone_pop_cb(NULL, (const unsigned char *)rpc_req, sz);
-	  rep_sz = sizeof(rpc_t);
-	  rpc_rep->code = RPC_REP_INVSRV;
-	  rpc_rep->master = cyclone_get_leader(cyclone_handle);
+	if((rpc_req->flags & RPC_FLAG_POSTREPLICATE) == 0) {
+	  cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
+	  if(cookie != NULL) {
+	    event_seen(rpc_req);
+	    rep_sz = sizeof(rpc_t);
+	    rpc_rep->code = RPC_REP_PENDING;
+	    free(cookie);
+	  }
+	  else {
+	    // Roll this back
+	    cyclone_pop_cb(NULL, (const unsigned char *)rpc_req, sz);
+	    rep_sz = sizeof(rpc_t);
+	    rpc_rep->code = RPC_REP_INVSRV;
+	    rpc_rep->master = cyclone_get_leader(cyclone_handle);
+	  }
 	}
       }
       else {
@@ -539,15 +552,16 @@ struct dispatcher_loop {
       }
       clock.stop();
       if(clock.elapsed_time() >= PERIODICITY) {
-	gc_pending_rpc_list();
 	// Leadership change ?
 	if(cyclone_is_leader(cyclone_handle)) {
+	  gc_pending_rpc_list(true);
 	  if(!is_master) {
 	    is_master = true;
 	    send_kicker();
 	  }
 	}
 	else {
+	  gc_pending_rpc_list(false);
 	  is_master = false;
 	}
 	clock.reset();
