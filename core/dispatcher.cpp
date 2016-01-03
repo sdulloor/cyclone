@@ -99,9 +99,11 @@ static int get_max_client_txid(int client_id)
   lock_rpc_list();
   rpc_info_t *rpc_info = pending_rpc_head;
   while(rpc_info != NULL) {
-    if(rpc_info->rpc->client_id == client_id) {
-      if(rpc_info->rpc->client_txid > max_client_txid) {
-	max_client_txid = rpc_info->rpc->client_txid;
+    if(!rpc_info->rep_failed) {
+      if(rpc_info->rpc->client_id == client_id) {
+	if(rpc_info->rpc->client_txid > max_client_txid) {
+	  max_client_txid = rpc_info->rpc->client_txid;
+	}
       }
     }
     rpc_info = rpc_info->next;
@@ -243,12 +245,12 @@ static void gc_pending_rpc_list(bool is_master)
   rpcp = &pending_rpc_head;
   while((*rpcp) != NULL) {
     rpc = *rpcp;
-    if(rpc->need_replication && is_master) {
+    if(rpc->need_replication && !rpc->rep_failed && is_master) {
       cookie = cyclone_add_entry(cyclone_handle, rpc->rpc, rpc->len);
       if(cookie != NULL) {
 	free(cookie);
+	rpc->need_replication = false;
       }
-      rpc->need_replication = false;
     }
     if(rpc->complete) {
       *rpcp = rpc->next;
@@ -455,6 +457,20 @@ struct dispatcher_loop {
 	    rep_sz = sizeof(rpc_t);
 	    rpc_rep->code = RPC_REP_PENDING;
 	    free(cookie);
+	  }
+	  else {
+	    // Roll this back
+	    cyclone_pop_cb(NULL, (const unsigned char *)rpc_req, sz);
+	    rep_sz = sizeof(rpc_t);
+	    rpc_rep->code = RPC_REP_INVSRV;
+	    rpc_rep->master = cyclone_get_leader(cyclone_handle);
+	  }
+	}
+	else {
+	  if(cyclone_is_leader(cyclone_handle)) {
+	    event_seen(rpc_req);
+	    rep_sz = sizeof(rpc_t);
+	    rpc_rep->code = RPC_REP_PENDING;
 	  }
 	  else {
 	    // Roll this back
