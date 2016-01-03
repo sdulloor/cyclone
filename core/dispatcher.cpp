@@ -150,7 +150,7 @@ void exec_rpc_internal(rpc_info_t *rpc)
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   bool aborted = false;
   TX_BEGIN(state) {
-    if(rpc->rpc->flags & RPC_FLAG_PRECOMMIT) {
+    if(rpc->rpc->flags & RPC_FLAG_PREREPLICATE) {
       while(!rpc->rep_success && !rpc->rep_failed);
     }
     if(!rpc->rep_failed) {
