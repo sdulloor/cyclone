@@ -49,6 +49,19 @@ TOID_DECLARE(uint64_t, TOID_NUM_BASE);
 static unsigned long server_id;
 static TOID(struct rbtree_map) the_tree;
 static PMEMobjpool *pop;
+static TOID(uint64_t) version_table;
+
+struct heap_root_st {
+  static TOID(uint64_t) version_table;
+  static TOID(struct rbtree_map) the_tree;
+}heap_root_t;
+
+const unsigned long version_table_size = (1UL  << 20);
+const unsigned long version_table_mask = (version_table_size - 1);						  
+unsigned long key_to_vtable_index(uint64_t key)
+{
+  return (key & (version_table_size - 1));
+}
 
 TOID(uint64_t) new_store_item(uint64_t val)
 {
@@ -63,6 +76,40 @@ int callback(const unsigned char *data,
 {
   struct proposal *req = (struct proposal *)data;
   int code = req->fn;
+  if(code == FN_LOCK) {
+    uint64_t *vptr = D_RW(version_table) +
+      key_to_vtable_index(req->k_data.key);
+    *return_value  = malloc(sizeof(struct proposal));
+    struct proposal *rep  = (struct proposal *)*return_value;
+    uint64_t version = *vptr;
+    rep->code = version;
+    if((version & 1) == 0) { // UNLOCKED ?
+      pmemobj_tx_add_range_direct(vptr, sizeof(uint64_t));
+      *vptr = *vptr + 1; // LOCK
+    }
+    return sizeof(struct proposal);
+  }
+  else if(code == FN_GET_VERSION) {
+    uint64_t *vptr = D_RW(version_table) +
+      key_to_vtable_index(req->k_data.key);
+    *return_value  = malloc(sizeof(struct proposal));
+    struct proposal *rep  = (struct proposal *)*return_value;
+    uint64_t version = *vptr;
+    rep->code = version;
+    return sizeof(struct proposal);
+  }
+  else if(code == FN_UNLOCK) {
+    uint64_t *vptr = D_RW(version_table) +
+      key_to_vtable_index(req->k_data.key);
+    *return_value  = malloc(sizeof(struct proposal));
+    struct proposal *rep  = (struct proposal *)*return_value;
+    uint64_t version = *vptr;
+    if((version & 1) == 1) { // LOCKED ?
+      pmemobj_tx_add_range_direct(vptr, sizeof(uint64_t));
+      *vptr = *vptr + 1; // UNLOCK
+    }
+    return sizeof(struct proposal);
+  }
   if(code == FN_INSERT) {
     rbtree_map_insert(pop, 
 		    the_tree, 
@@ -129,15 +176,21 @@ TOID(char) nvheap_setup(TOID(char) recovered,
 {
   
   TOID(char) store;
+  heap_root_t heap_root;
   pop = state;
   if(TOID_IS_NULL(recovered)) {
     rbtree_map_new(state, &the_tree, NULL);
-    store = TX_ALLOC(char, sizeof(TOID(struct rbtree_map)));
-    TX_MEMCPY(D_RW(store), &the_tree, sizeof(TOID(struct rbtree_map)));
+    version_table = TX_ZALLOC(uint64_t, version_table_size);
+    store = TX_ALLOC(char, sizeof(TOID(heap_root_t)));
+    heap_root.version_table = version_table;
+    heap_root.the_tree = the_tree;
+    TX_MEMCPY(D_RW(store), &heap_root, sizeof(heap_root_t));
     return store;
   }
   else {
-    the_tree = *(TOID(struct rbtree_map) *)D_RO(recovered);
+    memcpy(heap_root, D_RO(recovered), sizeof(heap_root_t));
+    the_tree = heap_root.the_tree;
+    version_table = heap_root.version_table;
     return recovered;
   }
 }

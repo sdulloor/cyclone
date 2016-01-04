@@ -44,6 +44,9 @@ const int FN_INSERT = 0;
 const int FN_DELETE = 1;
 const int FN_LOOKUP = 2;
 const int FN_BUMP   = 3;
+const int FN_LOCK   = 4;
+const int FN_GET_VERSION = 5;
+const int FN_UNLOCK = 6;
 
 const int CODE_OK   = 0;
 const int CODE_NOK  = 1;
