@@ -51,9 +51,9 @@ static TOID(struct rbtree_map) the_tree;
 static PMEMobjpool *pop;
 static TOID(uint64_t) version_table;
 
-struct heap_root_st {
-  static TOID(uint64_t) version_table;
-  static TOID(struct rbtree_map) the_tree;
+typedef struct heap_root_st {
+  TOID(uint64_t) version_table;
+  TOID(struct rbtree_map) the_tree;
 }heap_root_t;
 
 const unsigned long version_table_size = (1UL  << 20);
@@ -181,14 +181,14 @@ TOID(char) nvheap_setup(TOID(char) recovered,
   if(TOID_IS_NULL(recovered)) {
     rbtree_map_new(state, &the_tree, NULL);
     version_table = TX_ZALLOC(uint64_t, version_table_size);
-    store = TX_ALLOC(char, sizeof(TOID(heap_root_t)));
+    store = TX_ALLOC(char, sizeof(heap_root_t));
     heap_root.version_table = version_table;
     heap_root.the_tree = the_tree;
     TX_MEMCPY(D_RW(store), &heap_root, sizeof(heap_root_t));
     return store;
   }
   else {
-    memcpy(heap_root, D_RO(recovered), sizeof(heap_root_t));
+    memcpy(&heap_root, D_RO(recovered), sizeof(heap_root_t));
     the_tree = heap_root.the_tree;
     version_table = heap_root.version_table;
     return recovered;
