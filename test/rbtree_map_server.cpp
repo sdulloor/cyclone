@@ -78,12 +78,12 @@ int callback(const unsigned char *data,
   int code = req->fn;
   if(code == FN_LOCK) {
     uint64_t *vptr = D_RW(version_table) +
-      key_to_vtable_index(req->k_data.key);
+      key_to_vtable_index(req->kv_data.key);
     *return_value  = malloc(sizeof(struct proposal));
     struct proposal *rep  = (struct proposal *)*return_value;
     uint64_t version = *vptr;
     rep->code = version;
-    if((version & 1) == 0) { // UNLOCKED ?
+    if(version == req->kv_data.value) { // UNLOCKED ?
       pmemobj_tx_add_range_direct(vptr, sizeof(uint64_t));
       *vptr = *vptr + 1; // LOCK
     }
@@ -100,11 +100,11 @@ int callback(const unsigned char *data,
   }
   else if(code == FN_UNLOCK) {
     uint64_t *vptr = D_RW(version_table) +
-      key_to_vtable_index(req->k_data.key);
+      key_to_vtable_index(req->kv_data.key);
     *return_value  = malloc(sizeof(struct proposal));
     struct proposal *rep  = (struct proposal *)*return_value;
     uint64_t version = *vptr;
-    if((version & 1) == 1) { // LOCKED ?
+    if(version == req->kv_data.value) { // LOCKED ?
       pmemobj_tx_add_range_direct(vptr, sizeof(uint64_t));
       *vptr = *vptr + 1; // UNLOCK
     }
