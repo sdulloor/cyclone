@@ -157,7 +157,7 @@ void exec_rpc_internal(rpc_info_t *rpc)
   }
   while(true) {
     aborted = false;
-    term = cyclone_get_current_term();
+    term = cyclone_get_term(cyclone_handle);
     __sync_synchronize();
     is_leader = cyclone_is_leader(cyclone_handle);
     TX_BEGIN(state) {
@@ -226,6 +226,7 @@ void exec_rpc_internal_ro(rpc_info_t *rpc)
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   rpc->sz = execute_rpc((const unsigned char *)(rpc->rpc + 1),
 			rpc->len - sizeof(rpc_t),
+			false,
 			&rpc->ret_value);
   rpc->rep_success = true; // No replication needed
   struct client_ro_state_st *cstate = &client_ro_state[rpc->rpc->client_id];

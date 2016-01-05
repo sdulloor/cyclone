@@ -315,6 +315,7 @@ int cyclone_get_leader(void *cyclone_handle)
 
 int cyclone_get_term(void *cyclone_handle)
 {
+  cyclone_t* handle = (cyclone_t *)cyclone_handle;
   return raft_get_current_term(handle->raft_handle);
 }
 
