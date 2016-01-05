@@ -10,6 +10,7 @@ unsigned long server_id;
 //Print message and reflect back the rpc payload
 int callback(const unsigned char *data,
 	     const int len,
+	     const int possibly_leader,
 	     void **return_value)
 {
   void *ret = malloc(len);

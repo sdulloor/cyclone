@@ -6,6 +6,7 @@
 //////// Direct interface
 int cyclone_is_leader(void *cyclone_handle); // returns 1 if true
 int cyclone_get_leader(void *cyclone_handle); // returns leader id
+int cyclone_get_term(void *cyclone_handle); // Get current term
 // Returns a non-null cookie if accepted for replication
 extern void *cyclone_add_entry(void * cyclone_handle, void *data, int size); 
 // Returns 0:pending 1:success -1:failed

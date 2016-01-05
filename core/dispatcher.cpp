@@ -150,32 +150,46 @@ static void mark_done(const rpc_t *rpc,
 void exec_rpc_internal(rpc_info_t *rpc)
 {
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  bool aborted = false;
-  TX_BEGIN(state) {
-    if(rpc->rpc->flags & RPC_FLAG_PREREPLICATE) {
-      while(!rpc->rep_success && !rpc->rep_failed);
-    }
-    if(!rpc->rep_failed) {
-      rpc->sz = execute_rpc((const unsigned char *)(rpc->rpc + 1),
-			    rpc->len - sizeof(rpc_t),
-			    &rpc->ret_value);
-    }
-    else {
-      rpc->sz = 0;
-    }
-    if(rpc->rpc->flags & RPC_FLAG_POSTREPLICATE) {
-      rpc->need_replication = true;
-    }
+  bool aborted;
+  int term, is_leader;
+  if(rpc->rpc->flags & RPC_FLAG_PREREPLICATE) {
     while(!rpc->rep_success && !rpc->rep_failed);
-    if(rpc->rep_success) {
-      mark_done(rpc->rpc, rpc->ret_value, rpc->sz);
+  }
+  while(true) {
+    aborted = false;
+    term = cyclone_get_current_term();
+    __sync_synchronize();
+    is_leader = cyclone_is_leader(cyclone_handle);
+    TX_BEGIN(state) {
+      if(!rpc->rep_failed) {
+	rpc->sz = execute_rpc((const unsigned char *)(rpc->rpc + 1),
+			      rpc->len - sizeof(rpc_t),
+			      is_leader,
+			      &rpc->ret_value);
+      }
+      else {
+	rpc->sz = 0;
+      }
+      if(cyclone_get_term(cyclone_handle) != term) {
+	pmemobj_tx_abort(-1);
+      }
+      if(rpc->rpc->flags & RPC_FLAG_POSTREPLICATE) {
+	rpc->need_replication = true;
+      }
+      while(!rpc->rep_success && !rpc->rep_failed);
+      if(rpc->rep_success) {
+	mark_done(rpc->rpc, rpc->ret_value, rpc->sz);
+      }
+      else {
+	pmemobj_tx_abort(-1);
+      }
+    } TX_ONABORT {
+      aborted= true;
+    } TX_END
+    if(cyclone_get_term(cyclone_handle) == term) {
+      break;
     }
-    else {
-      pmemobj_tx_abort(-1);
-    }
-  } TX_ONABORT {
-    aborted= true;
-  } TX_END
+  }
   if(aborted) { // cleanup
     rpc->sz = 0;
     // Wait for replication to finish

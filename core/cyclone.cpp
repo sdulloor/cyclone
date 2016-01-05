@@ -313,6 +313,11 @@ int cyclone_get_leader(void *cyclone_handle)
   return raft_get_current_leader(handle->raft_handle);
 }
 
+int cyclone_get_term(void *cyclone_handle)
+{
+  return raft_get_current_term(handle->raft_handle);
+}
+
 void* cyclone_add_entry(void *cyclone_handle, void *data, int size)
 {
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
