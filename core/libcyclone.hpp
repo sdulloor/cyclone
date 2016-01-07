@@ -47,8 +47,7 @@ int make_rpc(void *handle,
 int get_last_txid(void *handle);
 
 // Possible flags 
-static const int RPC_FLAG_PREREPLICATE  = 1; // Replicate before executing
+static const int RPC_FLAG_SYNCHRONOUS   = 1; // Synchronous execution across replicas
 static const int RPC_FLAG_RO            = 2; // Read-only RPC
-static const int RPC_FLAG_POSTREPLICATE = 4; // Replicate after executing
 
 #endif

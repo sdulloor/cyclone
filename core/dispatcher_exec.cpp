@@ -14,11 +14,14 @@ void dispatcher_exec_startup()
 
 void exec_rpc(rpc_info_t *rpc)
 {
-  if((rpc->rpc->flags & RPC_FLAG_RO) == 0) {
-    ioService.post(boost::bind(exec_rpc_internal, rpc));
+  if(rpc->rpc->flags & RPC_FLAG_RO) {
+    ioService.post(boost::bind(exec_rpc_internal_ro, rpc));
+  }
+  else if(rpc->rpc->flags & RPC_FLAG_SYNCHRONOUS) {
+    ioService.post(boost::bind(exec_rpc_internal_synchronous, rpc));
   }
   else {
-    ioService.post(boost::bind(exec_rpc_internal_ro, rpc));
+    ioService.post(boost::bind(exec_rpc_internal, rpc));
   }
 }
 
