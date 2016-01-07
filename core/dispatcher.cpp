@@ -168,12 +168,6 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
       else {
 	rpc->sz = 0;
       }
-      if(cyclone_get_term(cyclone_handle) != term) {
-	pmemobj_tx_abort(-1);
-      }
-      if(rpc->rpc->flags & RPC_FLAG_POSTREPLICATE) {
-	rpc->need_replication = true;
-      }
       while(!rpc->rep_success && !rpc->rep_failed);
       if(rpc->rep_success) {
 	mark_done(rpc->rpc, rpc->ret_value, rpc->sz);
@@ -240,9 +234,6 @@ void exec_rpc_internal(rpc_info_t *rpc)
       }
       if(cyclone_get_term(cyclone_handle) != term) {
 	pmemobj_tx_abort(-1);
-      }
-      if(rpc->rpc->flags & RPC_FLAG_POSTREPLICATE) {
-	rpc->need_replication = true;
       }
       while(!rpc->rep_success && !rpc->rep_failed);
       if(rpc->rep_success) {
@@ -324,17 +315,6 @@ static void gc_pending_rpc_list(bool is_master)
   rpc_info_t *rpc, *deleted, *tmp;
   void *cookie;
   deleted = NULL;
-  rpc = pending_rpc_head;
-  while(rpc != NULL) {
-    if(rpc->need_replication && !rpc->rep_failed && is_master) {
-      cookie = cyclone_add_entry(cyclone_handle, rpc->rpc, rpc->len);
-      if(cookie != NULL) {
-	free(cookie);
-	rpc->need_replication = false;
-      }
-    }
-    rpc = rpc->next;
-  }
   lock_rpc_list();
   while(pending_rpc_head != NULL) {
     if(!pending_rpc_head->complete) {
@@ -389,7 +369,6 @@ static void issue_rpc(const rpc_t *rpc, int len)
   rpc_info_t *rpc_info = new rpc_info_t;
   rpc_info->rep_success = false;
   rpc_info->rep_failed  = false;
-  rpc_info->need_replication = false;
   rpc_info->complete    = false;
   rpc_info->len = len;
   rpc_info->rpc = (rpc_t *)(new char[len]);
@@ -529,43 +508,7 @@ struct dispatcher_loop {
       if(get_max_client_txid(rpc_req->client_id) >= rpc_req->client_txid) {
 	// Repeat request - ignore
       }
-      else if((rpc_req->flags & RPC_FLAG_RO) == 0) {
-	rpc_rep->client_txid = rpc_req->client_txid;
-	// Initiate replication
-	rpc_req->global_txid = (++last_global_txid);
-	issue_rpc(rpc_req, sz);
-	if((rpc_req->flags & RPC_FLAG_POSTREPLICATE) == 0) {
-	  cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
-	  if(cookie != NULL) {
-	    event_seen(rpc_req);
-	    rep_sz = sizeof(rpc_t);
-	    rpc_rep->code = RPC_REP_PENDING;
-	    free(cookie);
-	  }
-	  else {
-	    // Roll this back
-	    cyclone_pop_cb(NULL, (const unsigned char *)rpc_req, sz);
-	    rep_sz = sizeof(rpc_t);
-	    rpc_rep->code = RPC_REP_INVSRV;
-	    rpc_rep->master = cyclone_get_leader(cyclone_handle);
-	  }
-	}
-	else {
-	  if(cyclone_is_leader(cyclone_handle)) {
-	    event_seen(rpc_req);
-	    rep_sz = sizeof(rpc_t);
-	    rpc_rep->code = RPC_REP_PENDING;
-	  }
-	  else {
-	    // Roll this back
-	    cyclone_pop_cb(NULL, (const unsigned char *)rpc_req, sz);
-	    rep_sz = sizeof(rpc_t);
-	    rpc_rep->code = RPC_REP_INVSRV;
-	    rpc_rep->master = cyclone_get_leader(cyclone_handle);
-	  }
-	}
-      }
-      else {
+      else if(rpc_req->flags & RPC_FLAG_RO) {
 	rpc_rep->client_txid = rpc_req->client_txid;
 	// Distinguish ro txids from rw txids
 	rpc_req->global_txid = (++last_global_ro_txid) + (1UL << 63);
@@ -573,7 +516,26 @@ struct dispatcher_loop {
 	rep_sz = sizeof(rpc_t);
 	rpc_rep->code = RPC_REP_PENDING;
       }
-      
+      else {
+	rpc_rep->client_txid = rpc_req->client_txid;
+	// Initiate replication
+	rpc_req->global_txid = (++last_global_txid);
+	issue_rpc(rpc_req, sz);
+	cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
+	if(cookie != NULL) {
+	  event_seen(rpc_req);
+	  rep_sz = sizeof(rpc_t);
+	  rpc_rep->code = RPC_REP_PENDING;
+	  free(cookie);
+	}
+	else {
+	  // Roll this back
+	  cyclone_pop_cb(NULL, (const unsigned char *)rpc_req, sz);
+	  rep_sz = sizeof(rpc_t);
+	  rpc_rep->code = RPC_REP_INVSRV;
+	  rpc_rep->master = cyclone_get_leader(cyclone_handle);
+	}
+      }
       break;
     case RPC_REQ_STATUS:
     case RPC_REQ_STATUS_BLOCK:
