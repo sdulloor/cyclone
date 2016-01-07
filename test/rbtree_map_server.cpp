@@ -72,7 +72,6 @@ TOID(uint64_t) new_store_item(uint64_t val)
 
 int callback(const unsigned char *data,
 	     const int len,
-	     const int possibly_leader,
 	     void **return_value)
 {
   struct proposal *req = (struct proposal *)data;

@@ -14,7 +14,6 @@ static const int DISP_MAX_MSGSIZE = 4194304; // 4MB max msg size
 typedef 
 int (*rpc_callback_t)(const unsigned char *data,
 		      const int len,
-		      const int possibly_leader,
 		      void **return_value);
 
 //Garbage collect return value
