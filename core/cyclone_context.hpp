@@ -26,7 +26,8 @@ const int  MSG_REQUESTVOTE_RESPONSE     = 2;
 const int  MSG_APPENDENTRIES            = 3;
 const int  MSG_APPENDENTRIES_RESPONSE   = 4;
 const int  MSG_CLIENT_REQ               = 5;
-const int  MSG_CLIENT_STATUS            = 6;
+const int  MSG_CLIENT_REQ_TERM          = 6;
+const int  MSG_CLIENT_STATUS            = 7;
 
 
 /* Cyclone max message size */
@@ -37,6 +38,7 @@ const int MSG_MAXSIZE  = 4194304;
 typedef struct client_io_st {
   void *ptr;
   int size;
+  int term;
 } client_t;
 
 typedef struct
@@ -294,6 +296,43 @@ typedef struct cyclone_st {
 		    "CLIENT COOKIE SEND");
       }
       break;
+    case MSG_CLIENT_REQ_TERM:
+#ifdef TRACING
+      trace_recv_cmd(msg->client.ptr, msg->client.size);
+#endif
+      if(!cyclone_is_leader(this)) {
+	client_rep = NULL;
+	cyclone_tx(router->input_socket(me),
+		    (unsigned char *)&client_rep,
+		    sizeof(void *),
+		    "CLIENT COOKIE SEND");
+      }
+      else if(raft_get_current_term(raft_handle) != msg->client.term) {
+	client_rep = NULL;
+	cyclone_tx(router->input_socket(me),
+		   (unsigned char *)&client_rep,
+		   sizeof(void *),
+		   "CLIENT COOKIE SEND");
+      }
+      else {
+	client_req.id = rand();
+	client_req.data.buf = malloc(msg->client.size);
+	memcpy(client_req.data.buf, 
+	       msg->client.ptr, 
+	       msg->client.size);
+	client_req.data.len = msg->client.size;
+	// TBD: Handle error
+	client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
+	(void)raft_recv_entry(raft_handle, 
+			      &client_req, 
+			      client_rep);
+	cyclone_tx(router->input_socket(me),
+		    (unsigned char *)&client_rep,
+		    sizeof(void *),
+		    "CLIENT COOKIE SEND");
+      }
+      break;
+
     case MSG_CLIENT_STATUS:
       e = raft_msg_entry_response_committed
 	(raft_handle, (const msg_entry_response_t *)msg->client.ptr);

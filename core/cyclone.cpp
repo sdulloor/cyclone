@@ -342,6 +342,33 @@ void* cyclone_add_entry(void *cyclone_handle, void *data, int size)
   return cookie;
 }
 
+void* cyclone_add_entry_term(void *cyclone_handle, 
+			     void *data, 
+			     int size,
+			     int term)
+{
+  cyclone_t* handle = (cyclone_t *)cyclone_handle;
+  msg_t msg;
+  void *cookie = NULL;
+  msg.source      = handle->me;
+  msg.msg_type    = MSG_CLIENT_REQ;
+  msg.client.ptr  = data;
+  msg.client.size = size;
+  msg.client.term = term;
+#ifdef TRACING
+  trace_send_cmd(data, size);
+#endif
+  cyclone_tx(handle->router->output_socket(handle->me), 
+	     (const unsigned char *)&msg, 
+	     sizeof(msg_t), 
+	     "client req");
+  cyclone_rx(handle->router->output_socket(handle->me),
+	     (unsigned char *)&cookie,
+	     sizeof(void *),
+	     "CLIENT REQ recv");
+  return cookie;
+}
+
 int cyclone_check_status(void *cyclone_handle, void *cookie)
 {
   cyclone_t* handle = (cyclone_t *)cyclone_handle;

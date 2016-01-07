@@ -9,6 +9,10 @@ int cyclone_get_leader(void *cyclone_handle); // returns leader id
 int cyclone_get_term(void *cyclone_handle); // Get current term
 // Returns a non-null cookie if accepted for replication
 extern void *cyclone_add_entry(void * cyclone_handle, void *data, int size); 
+extern void *cyclone_add_entry_term(void * cyclone_handle, 
+				    void *data, 
+				    int size,
+				    int term);
 // Returns 0:pending 1:success -1:failed
 extern int cyclone_check_status(void *cyclone_handle, void *cookie);
 // Callback to apply a log entry
