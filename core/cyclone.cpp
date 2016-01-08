@@ -351,7 +351,7 @@ void* cyclone_add_entry_term(void *cyclone_handle,
   msg_t msg;
   void *cookie = NULL;
   msg.source      = handle->me;
-  msg.msg_type    = MSG_CLIENT_REQ;
+  msg.msg_type    = MSG_CLIENT_REQ_TERM;
   msg.client.ptr  = data;
   msg.client.size = size;
   msg.client.term = term;

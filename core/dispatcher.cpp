@@ -176,6 +176,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
       execution_term = cyclone_get_term(cyclone_handle);
       repeat = false;
       aborted = false;
+      __sync_synchronize();
       TX_BEGIN(state) {
 	lock(&rpc->follower_data_lock);
 	unsigned char *tmp;
@@ -411,6 +412,7 @@ static void issue_rpc(const rpc_t *rpc, int len)
   rpc_info->follower_data = NULL;
   rpc_info->follower_data_size = 0;
   rpc_info->have_follower_data = false;
+  rpc_info->follower_data_lock = 0;
   rpc_info->next = NULL;
   lock_rpc_list();
   if(pending_rpc_head == NULL) {
