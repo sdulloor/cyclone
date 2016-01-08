@@ -171,6 +171,29 @@ int callback(const unsigned char *data,
   }
 }
 
+int callback_leader(const unsigned char *data,
+		    const int len,
+		    unsigned char **follower_data,
+		    int * follower_data_size, 
+		    void **return_value)
+{
+  int sz = callback(data, len, return_value);
+  *follower_data = NULL;
+  *follower_data_size = 0;
+  return sz;
+}
+
+int callback_follower(const unsigned char *data,
+		      const int len,
+		      unsigned char *follower_data,
+		      int follower_data_size, 
+		      void **return_value)
+{
+  int sz = callback(data, len, return_value);
+  return sz;
+}
+
+
 TOID(char) nvheap_setup(TOID(char) recovered,
 			PMEMobjpool *state)
 {
@@ -211,7 +234,9 @@ int main(int argc, char *argv[])
   server_id = atoi(argv[1]);
   int replicas = atoi(argv[2]);
   int clients  = atoi(argv[3]);
-  dispatcher_start("cyclone_test.ini", callback, NULL, NULL, gc, nvheap_setup, server_id, replicas, clients);
+  dispatcher_start("cyclone_test.ini", callback, 
+		   callback_leader, callback_follower, 
+		   gc, nvheap_setup, server_id, replicas, clients);
 }
 
 

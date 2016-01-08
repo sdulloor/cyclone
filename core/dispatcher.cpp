@@ -178,23 +178,31 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
       aborted = false;
       TX_BEGIN(state) {
 	lock(&rpc->follower_data_lock);
-	unsigned char *follower_data;
+	unsigned char *tmp;
+	rpc_t *follower_data;
 	int follower_data_size;
-	if(cyclone_is_leader(cyclone_handle) && rpc->follower_data_size == 0) {
+	if(cyclone_is_leader(cyclone_handle) && !rpc->have_follower_data) {
 	  unlock(&rpc->follower_data_lock);
 	  rpc->sz = execute_rpc_leader((const unsigned char *)(rpc->rpc + 1),
 				       rpc->len - sizeof(rpc_t),
-				       &follower_data,
+				       &tmp,
 				       &follower_data_size,
 				       &rpc->ret_value);
+	  
+	  follower_data = (rpc_t *)malloc(sizeof(rpc_t) + follower_data_size);
+	  memcpy(follower_data + 1, tmp, follower_data_size);
+	  follower_data->code = RPC_REQ_DATA;
+	  follower_data->global_txid = rpc->rpc->global_txid;
+	  follower_data->timestamp = rpc->rpc->timestamp;
 	  req_follower_data = (char *)follower_data;
 	  req_follower_term = execution_term;
-	  req_follower_data_size = follower_data_size;
+	  req_follower_data_size = follower_data_size + sizeof(rpc_t);
+	  gc_rpc(tmp);
 	  __sync_synchronize();
 	  req_follower_data_active = true;
 	  __sync_synchronize();
 	  while(req_follower_data_active);
-	  gc_rpc(follower_data);
+	  free(follower_data);
 	  while(!rpc->rep_follower_success &&
 		cyclone_get_term(cyclone_handle) == execution_term);
 	  if(cyclone_get_term(cyclone_handle) != execution_term) {
@@ -210,6 +218,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	    repeat = true;
 	    pmemobj_tx_abort(-1);
 	  }
+	  __sync_synchronize();
 	  rpc->sz = execute_rpc_follower((const unsigned char *)(rpc->rpc + 1),
 					 rpc->len - sizeof(rpc_t),
 					 (unsigned char *)rpc->follower_data,
@@ -401,6 +410,7 @@ static void issue_rpc(const rpc_t *rpc, int len)
   rpc_info->rep_follower_success = false;
   rpc_info->follower_data = NULL;
   rpc_info->follower_data_size = 0;
+  rpc_info->have_follower_data = false;
   rpc_info->next = NULL;
   lock_rpc_list();
   if(pending_rpc_head == NULL) {
@@ -478,8 +488,11 @@ void cyclone_rep_cb(void *user_arg, const unsigned char *data, const int len)
     }
     int fsize = len - sizeof(rpc_t);
     lock(&match->follower_data_lock);
-    match->follower_data = malloc(fsize);
-    memcpy(match->follower_data, rpc + 1, fsize);
+    match->have_follower_data = true;
+    if(fsize > 0) {
+      match->follower_data = malloc(fsize);
+      memcpy(match->follower_data, rpc + 1, fsize);
+    }
     match->follower_data_size = fsize;
     unlock(&match->follower_data_lock);
     return;
@@ -515,6 +528,7 @@ void cyclone_pop_cb(void *user_arg, const unsigned char *data, const int len)
     unlock_rpc_list();
     lock(&rpc_info->follower_data_lock);
     rpc_info->follower_data_size = 0;
+    rpc_info->have_follower_data = false;
     if(rpc_info->follower_data != NULL) {
       free(rpc_info->follower_data);
       rpc_info->follower_data = NULL;
