@@ -11,10 +11,9 @@ typedef struct rpc_info_st {
   unsigned long follower_data_lock;
   void *follower_data;
   int follower_data_size;
-  volatile bool replicate_to_followers;
-  volatile int replicate_to_follower_term;
   volatile bool rep_success;
   volatile bool rep_failed;
+  volatile bool rep_follower_success;
   volatile bool complete;
   struct rpc_info_st *next;
 } rpc_info_t;

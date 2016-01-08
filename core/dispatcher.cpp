@@ -44,7 +44,7 @@ static rpc_info_t * volatile pending_rpc_head;
 static rpc_info_t * volatile pending_rpc_tail;
 
 static volatile unsigned long list_lock = 0;
-static volatile char *req_follower_data;
+static char * volatile req_follower_data;
 static volatile int req_follower_data_size;
 static volatile int req_follower_term;
 static volatile bool req_follower_data_active = false;
@@ -54,8 +54,8 @@ static void lock(volatile unsigned long *lockp)
 {
   // TEST + TEST&SET
   do {
-    while((*list_lock) != 0);
-  } while(!__sync_bool_compare_and_swap(list_lock, 0, 1));
+    while((*lockp) != 0);
+  } while(!__sync_bool_compare_and_swap(lockp, 0, 1));
   __sync_synchronize();
 }
 
@@ -177,27 +177,27 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
       repeat = false;
       aborted = false;
       TX_BEGIN(state) {
-	lcck(&rpc->follower_data_lock);
-	char *follower_data;
+	lock(&rpc->follower_data_lock);
+	unsigned char *follower_data;
 	int follower_data_size;
-	if(cyclone_is_leader() && rpc->follower_data_size == 0) {
+	if(cyclone_is_leader(cyclone_handle) && rpc->follower_data_size == 0) {
 	  unlock(&rpc->follower_data_lock);
 	  rpc->sz = execute_rpc_leader((const unsigned char *)(rpc->rpc + 1),
 				       rpc->len - sizeof(rpc_t),
 				       &follower_data,
 				       &follower_data_size,
 				       &rpc->ret_value);
-	  req_follower_data = follower_data;
-	  req_follower_term = term;
+	  req_follower_data = (char *)follower_data;
+	  req_follower_term = execution_term;
 	  req_follower_data_size = follower_data_size;
 	  __sync_synchronize();
 	  req_follower_data_active = true;
 	  __sync_synchronize();
 	  while(req_follower_data_active);
-	  rpc_gc_callback(follower_data);
+	  gc_rpc(follower_data);
 	  while(!rpc->rep_follower_success &&
-		cyclone_get_term() == execution_term);
-	  if(cyclone_get_term() != execution_term) {
+		cyclone_get_term(cyclone_handle) == execution_term);
+	  if(cyclone_get_term(cyclone_handle) != execution_term) {
 	    repeat = true;
 	    pmemobj_tx_abort(-1);
 	  }
@@ -205,16 +205,16 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	else {
 	  unlock(&rpc->follower_data_lock);
 	  while(!rpc->rep_follower_success &&
-		cyclone_get_term() == execution_term);
+		cyclone_get_term(cyclone_handle) == execution_term);
 	  if(!rpc->rep_follower_success) {
 	    repeat = true;
 	    pmemobj_tx_abort(-1);
 	  }
-	  rpc->sz = execute_rpc_leader((const unsigned char *)(rpc->rpc + 1),
-				       rpc->len - sizeof(rpc_t),
-				       rpc->follower_data,
-				       rpc->follower_data_size,
-				       &rpc->ret_value);
+	  rpc->sz = execute_rpc_follower((const unsigned char *)(rpc->rpc + 1),
+					 rpc->len - sizeof(rpc_t),
+					 (unsigned char *)rpc->follower_data,
+					 rpc->follower_data_size,
+					 &rpc->ret_value);
 	}
 	mark_done(rpc->rpc, rpc->ret_value, rpc->sz);
       } TX_ONABORT {
@@ -515,7 +515,7 @@ void cyclone_pop_cb(void *user_arg, const unsigned char *data, const int len)
     unlock_rpc_list();
     lock(&rpc_info->follower_data_lock);
     rpc_info->follower_data_size = 0;
-    if(rpc-_info>follower_data != NULL) {
+    if(rpc_info->follower_data != NULL) {
       free(rpc_info->follower_data);
       rpc_info->follower_data = NULL;
     }
