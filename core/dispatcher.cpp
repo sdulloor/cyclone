@@ -32,6 +32,8 @@ struct client_ro_state_st {
 
 static PMEMobjpool *state;
 static rpc_callback_t execute_rpc;
+static rpc_leader_callback_t execute_rpc_leader;
+static rpc_follower_callback_t execute_rpc_follower;
 static rpc_gc_callback_t gc_rpc;
 static bool client_blocked[MAX_CLIENTS];
 static int me;
@@ -599,6 +601,8 @@ static dispatcher_loop * dispatcher_loop_obj;
 
 void dispatcher_start(const char* config_path,
 		      rpc_callback_t rpc_callback,
+		      rpc_leader_callback_t rpc_leader_callback,
+		      rpc_follower_callback_t rpc_follower_callback,
 		      rpc_gc_callback_t gc_callback,
 		      rpc_nvheap_setup_callback_t nvheap_setup_callback,
 		      int me,
@@ -676,6 +680,9 @@ void dispatcher_start(const char* config_path,
     client_blocked[i]          = false;
   }
   execute_rpc = rpc_callback;
+  execute_rpc_follower = rpc_follower_callback;
+  execute_rpc_leader = rpc_leader_callback;
+
   gc_rpc      = gc_callback;
   last_global_txid = 0; // Count up from zero, always
   pending_rpc_head = pending_rpc_tail = NULL;

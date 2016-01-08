@@ -16,6 +16,20 @@ int (*rpc_callback_t)(const unsigned char *data,
 		      const int len,
 		      void **return_value);
 
+typedef 
+int (*rpc_leader_callback_t)(const unsigned char *data,
+			     const int len,
+			     unsigned char **follower_data,
+			     int * follower_data_size, 
+			     void **return_value);
+
+typedef 
+int (*rpc_follower_callback_t)(const unsigned char *data,
+			       const int len,
+			       unsigned char *follower_data,
+			       int follower_data_size, 
+			       void **return_value);
+
 //Garbage collect return value
 typedef void (*rpc_gc_callback_t)(void *data);
 
@@ -26,6 +40,8 @@ typedef TOID(char) (*rpc_nvheap_setup_callback_t)(TOID(char) recovered,
 // Start the dispatcher loop -- note: does not return
 void dispatcher_start(const char* config_path, 
 		      rpc_callback_t rpc_callback,
+		      rpc_leader_callback_t rpc_leader_callback,
+		      rpc_follower_callback_t rpc_follower_callback,
 		      rpc_gc_callback_t gc_callback,
 		      rpc_nvheap_setup_callback_t nvheap_setup_callback,
 		      int me,
