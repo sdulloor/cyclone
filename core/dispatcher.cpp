@@ -44,10 +44,6 @@ static rpc_info_t * volatile pending_rpc_head;
 static rpc_info_t * volatile pending_rpc_tail;
 
 static volatile unsigned long list_lock = 0;
-static char * volatile req_follower_data;
-static volatile int req_follower_data_size;
-static volatile int req_follower_term;
-static volatile bool req_follower_data_active = false;
 
 
 static void lock(volatile unsigned long *lockp)
@@ -195,14 +191,14 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	  follower_data->code = RPC_REQ_DATA;
 	  follower_data->global_txid = rpc->rpc->global_txid;
 	  follower_data->timestamp = rpc->rpc->timestamp;
-	  req_follower_data = (char *)follower_data;
-	  req_follower_term = execution_term;
-	  req_follower_data_size = follower_data_size + sizeof(rpc_t);
+	  rpc->req_follower_data = (char *)follower_data;
+	  rpc->req_follower_term = execution_term;
+	  rpc->req_follower_data_size = follower_data_size + sizeof(rpc_t);
 	  gc_rpc(tmp);
 	  __sync_synchronize();
-	  req_follower_data_active = true;
+	  rpc->req_follower_data_active = true;
 	  __sync_synchronize();
-	  while(req_follower_data_active);
+	  while(rpc->req_follower_data_active);
 	  free(follower_data);
 	  while(!rpc->rep_follower_success &&
 		cyclone_get_term(cyclone_handle) == execution_term);
@@ -347,6 +343,18 @@ static void gc_pending_rpc_list(bool is_master)
   rpc_info_t *rpc, *deleted, *tmp;
   void *cookie;
   deleted = NULL;
+  tmp = pending_rpc_head;
+  while(tmp) {
+    if(tmp->req_follower_data_active) {
+      cyclone_add_entry_term(cyclone_handle,
+			     tmp->req_follower_data,
+			     tmp->req_follower_data_size,
+			     tmp->req_follower_term);
+      __sync_synchronize();
+      tmp->req_follower_data_active = false;
+    }
+    tmp = tmp->next;
+  }
   lock_rpc_list();
   while(pending_rpc_head != NULL) {
     if(!pending_rpc_head->complete) {
@@ -413,6 +421,7 @@ static void issue_rpc(const rpc_t *rpc, int len)
   rpc_info->follower_data_size = 0;
   rpc_info->have_follower_data = false;
   rpc_info->follower_data_lock = 0;
+  rpc_info->req_follower_data_active = false;
   rpc_info->next = NULL;
   lock_rpc_list();
   if(pending_rpc_head == NULL) {
@@ -699,14 +708,6 @@ struct dispatcher_loop {
 	  if(!is_master) {
 	    is_master = true;
 	    send_kicker();
-	  }
-	  if(req_follower_data_active) {
-	    cyclone_add_entry_term(cyclone_handle,
-				   req_follower_data,
-				   req_follower_data_size,
-				   req_follower_term);
-	    __sync_synchronize();
-	    req_follower_data_active = false;
 	  }
 	}
 	else {

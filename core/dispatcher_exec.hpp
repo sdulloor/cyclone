@@ -12,6 +12,10 @@ typedef struct rpc_info_st {
   void *follower_data;
   int follower_data_size;
   bool have_follower_data;
+  char * volatile req_follower_data;
+  volatile int req_follower_data_size;
+  volatile int req_follower_term;
+  volatile bool req_follower_data_active;
   volatile bool rep_success;
   volatile bool rep_failed;
   volatile bool rep_follower_success;
