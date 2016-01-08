@@ -44,21 +44,36 @@ static rpc_info_t * volatile pending_rpc_head;
 static rpc_info_t * volatile pending_rpc_tail;
 
 static volatile unsigned long list_lock = 0;
+static volatile char *req_follower_data;
+static volatile int req_follower_data_size;
+static volatile int req_follower_term;
+static volatile bool req_follower_data_active = false;
 
-static void lock_rpc_list()
+
+static void lock(volatile unsigned long *lockp)
 {
   // TEST + TEST&SET
   do {
-    while(list_lock != 0);
-  } while(!__sync_bool_compare_and_swap(&list_lock, 0, 1));
+    while((*list_lock) != 0);
+  } while(!__sync_bool_compare_and_swap(list_lock, 0, 1));
   __sync_synchronize();
+}
+
+static void unlock(volatile unsigned long *lockp)
+{
+  __sync_synchronize();
+  *lockp = 0;
+  __sync_synchronize();
+}
+
+static void lock_rpc_list()
+{
+  lock(&list_lock);
 }
 
 static void unlock_rpc_list()
 {
-  __sync_synchronize();
-  list_lock = 0;
-  __sync_synchronize();
+  unlock(&list_lock);
 }
 
 static rpc_info_t * locate_rpc(unsigned long global_txid, 
@@ -153,16 +168,59 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 {
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   bool aborted = false;
+  bool repeat = true;
+  int execution_term;
   while(!rpc->rep_success && !rpc->rep_failed);
   if(rpc->rep_success) {
-    TX_BEGIN(state) {
-      rpc->sz = execute_rpc((const unsigned char *)(rpc->rpc + 1),
-			    rpc->len - sizeof(rpc_t),
-			    &rpc->ret_value);
-      mark_done(rpc->rpc, rpc->ret_value, rpc->sz);
-    } TX_ONABORT {
-      aborted= true;
-    } TX_END
+    while(repeat) {
+      execution_term = cyclone_get_term(cyclone_handle);
+      repeat = false;
+      aborted = false;
+      TX_BEGIN(state) {
+	lcck(&rpc->follower_data_lock);
+	char *follower_data;
+	int follower_data_size;
+	if(cyclone_is_leader() && rpc->follower_data_size == 0) {
+	  unlock(&rpc->follower_data_lock);
+	  rpc->sz = execute_rpc_leader((const unsigned char *)(rpc->rpc + 1),
+				       rpc->len - sizeof(rpc_t),
+				       &follower_data,
+				       &follower_data_size,
+				       &rpc->ret_value);
+	  req_follower_data = follower_data;
+	  req_follower_term = term;
+	  req_follower_data_size = follower_data_size;
+	  __sync_synchronize();
+	  req_follower_data_active = true;
+	  __sync_synchronize();
+	  while(req_follower_data_active);
+	  rpc_gc_callback(follower_data);
+	  while(!rpc->rep_follower_success &&
+		cyclone_get_term() == execution_term);
+	  if(cyclone_get_term() != execution_term) {
+	    repeat = true;
+	    pmemobj_tx_abort(-1);
+	  }
+	}
+	else {
+	  unlock(&rpc->follower_data_lock);
+	  while(!rpc->rep_follower_success &&
+		cyclone_get_term() == execution_term);
+	  if(!rpc->rep_follower_success) {
+	    repeat = true;
+	    pmemobj_tx_abort(-1);
+	  }
+	  rpc->sz = execute_rpc_leader((const unsigned char *)(rpc->rpc + 1),
+				       rpc->len - sizeof(rpc_t),
+				       rpc->follower_data,
+				       rpc->follower_data_size,
+				       &rpc->ret_value);
+	}
+	mark_done(rpc->rpc, rpc->ret_value, rpc->sz);
+      } TX_ONABORT {
+	aborted= true;
+      } TX_END
+    }
   }
   else {
     aborted = true;
@@ -323,6 +381,9 @@ static void gc_pending_rpc_list(bool is_master)
     if(tmp->sz != 0) {
       gc_rpc(tmp->ret_value);
     }
+    if(tmp->follower_data != NULL) {
+      free(tmp->follower_data);
+    }
     delete tmp->rpc;
     delete tmp;
   }
@@ -337,6 +398,9 @@ static void issue_rpc(const rpc_t *rpc, int len)
   rpc_info->len = len;
   rpc_info->rpc = (rpc_t *)(new char[len]);
   memcpy(rpc_info->rpc, rpc, len);
+  rpc_info->rep_follower_success = false;
+  rpc_info->follower_data = NULL;
+  rpc_info->follower_data_size = 0;
   rpc_info->next = NULL;
   lock_rpc_list();
   if(pending_rpc_head == NULL) {
@@ -363,6 +427,16 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
   const rpc_t *rpc = (const rpc_t *)data;
   rpc_info_t *rpc_info;
   if(rpc->code == RPC_REQ_MARKER) {
+    return;
+  }
+  else if(rpc->code == RPC_REQ_DATA) {
+    rpc_info = locate_rpc(rpc->global_txid, false);
+    if(rpc_info == NULL) {
+      BOOST_LOG_TRIVIAL(fatal) 
+	<< "Unable to locate synchronous RPC for follower data completion ";
+      exit(-1);
+    }
+    rpc_info->rep_follower_success = true;
     return;
   }
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
@@ -396,6 +470,20 @@ void cyclone_rep_cb(void *user_arg, const unsigned char *data, const int len)
   if(rpc->code == RPC_REQ_MARKER) {
     return;
   }
+  else if(rpc->code== RPC_REQ_DATA) {
+    match = locate_rpc(rpc->global_txid, false);
+    if(match == NULL) {
+      BOOST_LOG_TRIVIAL(fatal) << "Follower data couldn't locate RPC";
+      exit(-1);
+    }
+    int fsize = len - sizeof(rpc_t);
+    lock(&match->follower_data_lock);
+    match->follower_data = malloc(fsize);
+    memcpy(match->follower_data, rpc + 1, fsize);
+    match->follower_data_size = fsize;
+    unlock(&match->follower_data_lock);
+    return;
+  }
   event_seen(rpc);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   issue_it = (D_RO(root)->committed_global_txid < rpc->global_txid); // not committed
@@ -422,6 +510,17 @@ void cyclone_pop_cb(void *user_arg, const unsigned char *data, const int len)
   if(rpc_info == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Unable to locate failed replication RPC !";
     exit(-1);
+  }
+  if(rpc->code == RPC_REQ_DATA) {
+    unlock_rpc_list();
+    lock(&rpc_info->follower_data_lock);
+    rpc_info->follower_data_size = 0;
+    if(rpc-_info>follower_data != NULL) {
+      free(rpc_info->follower_data);
+      rpc_info->follower_data = NULL;
+    }
+    unlock(&rpc_info->follower_data_lock);
+    return;
   }
   rpc_info->rep_failed = true;
   unlock_rpc_list();
@@ -584,6 +683,14 @@ struct dispatcher_loop {
 	  if(!is_master) {
 	    is_master = true;
 	    send_kicker();
+	  }
+	  if(req_follower_data_active) {
+	    cyclone_add_entry_term(cyclone_handle,
+				   req_follower_data,
+				   req_follower_data_size,
+				   req_follower_term);
+	    __sync_synchronize();
+	    req_follower_data_active = false;
 	  }
 	}
 	else {

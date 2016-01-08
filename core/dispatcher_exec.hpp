@@ -8,6 +8,11 @@ typedef struct rpc_info_st {
   int len;
   int sz;
   void *ret_value;
+  unsigned long follower_data_lock;
+  void *follower_data;
+  int follower_data_size;
+  volatile bool replicate_to_followers;
+  volatile int replicate_to_follower_term;
   volatile bool rep_success;
   volatile bool rep_failed;
   volatile bool complete;

@@ -51,10 +51,11 @@ static const int RPC_REQ_FN             = 0; // Execute
 static const int RPC_REQ_STATUS         = 1; // Check status (non blocking)
 static const int RPC_REQ_STATUS_BLOCK   = 2; // Check status (blocking)
 static const int RPC_REQ_LAST_TXID      = 3; // Get last seen txid from this client
-static const int RPC_REQ_MARKER         = 4; // Internal (do not use)
-static const int RPC_REP_COMPLETE       = 5; // DONE 
-static const int RPC_REP_PENDING        = 6; // PENDING 
-static const int RPC_REP_UNKNOWN        = 7; // UNKNOWN RPC
-static const int RPC_REP_INVSRV         = 8; // WRONG master  -- master set in reply
+static const int RPC_REQ_MARKER         = 4; // Dispatcher internal (do not use)
+static const int RPC_REQ_DATA           = 5; // Dispatcher internal (do not use)
+static const int RPC_REP_COMPLETE       = 6; // DONE 
+static const int RPC_REP_PENDING        = 7; // PENDING 
+static const int RPC_REP_UNKNOWN        = 8; // UNKNOWN RPC
+static const int RPC_REP_INVSRV         = 9; // WRONG master  -- master set in reply
 
 #endif
