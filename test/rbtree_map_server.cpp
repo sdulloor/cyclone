@@ -104,13 +104,14 @@ int callback(const unsigned char *data,
     *return_value  = malloc(sizeof(struct proposal));
     struct proposal *rep  = (struct proposal *)*return_value;
     uint64_t version = *vptr;
+    rep->code = version;
     if(version == req->kv_data.value) { // LOCKED ?
       pmemobj_tx_add_range_direct(vptr, sizeof(uint64_t));
       *vptr = *vptr + 1; // UNLOCK
     }
     return sizeof(struct proposal);
   }
-  if(code == FN_INSERT) {
+  else if(code == FN_INSERT) {
     rbtree_map_insert(pop, 
 		    the_tree, 
 		    req->kv_data.key,
@@ -178,9 +179,51 @@ int callback_leader(const unsigned char *data,
 		    void **return_value)
 {
   int sz = callback(data, len, return_value);
-  *follower_data = NULL;
-  *follower_data_size = 0;
+  *follower_data_size = sz;
+  if(sz > 0) {
+    *follower_data = (unsigned char *)malloc(sz);
+    memcpy(*follower_data, *return_value, sz);
+  }
+  else {
+    *follower_data = NULL;
+  }
   return sz;
+}
+
+bool cmp_return_values(int req_code, struct proposal *rep1, struct proposal *rep2)
+{
+  if(req_code == FN_LOCK) {
+    return rep1->code == rep2->code;
+  }
+  else if(req_code == FN_GET_VERSION) {
+    return rep1->code == rep2->code;
+  }
+  else if(req_code == FN_UNLOCK) {
+    return rep1->code == rep2->code;
+  }
+  else if(req_code == FN_DELETE) {
+    return rep1->code == rep2->code &&
+      rep1->kv_data.key == rep2->kv_data.key &&
+      rep1->kv_data.value == rep2->kv_data.value;
+  }
+  else if(req_code == FN_LOOKUP) {
+    if(rep1->code == CODE_NOK) {
+      return rep2->code == CODE_NOK;
+    }
+    return rep2->code == CODE_NOK &&
+      rep2->kv_data.key == rep1->kv_data.key &&
+      rep2->kv_data.value == rep1->kv_data.value;
+  }
+  else if(req_code == FN_BUMP) {
+    if(rep1->code == CODE_NOK) {
+      return rep2->code == CODE_NOK;
+    }
+    return rep2->code == CODE_OK &&
+      rep2->kv_data.key == rep1->kv_data.key &&
+      rep2->kv_data.value == rep1->kv_data.value;
+  }
+
+  return true;
 }
 
 int callback_follower(const unsigned char *data,
@@ -190,6 +233,26 @@ int callback_follower(const unsigned char *data,
 		      void **return_value)
 {
   int sz = callback(data, len, return_value);
+  if(sz != 0 ||  follower_data_size != 0) {
+    if(sz != follower_data_size) {
+      BOOST_LOG_TRIVIAL(fatal) << "Divergence in return size !";
+      exit(-1);
+    }
+    struct proposal *req = (struct proposal *)data;
+    struct proposal *rep1 = (struct proposal *)*return_value;
+    struct proposal *rep2 = (struct proposal *)follower_data;
+    if(!cmp_return_values(req->code, rep1, rep2)) {
+      BOOST_LOG_TRIVIAL(fatal) << "Divergence in return contents code = "
+			       << req->fn << " "
+			       << " sizes = " << len << " " << follower_data_size << " "
+			       << rep1->kv_data.key << ":"
+			       << rep1->kv_data.value << " "
+			       << rep2->kv_data.key << ":"
+			       << rep2->kv_data.value << " ";
+      
+      exit(-1);
+    }
+  }
   return sz;
 }
 
