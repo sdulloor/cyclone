@@ -8,7 +8,7 @@ typedef struct rpc_info_st {
   int len;
   int sz;
   void *ret_value;
-  unsigned long follower_data_lock;
+  volatile unsigned long follower_data_lock;
   void *follower_data;
   int follower_data_size;
   bool have_follower_data;
