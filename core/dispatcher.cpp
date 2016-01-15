@@ -163,9 +163,9 @@ static void mark_done(const rpc_t *rpc,
 void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 {
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  bool aborted = false;
-  bool repeat = true;
-  int execution_term;
+  volatile bool aborted = false;
+  volatile bool repeat = true;
+  volatile int execution_term;
   while(!rpc->rep_success && !rpc->rep_failed);
   if(rpc->rep_success) {
     while(repeat) {
@@ -262,7 +262,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 void exec_rpc_internal(rpc_info_t *rpc)
 {
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  bool aborted = false;
+  volatile bool aborted = false;
   TX_BEGIN(state) {
     rpc->sz = execute_rpc((const unsigned char *)(rpc->rpc + 1),
 			  rpc->len - sizeof(rpc_t),
@@ -447,6 +447,7 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
 {
   const rpc_t *rpc = (const rpc_t *)data;
   rpc_info_t *rpc_info;
+  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   if(rpc->code == RPC_REQ_MARKER) {
     return;
   }
@@ -454,13 +455,18 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
     rpc_info = locate_rpc(rpc->global_txid, false);
     if(rpc_info == NULL) {
       BOOST_LOG_TRIVIAL(fatal) 
-	<< "Unable to locate synchronous RPC for follower data completion ";
+	<< "Unable to locate synchronous RPC for follower data completion: "
+	<< rpc->global_txid
+	<< " last seen global txid = "
+	<< last_global_txid
+	<< " committed global txid "
+	<< D_RO(root)->committed_global_txid;
+      dump_active_list();
       exit(-1);
     }
     rpc_info->rep_follower_success = true;
     return;
   }
-  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   rpc_info = locate_rpc(rpc->global_txid, true);
   if(rpc_info == NULL) {
     if(rpc->global_txid > D_RO(root)->committed_global_txid) {
@@ -488,13 +494,20 @@ void cyclone_rep_cb(void *user_arg, const unsigned char *data, const int len)
   const rpc_t *rpc = (const rpc_t *)data;
   bool issue_it;
   rpc_info_t *match;
+  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   if(rpc->code == RPC_REQ_MARKER) {
     return;
   }
   else if(rpc->code== RPC_REQ_DATA) {
     match = locate_rpc(rpc->global_txid, false);
     if(match == NULL) {
-      BOOST_LOG_TRIVIAL(fatal) << "Follower data couldn't locate RPC";
+      BOOST_LOG_TRIVIAL(fatal) << "Follower data rep couldn't locate RPC :"
+			       << rpc->global_txid
+			       << " last seen global txid = "
+			       << last_global_txid
+			       << " committed global txid "
+			       << D_RO(root)->committed_global_txid;
+      dump_active_list();
       exit(-1);
     }
     int fsize = len - sizeof(rpc_t);
@@ -509,7 +522,6 @@ void cyclone_rep_cb(void *user_arg, const unsigned char *data, const int len)
     return;
   }
   event_seen(rpc);
-  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   issue_it = (D_RO(root)->committed_global_txid < rpc->global_txid); // not committed
   // not already issued
   match = locate_rpc(rpc->global_txid, true);
@@ -536,7 +548,6 @@ void cyclone_pop_cb(void *user_arg, const unsigned char *data, const int len)
     exit(-1);
   }
   if(rpc->code == RPC_REQ_DATA) {
-    unlock_rpc_list();
     lock(&rpc_info->follower_data_lock);
     rpc_info->follower_data_size = 0;
     rpc_info->have_follower_data = false;
@@ -545,6 +556,7 @@ void cyclone_pop_cb(void *user_arg, const unsigned char *data, const int len)
       rpc_info->follower_data = NULL;
     }
     unlock(&rpc_info->follower_data_lock);
+    unlock_rpc_list();
     return;
   }
   rpc_info->rep_failed = true;
