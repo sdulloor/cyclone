@@ -35,7 +35,7 @@ static rpc_callback_t execute_rpc;
 static rpc_leader_callback_t execute_rpc_leader;
 static rpc_follower_callback_t execute_rpc_follower;
 static rpc_gc_callback_t gc_rpc;
-static bool client_blocked[MAX_CLIENTS];
+static int client_blocked[MAX_CLIENTS];
 static int me;
 static unsigned long last_global_txid;
 static unsigned long last_global_ro_txid = 0UL;
@@ -374,7 +374,7 @@ static void gc_pending_rpc_list(bool is_master)
   while(deleted) {
     tmp = deleted;
     deleted = deleted->next;    
-    if(client_blocked[tmp->rpc->client_id]) {
+    if(client_blocked[tmp->rpc->client_id] != -1) {
       rpc_rep->client_id   = tmp->rpc->client_id;
       rpc_rep->client_txid = tmp->rpc->client_txid;
       rep_sz = sizeof(rpc_t);
@@ -390,11 +390,11 @@ static void gc_pending_rpc_list(bool is_master)
 	  rep_sz += tmp->sz;
 	}
       }
-      client_blocked[tmp->rpc->client_id] = false;
-      cyclone_tx(router->output_socket(tmp->rpc->client_id), 
+      cyclone_tx(router->output_socket(client_blocked[tmp->rpc->client_id]), 
 		 tx_buffer, 
 		 rep_sz, 
 		 "Dispatch reply");
+      client_blocked[tmp->rpc->client_id] = -1;
     }
     if(tmp->sz != 0) {
       gc_rpc(tmp->ret_value);
@@ -567,7 +567,7 @@ struct dispatcher_loop {
     }
   }
   
-  void handle_rpc(unsigned long sz)
+  void handle_rpc(unsigned long sz, int requestor)
   {
     TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
     unsigned long last_committed;
@@ -577,6 +577,7 @@ struct dispatcher_loop {
     unsigned long rep_sz = 0;
     void *cookie;
     unsigned long last_tx_committed;
+    rpc_rep->client_id   = rpc_req->client_id;
     switch(rpc_req->code) {
     case RPC_REQ_LAST_TXID:
       if(!cyclone_is_leader(cyclone_handle)) {
@@ -592,7 +593,6 @@ struct dispatcher_loop {
       }
       break;
     case RPC_REQ_FN:
-      rpc_rep->client_id   = rpc_req->client_id;
       if(get_max_client_txid(rpc_req->client_id) >= rpc_req->client_txid) {
 	// Repeat request - ignore
       }
@@ -671,13 +671,18 @@ struct dispatcher_loop {
 	  }
 	}
       }
+      if(rpc_rep->code == RPC_REP_PENDING &&
+	 rpc_req->code == RPC_REQ_STATUS_BLOCK) {
+	client_blocked[rpc_req->client_id] = requestor;
+	rep_sz = 0;
+      }
       break;
     default:
       BOOST_LOG_TRIVIAL(fatal) << "DISPATCH: unknown code";
       exit(-1);
     }
     if(rep_sz > 0) {
-      cyclone_tx(router->output_socket(rpc_req->client_id), 
+      cyclone_tx(router->output_socket(requestor), 
 		 tx_buffer, 
 		 rep_sz, 
 		 "Dispatch reply");
@@ -698,7 +703,7 @@ struct dispatcher_loop {
 	if(sz == -1) {
 	  continue;
 	}
-	handle_rpc(sz);
+	handle_rpc(sz, i);
       }
       clock.stop();
       if(clock.elapsed_time() >= PERIODICITY) {
@@ -801,7 +806,7 @@ void dispatcher_start(const char* config_path,
   BOOST_LOG_TRIVIAL(info) << "committed global txid = " 
 			  << D_RO(root)->committed_global_txid;
   for(int i=0;i<MAX_CLIENTS;i++) {
-    client_blocked[i]          = false;
+    client_blocked[i] = -1;
   }
   execute_rpc = rpc_callback;
   execute_rpc_follower = rpc_follower_callback;
