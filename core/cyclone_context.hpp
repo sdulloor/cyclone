@@ -82,7 +82,7 @@ typedef struct cyclone_st {
   raft_server_t *raft_handle;
   cyclone_callback_t cyclone_rep_cb;
   cyclone_callback_t cyclone_pop_cb;
-  cyclone_callback_t cyclone_commit_cb;
+  cyclone_commit_t cyclone_commit_cb;
   void *user_arg;
   unsigned char* cyclone_buffer_out;
   unsigned char* cyclone_buffer_in;

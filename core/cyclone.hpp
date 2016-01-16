@@ -40,7 +40,7 @@ typedef struct rpc_st {
   int code;
   int flags;
   int client_id;
-  union [
+  union {
     unsigned long client_txid;
     int parent_raft_idx;
   };

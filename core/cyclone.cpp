@@ -402,7 +402,7 @@ static void init_log(PMEMobjpool *pop, void *ptr, void *arg)
 void* cyclone_boot(const char *config_path,
 		   cyclone_callback_t cyclone_rep_callback,
 		   cyclone_callback_t cyclone_pop_callback,
-		   cyclone_callback_t cyclone_commit_callback,
+		   cyclone_commit_t cyclone_commit_callback,
 		   int me,
 		   int replicas,
 		   void *user_arg)
@@ -480,6 +480,7 @@ void* cyclone_boot(const char *config_path,
 			  D_RO(root)->term);
     unsigned long ptr = D_RO(log)->log_head;
     raft_entry_t ety;
+    int raft_idx = 1; // TBD fix this on log compaction
     while(ptr != D_RO(log)->log_tail) {
       // Optimize later by removing transaction
       TX_BEGIN(cyclone_handle->pop_raft_state) {
@@ -498,7 +499,9 @@ void* cyclone_boot(const char *config_path,
 	} TX_END
 	cyclone_rep_callback(user_arg,
 			     (const unsigned char *)chunk,
-			     ety.data.len);
+			     ety.data.len,
+			     raft_idx++,
+			     ety.term);
 	free(chunk);
       }
     }

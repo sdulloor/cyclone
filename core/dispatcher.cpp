@@ -98,7 +98,7 @@ static rpc_info_t * locate_rpc_next_commit(bool keep_lock = false)
   lock_rpc_list();
   rpc_info = pending_rpc_head;
   while(rpc_info != NULL) {
-    if(!rpc_info->rep_failed) {
+    if(!rpc_info->rep_failed && !rpc_info->rep_success) {
       hit = rpc_info;
       break;
     } 
