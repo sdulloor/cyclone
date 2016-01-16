@@ -176,7 +176,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
       have_data = rpc->have_follower_data;
       aborted = false;
       __sync_synchronize();
-      if(cyclone_get_term(cylone_handle) != execution_term) {
+      if(cyclone_get_term(cyclone_handle) != execution_term) {
 	continue;
       }
       repeat = false;
