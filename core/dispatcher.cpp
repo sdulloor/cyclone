@@ -69,6 +69,7 @@ static void unlock_rpc_list()
   unlock(&list_lock);
 }
 
+
 static rpc_info_t * locate_rpc_internal(int raft_idx,
 					int raft_term,
 					bool keep_lock = false)
@@ -155,11 +156,19 @@ static int get_max_client_txid(int client_id)
 
 // This function must be executed in the context of a tx
 static void mark_done(const rpc_t *rpc,
+		      const int raft_idx,
+		      const int raft_term,
 		      const void* ret_value,
 		      const int ret_size)
 {
   int client_id = rpc->client_id;
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+  int *c_raft_idx_p  = &D_RW(root)->applied_raft_idx;
+  int *c_raft_term_p = &D_RW(root)->applied_raft_term;
+  pmemobj_tx_add_range_direct(c_raft_idx_p, sizeof(int));
+  pmemobj_tx_add_range_direct(c_raft_term_p, sizeof(int));
+  *c_raft_idx_p  = raft_idx;
+  *c_raft_term_p = raft_term;
   struct client_state_st *cstate = &D_RW(root)->client_state[client_id];
   pmemobj_tx_add_range_direct(cstate, sizeof(struct client_state_st));
   if(!TOID_IS_NULL(cstate->last_return_value)) {
@@ -243,7 +252,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 					 rpc->follower_data_size,
 					 &rpc->ret_value);
 	}
-	mark_done(rpc->rpc, rpc->ret_value, rpc->sz);
+	mark_done(rpc->rpc, rpc->raft_idx, rpc->raft_term, rpc->ret_value, rpc->sz);
       } TX_ONABORT {
 	if(!repeat) {
 	  user_tx_aborted= true;
@@ -254,16 +263,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
   if(user_tx_aborted) { // cleanup
     rpc->sz = 0;
     TX_BEGIN(state) {
-      struct client_state_st *cstate = 
-	&D_RW(root)->client_state[rpc->rpc->client_id];
-      pmemobj_tx_add_range_direct(cstate, sizeof(struct client_state_st));
-      if(!TOID_IS_NULL(cstate->last_return_value)) {
-	TX_FREE(cstate->last_return_value);
-      }
-      TOID_ASSIGN(cstate->last_return_value, OID_NULL);
-      cstate->last_return_size = 0;
-      __sync_synchronize();
-      cstate->committed_txid = rpc->rpc->client_txid;
+      mark_done(rpc->rpc, rpc->raft_idx, rpc->raft_term, rpc->ret_value, rpc->sz);
     } TX_ONABORT {
       BOOST_LOG_TRIVIAL(fatal) << "Dispatcher tx abort !\n";
       exit(-1);
@@ -284,7 +284,7 @@ void exec_rpc_internal(rpc_info_t *rpc)
     while(!rpc->rep_success && !rpc->rep_failed);
     user_tx_aborted = false;
     if(rpc->rep_success) {
-      mark_done(rpc->rpc, rpc->ret_value, rpc->sz);
+      mark_done(rpc->rpc, rpc->raft_idx, rpc->raft_term, rpc->ret_value, rpc->sz);
     }
     else {
       pmemobj_tx_abort(-1);
@@ -300,16 +300,7 @@ void exec_rpc_internal(rpc_info_t *rpc)
   if(user_tx_aborted) { // cleanup
     rpc->sz = 0;
     TX_BEGIN(state) {
-      struct client_state_st *cstate = 
-	&D_RW(root)->client_state[rpc->rpc->client_id];
-      pmemobj_tx_add_range_direct(cstate, sizeof(struct client_state_st));
-      if(!TOID_IS_NULL(cstate->last_return_value)) {
-	TX_FREE(cstate->last_return_value);
-      }
-      TOID_ASSIGN(cstate->last_return_value, OID_NULL);
-      cstate->last_return_size = 0;
-      __sync_synchronize();
-      cstate->committed_txid = rpc->rpc->client_txid;
+      mark_done(rpc->rpc, rpc->raft_idx, rpc->raft_term, rpc->ret_value, rpc->sz);
     } TX_ONABORT{
       BOOST_LOG_TRIVIAL(fatal) << "Dispatcher tx abort !\n";
       exit(-1);
@@ -456,10 +447,14 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
   const rpc_t *rpc = (const rpc_t *)data;
   rpc_info_t *rpc_info;
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+  int applied_raft_idx  = D_RO(root)->applied_raft_idx;
   if(rpc->code == RPC_REQ_MARKER) {
     return;
   }
   else if(rpc->code == RPC_REQ_DATA) {
+    if(rpc->parent_raft_idx  <= applied_raft_idx) {
+      return;
+    }
     rpc_info = locate_rpc_internal(rpc->parent_raft_idx,
 				   rpc->parent_raft_term,
 				   false);
@@ -475,16 +470,16 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
     return;
   }
   rpc_info = locate_rpc_next_commit(true);
-  if(rpc_info == NULL) {
-    BOOST_LOG_TRIVIAL(fatal) 
+  if(rpc_info == NULL && rpc_info->raft_idx > applied_raft_idx) {
+    BOOST_LOG_TRIVIAL(fatal)
       << "Unable to locate any replicated RPC for commit";
     dump_active_list();
     exit(-1);
   }
-  else {
+  else if(rpc_info != NULL) {
     rpc_info->rep_success = true;
-    __sync_synchronize();
   }
+  __sync_synchronize();
   unlock_rpc_list();
 }
 
@@ -498,10 +493,15 @@ void cyclone_rep_cb(void *user_arg,
   const rpc_t *rpc = (const rpc_t *)data;
   rpc_info_t *match;
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+  int applied_raft_idx = D_RO(root)->applied_raft_idx;
+
   if(rpc->code == RPC_REQ_MARKER) {
     return;
   }
   else if(rpc->code== RPC_REQ_DATA) {
+    if(rpc->parent_raft_idx  <= applied_raft_idx) {
+      return;
+    }
     match = locate_rpc_internal(rpc->parent_raft_idx,
 				rpc->parent_raft_term,
 				false);
@@ -522,7 +522,9 @@ void cyclone_rep_cb(void *user_arg,
     match->have_follower_data = true;
     return;
   }
-  unlock_rpc_list();
+  if(raft_idx  <= applied_raft_idx) {
+    return;
+  }
   issue_rpc(rpc, len, raft_idx, raft_term);
 }
 
@@ -770,6 +772,8 @@ void dispatcher_start(const char* config_path,
 	TOID_ASSIGN(D_RW(root)->client_state[i].last_return_value, OID_NULL);
       }
       D_RW(root)->nvheap_root = nvheap_setup_callback(TOID_NULL(char), state);
+      D_RW(root)->applied_raft_idx = -1;
+      D_RW(root)->applied_raft_term  = -1;
     } TX_ONABORT {
       BOOST_LOG_TRIVIAL(fatal) 
 	<< "Unable to setup dispatcher state:"
@@ -778,8 +782,23 @@ void dispatcher_start(const char* config_path,
     } TX_END
   }
   else {
-    BOOST_LOG_TRIVIAL(fatal) << "DISPATCHER: Recovery not supported yet !";
-    exit(-1);
+    state = pmemobj_open(file_path.c_str(), "disp_state");
+    if(state == NULL) {
+      BOOST_LOG_TRIVIAL(fatal)
+	<< "Unable to open pmemobj pool for dispatcher state:"
+	<< strerror(errno);
+      exit(-1);
+    }
+    TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+    TX_BEGIN(state) {
+      D_RW(root)->nvheap_root = nvheap_setup_callback(D_RO(root)->nvheap_root, state);
+    } TX_ONABORT {
+      BOOST_LOG_TRIVIAL(fatal)
+	<< "Application unable to recover state:"
+	<< strerror(errno);
+      exit(-1);
+    } TX_END
+    BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered state";
   }
 
   // Setup RO state

@@ -480,7 +480,7 @@ void* cyclone_boot(const char *config_path,
 			  D_RO(root)->term);
     unsigned long ptr = D_RO(log)->log_head;
     raft_entry_t ety;
-    int raft_idx = 1; // TBD fix this on log compaction
+    int raft_idx = 0; // TBD fix this on log compaction
     while(ptr != D_RO(log)->log_tail) {
       // Optimize later by removing transaction
       TX_BEGIN(cyclone_handle->pop_raft_state) {
