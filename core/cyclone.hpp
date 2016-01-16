@@ -15,15 +15,21 @@ extern void *cyclone_add_entry_term(void * cyclone_handle,
 				    int term);
 // Returns 0:pending 1:success -1:failed
 extern int cyclone_check_status(void *cyclone_handle, void *cookie);
-// Callback to apply a log entry
+// Callback to add or remove a log entry
 typedef void (*cyclone_callback_t)(void *user_arg,
 				   const unsigned char *data,
-				   const int len);
+				   const int len,
+				   const int raft_idx,
+				   const int raft_term);
+//Callback to commit a log entry
+typedef void (*cyclone_commit_t)(void *user_arg,
+				 const unsigned char *data,
+				 const int len);
 // Returns a cyclone handle
 extern void* cyclone_boot(const char *config_path,
 			  cyclone_callback_t cyclone_rep_callback,
 			  cyclone_callback_t cyclone_pop_callback,
-			  cyclone_callback_t cyclone_commit_callback,
+			  cyclone_commit_t cyclone_commit_callback,
 			  int me,
 			  int replicas,
 			  void *user_arg);
@@ -34,15 +40,16 @@ typedef struct rpc_st {
   int code;
   int flags;
   int client_id;
+  union [
+    unsigned long client_txid;
+    int parent_raft_idx;
+  };
   union {
-    unsigned long global_txid;
+    int master;
     int last_client_txid;
+    int parent_raft_term;
   };
   unsigned long timestamp;
-  union {
-    unsigned long client_txid; 
-    int master;
-  };
   unsigned char payload[0];
 } rpc_t; // Used for both requests and replies
 

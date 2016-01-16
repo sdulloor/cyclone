@@ -63,12 +63,20 @@ void cyclone_cb(void *user_arg, const unsigned char *data, const int len)
   print("CLIENT: APPLY", (void *)data, len);
 }
 
-void cyclone_rep_cb(void *user_arg, const unsigned char *data, const int len)
+void cyclone_rep_cb(void *user_arg,
+		    const unsigned char *data,
+		    const int len,
+		    const int raft_idx,
+		    const int raft_term)
 {
   print("CLIENT: REP", (void *)data, len);
 }
 
-void cyclone_pop_cb(void *user_arg, const unsigned char *data, const int len)
+void cyclone_pop_cb(void *user_arg,
+		    const unsigned char *data,
+		    const int len,
+		    const int raft_idx,
+		    const int raft_term)
 {
   print("CLIENT: POP", (void *)data, len);
 }

@@ -204,7 +204,9 @@ static int __raft_logentry_offer(raft_server_t* raft,
   if(cyclone_handle->cyclone_rep_cb != NULL) {    
     cyclone_handle->cyclone_rep_cb(cyclone_handle->user_arg,
 				   (const unsigned char *)chunk,
-				   ety->data.len);
+				   ety->data.len,
+				   ety_idx,
+				   ety->term);
     
   }
   free(chunk); // release temporary memory
@@ -252,7 +254,9 @@ static int __raft_logentry_pop(raft_server_t* raft,
     } TX_END
     cyclone_handle->cyclone_pop_cb(cyclone_handle->user_arg,
 				   chunk,
-				   entry->data.len);
+				   entry->data.len,
+				   ety_idx,
+				   entry->term);
     free(chunk);
   }
   TX_BEGIN(cyclone_handle->pop_raft_state) {

@@ -5,6 +5,8 @@
 
 typedef struct rpc_info_st {
   rpc_t *rpc;
+  int raft_idx;
+  int raft_term;
   int len;
   int sz;
   void *ret_value;

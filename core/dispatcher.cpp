@@ -26,7 +26,6 @@ struct client_ro_state_st {
   unsigned long committed_txid;
   char * last_return_value;
   int last_return_size;
-  
 } client_ro_state [MAX_CLIENTS];
 
 
@@ -37,8 +36,6 @@ static rpc_follower_callback_t execute_rpc_follower;
 static rpc_gc_callback_t gc_rpc;
 static int client_blocked[MAX_CLIENTS];
 static int me;
-static unsigned long last_global_txid;
-static unsigned long last_global_ro_txid = 0UL;
 // Linked list of RPCs yet to be completed
 static rpc_info_t * volatile pending_rpc_head;
 static rpc_info_t * volatile pending_rpc_tail;
@@ -72,23 +69,44 @@ static void unlock_rpc_list()
   unlock(&list_lock);
 }
 
-static rpc_info_t * locate_rpc(unsigned long global_txid, 
-			       bool keep_lock = false)
+static rpc_info_t * locate_rpc_internal(int raft_idx,
+					int raft_term,
+					bool keep_lock = false)
 {
   rpc_info_t *rpc_info;
   rpc_info_t *hit = NULL;
   lock_rpc_list();
   rpc_info = pending_rpc_head;
   while(rpc_info != NULL) {
-    if(rpc_info->rpc->global_txid == global_txid) {
+    if(rpc_info->raft_idx == raft_idx &&
+       rpc_info->raft_term == raft_term) {
       hit = rpc_info;
-    } // There can be failed versions earlier in the chain
+      break;
+    } 
     rpc_info = rpc_info->next;
   }
   if(!keep_lock) {
     unlock_rpc_list(); 
   }
-  // Note: assume gc will not remove this entry
+  return hit;
+}
+
+static rpc_info_t * locate_rpc_next_commit(bool keep_lock = false)
+{
+  rpc_info_t *rpc_info;
+  rpc_info_t *hit = NULL;
+  lock_rpc_list();
+  rpc_info = pending_rpc_head;
+  while(rpc_info != NULL) {
+    if(!rpc_info->rep_failed) {
+      hit = rpc_info;
+      break;
+    } 
+    rpc_info = rpc_info->next;
+  }
+  if(!keep_lock) {
+    unlock_rpc_list(); 
+  }
   return hit;
 }
 
@@ -99,7 +117,9 @@ static void dump_active_list()
   lock_rpc_list();
   rpc_info = pending_rpc_head;
   while(rpc_info != NULL) {
-    BOOST_LOG_TRIVIAL(info) << "ACTIVE  " << rpc_info->rpc->global_txid;
+    BOOST_LOG_TRIVIAL(info) << "ACTIVE  "
+			    << rpc_info->raft_idx << ":"
+			    << rpc_info->raft_term;
     rpc_info = rpc_info->next;
   }
   unlock_rpc_list(); 
@@ -153,9 +173,6 @@ static void mark_done(const rpc_t *rpc,
     TOID_ASSIGN(cstate->last_return_value, OID_NULL);
   }
   cstate->last_return_size = ret_size;
-  unsigned long *global_txid_ptr = &D_RW(root)->committed_global_txid;
-  pmemobj_tx_add_range_direct(global_txid_ptr, sizeof(unsigned long));
-  *global_txid_ptr = rpc->global_txid;
   __sync_synchronize(); // Main thread can return this value now
   cstate->committed_txid = rpc->client_txid;
 }
@@ -163,7 +180,7 @@ static void mark_done(const rpc_t *rpc,
 void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 {
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  volatile bool aborted = false;
+  volatile bool user_tx_aborted = false;
   volatile bool repeat = true;
   volatile int execution_term;
   volatile bool is_leader;
@@ -174,7 +191,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
       execution_term = cyclone_get_term(cyclone_handle);
       is_leader = cyclone_is_leader(cyclone_handle);
       have_data = rpc->have_follower_data;
-      aborted = false;
+      user_tx_aborted = false;
       __sync_synchronize();
       if(cyclone_get_term(cyclone_handle) != execution_term) {
 	continue;
@@ -193,7 +210,8 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	  follower_data = (rpc_t *)malloc(sizeof(rpc_t) + follower_data_size);
 	  memcpy(follower_data + 1, tmp, follower_data_size);
 	  follower_data->code = RPC_REQ_DATA;
-	  follower_data->global_txid = rpc->rpc->global_txid;
+	  follower_data->parent_raft_idx = rpc->raft_idx;
+	  follower_data->parent_raft_term = rpc->raft_term;
 	  follower_data->timestamp = rpc->rpc->timestamp;
 	  rpc->req_follower_data = (char *)follower_data;
 	  rpc->req_follower_term = execution_term;
@@ -228,34 +246,25 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	mark_done(rpc->rpc, rpc->ret_value, rpc->sz);
       } TX_ONABORT {
 	if(!repeat) {
-	  aborted= true;
+	  user_tx_aborted= true;
 	}
       } TX_END
     }
   }
-  else {
-    aborted = true;
-  }
-  if(aborted) { // cleanup
+  if(user_tx_aborted) { // cleanup
     rpc->sz = 0;
     TX_BEGIN(state) {
-      unsigned long *global_txid_ptr = &D_RW(root)->committed_global_txid;
-      pmemobj_tx_add_range_direct(global_txid_ptr, sizeof(unsigned long));
-      *global_txid_ptr = rpc->rpc->global_txid;
-      if(rpc->rep_success) { // User tx aborted 
-	struct client_state_st *cstate = 
-	  &D_RW(root)->client_state[rpc->rpc->client_id];
-	pmemobj_tx_add_range_direct(cstate, sizeof(struct client_state_st));
-	if(!TOID_IS_NULL(cstate->last_return_value)) {
-	  TX_FREE(cstate->last_return_value);
-	  
-	}
-	TOID_ASSIGN(cstate->last_return_value, OID_NULL);
-	cstate->last_return_size = 0;
-	__sync_synchronize();
-	cstate->committed_txid = rpc->rpc->client_txid;
+      struct client_state_st *cstate = 
+	&D_RW(root)->client_state[rpc->rpc->client_id];
+      pmemobj_tx_add_range_direct(cstate, sizeof(struct client_state_st));
+      if(!TOID_IS_NULL(cstate->last_return_value)) {
+	TX_FREE(cstate->last_return_value);
       }
-    } TX_ONABORT{
+      TOID_ASSIGN(cstate->last_return_value, OID_NULL);
+      cstate->last_return_size = 0;
+      __sync_synchronize();
+      cstate->committed_txid = rpc->rpc->client_txid;
+    } TX_ONABORT {
       BOOST_LOG_TRIVIAL(fatal) << "Dispatcher tx abort !\n";
       exit(-1);
     } TX_END
@@ -267,12 +276,13 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 void exec_rpc_internal(rpc_info_t *rpc)
 {
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  volatile bool aborted = false;
+  volatile bool user_tx_aborted = true;
   TX_BEGIN(state) {
     rpc->sz = execute_rpc((const unsigned char *)(rpc->rpc + 1),
 			  rpc->len - sizeof(rpc_t),
 			  &rpc->ret_value);
     while(!rpc->rep_success && !rpc->rep_failed);
+    user_tx_aborted = false;
     if(rpc->rep_success) {
       mark_done(rpc->rpc, rpc->ret_value, rpc->sz);
     }
@@ -280,30 +290,26 @@ void exec_rpc_internal(rpc_info_t *rpc)
       pmemobj_tx_abort(-1);
     }
   } TX_ONABORT {
-    aborted= true;
-  } TX_END
-      
-  if(aborted) { // cleanup
-    rpc->sz = 0;
     // Wait for replication to finish
     while(!rpc->rep_success && !rpc->rep_failed);
+    if(rpc->rep_failed) {
+      user_tx_aborted= false;
+    }
+  } TX_END
+      
+  if(user_tx_aborted) { // cleanup
+    rpc->sz = 0;
     TX_BEGIN(state) {
-      unsigned long *global_txid_ptr = &D_RW(root)->committed_global_txid;
-      pmemobj_tx_add_range_direct(global_txid_ptr, sizeof(unsigned long));
-      *global_txid_ptr = rpc->rpc->global_txid;
-      if(rpc->rep_success) { // User tx aborted 
-	struct client_state_st *cstate = 
-	  &D_RW(root)->client_state[rpc->rpc->client_id];
-	pmemobj_tx_add_range_direct(cstate, sizeof(struct client_state_st));
-	if(!TOID_IS_NULL(cstate->last_return_value)) {
-	  TX_FREE(cstate->last_return_value);
-	  
-	}
-	TOID_ASSIGN(cstate->last_return_value, OID_NULL);
-	cstate->last_return_size = 0;
-	__sync_synchronize();
-	cstate->committed_txid = rpc->rpc->client_txid;
+      struct client_state_st *cstate = 
+	&D_RW(root)->client_state[rpc->rpc->client_id];
+      pmemobj_tx_add_range_direct(cstate, sizeof(struct client_state_st));
+      if(!TOID_IS_NULL(cstate->last_return_value)) {
+	TX_FREE(cstate->last_return_value);
       }
+      TOID_ASSIGN(cstate->last_return_value, OID_NULL);
+      cstate->last_return_size = 0;
+      __sync_synchronize();
+      cstate->committed_txid = rpc->rpc->client_txid;
     } TX_ONABORT{
       BOOST_LOG_TRIVIAL(fatal) << "Dispatcher tx abort !\n";
       exit(-1);
@@ -412,9 +418,14 @@ static void gc_pending_rpc_list(bool is_master)
   }
 }
 
-static void issue_rpc(const rpc_t *rpc, int len)
+static void issue_rpc(const rpc_t *rpc,
+		      int len,
+		      int raft_idx,
+		      int raft_term)
 {
   rpc_info_t *rpc_info = new rpc_info_t;
+  rpc_info->raft_idx    = raft_idx;
+  rpc_info->raft_term   = raft_term;
   rpc_info->rep_success = false;
   rpc_info->rep_failed  = false;
   rpc_info->complete    = false;
@@ -440,13 +451,6 @@ static void issue_rpc(const rpc_t *rpc, int len)
   __sync_synchronize();
 }
 
-static void event_seen(const rpc_t *rpc)
-{
-  if(rpc->global_txid > last_global_txid) {
-    last_global_txid = rpc->global_txid;
-  }
-}
-
 void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
 {
   const rpc_t *rpc = (const rpc_t *)data;
@@ -456,34 +460,26 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
     return;
   }
   else if(rpc->code == RPC_REQ_DATA) {
-    rpc_info = locate_rpc(rpc->global_txid, false);
+    rpc_info = locate_rpc_internal(rpc->parent_raft_idx,
+				   rpc->parent_raft_term,
+				   false);
     if(rpc_info == NULL) {
       BOOST_LOG_TRIVIAL(fatal) 
 	<< "Unable to locate synchronous RPC for follower data completion: "
-	<< rpc->global_txid
-	<< " last seen global txid = "
-	<< last_global_txid
-	<< " committed global txid "
-	<< D_RO(root)->committed_global_txid;
+	<< rpc->parent_raft_idx << ":"
+	<< rpc->parent_raft_term; 
       dump_active_list();
       exit(-1);
     }
     rpc_info->rep_follower_success = true;
     return;
   }
-  rpc_info = locate_rpc(rpc->global_txid, true);
+  rpc_info = locate_rpc_next_commit(true);
   if(rpc_info == NULL) {
-    if(rpc->global_txid > D_RO(root)->committed_global_txid) {
-      BOOST_LOG_TRIVIAL(fatal) 
-	<< "Unable to locate replicated RPC id = "
-	<< rpc->global_txid
-	<< " last seen global txid = "
-	<< last_global_txid
-	<< " committed global txid "
-	<< D_RO(root)->committed_global_txid;
-      dump_active_list();
-      exit(-1);
-    }
+    BOOST_LOG_TRIVIAL(fatal) 
+      << "Unable to locate any replicated RPC for commit";
+    dump_active_list();
+    exit(-1);
   }
   else {
     rpc_info->rep_success = true;
@@ -493,24 +489,26 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
 }
 
 // Note: node cannot become master while this function is in progress
-void cyclone_rep_cb(void *user_arg, const unsigned char *data, const int len)
+void cyclone_rep_cb(void *user_arg,
+		    const unsigned char *data,
+		    const int len,
+		    const int raft_idx,
+		    const int raft_term)
 {
   const rpc_t *rpc = (const rpc_t *)data;
-  bool issue_it;
   rpc_info_t *match;
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   if(rpc->code == RPC_REQ_MARKER) {
     return;
   }
   else if(rpc->code== RPC_REQ_DATA) {
-    match = locate_rpc(rpc->global_txid, false);
+    match = locate_rpc_internal(rpc->parent_raft_idx,
+				rpc->parent_raft_term,
+				false);
     if(match == NULL) {
       BOOST_LOG_TRIVIAL(fatal) << "Follower data rep couldn't locate RPC :"
-			       << rpc->global_txid
-			       << " last seen global txid = "
-			       << last_global_txid
-			       << " committed global txid "
-			       << D_RO(root)->committed_global_txid;
+			       << rpc->parent_raft_idx << ":"
+			       << rpc->parent_raft_term;
       dump_active_list();
       exit(-1);
     }
@@ -524,33 +522,26 @@ void cyclone_rep_cb(void *user_arg, const unsigned char *data, const int len)
     match->have_follower_data = true;
     return;
   }
-  event_seen(rpc);
-  issue_it = (D_RO(root)->committed_global_txid < rpc->global_txid); // not committed
-  // not already issued
-  match = locate_rpc(rpc->global_txid, true);
-  if(match != NULL) {
-    issue_it =  issue_it && match->rep_failed;
-  }
   unlock_rpc_list();
-  if(issue_it) {
-    issue_rpc(rpc, len);
-  }
+  issue_rpc(rpc, len, raft_idx, raft_term);
 }
 
 // Note: cyclone pop_cb cannot be called once the node becomes a master
-void cyclone_pop_cb(void *user_arg, const unsigned char *data, const int len)
+void cyclone_pop_cb(void *user_arg,
+		    const unsigned char *data,
+		    const int len,
+		    const int raft_idx,
+		    const int raft_term)
 {
   const rpc_t *rpc = (const rpc_t *)data;
   rpc_info_t *rpc_info;
   if(rpc->code == RPC_REQ_MARKER) {
     return;
   }
-  rpc_info = locate_rpc(rpc->global_txid, true);
-  if(rpc_info == NULL) {
-    BOOST_LOG_TRIVIAL(fatal) << "Unable to locate failed replication RPC !";
-    exit(-1);
-  }
   if(rpc->code == RPC_REQ_DATA) {
+    rpc_info = locate_rpc_internal(rpc->parent_raft_idx,
+				   rpc->parent_raft_term,
+				   true);
     rpc_info->have_follower_data = false;
     __sync_synchronize();
     rpc_info->follower_data_size = 0;
@@ -560,6 +551,11 @@ void cyclone_pop_cb(void *user_arg, const unsigned char *data, const int len)
     }
     unlock_rpc_list();
     return;
+  }
+  rpc_info = locate_rpc_internal(raft_idx, raft_term, true);
+  if(rpc_info == NULL) {
+    BOOST_LOG_TRIVIAL(fatal) << "Unable to locate failed replication RPC !";
+    exit(-1);
   }
   rpc_info->rep_failed = true;
   unlock_rpc_list();
@@ -613,26 +609,20 @@ struct dispatcher_loop {
       else if(rpc_req->flags & RPC_FLAG_RO) {
 	rpc_rep->client_txid = rpc_req->client_txid;
 	// Distinguish ro txids from rw txids
-	rpc_req->global_txid = (++last_global_ro_txid) + (1UL << 63);
-	issue_rpc(rpc_req, sz);
+	issue_rpc(rpc_req, sz, -1, -1);
 	rep_sz = sizeof(rpc_t);
 	rpc_rep->code = RPC_REP_PENDING;
       }
       else {
 	rpc_rep->client_txid = rpc_req->client_txid;
 	// Initiate replication
-	rpc_req->global_txid = (++last_global_txid);
-	issue_rpc(rpc_req, sz);
 	cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
 	if(cookie != NULL) {
-	  event_seen(rpc_req);
 	  rep_sz = sizeof(rpc_t);
 	  rpc_rep->code = RPC_REP_PENDING;
 	  free(cookie);
 	}
 	else {
-	  // Roll this back
-	  cyclone_pop_cb(NULL, (const unsigned char *)rpc_req, sz);
 	  rep_sz = sizeof(rpc_t);
 	  rpc_rep->code = RPC_REP_INVSRV;
 	  rpc_rep->master = cyclone_get_leader(cyclone_handle);
@@ -779,7 +769,6 @@ void dispatcher_start(const char* config_path,
 	D_RW(root)->client_state[i].last_return_size  = 0;
 	TOID_ASSIGN(D_RW(root)->client_state[i].last_return_value, OID_NULL);
       }
-      D_RW(root)->committed_global_txid = 0;
       D_RW(root)->nvheap_root = nvheap_setup_callback(TOID_NULL(char), state);
     } TX_ONABORT {
       BOOST_LOG_TRIVIAL(fatal) 
@@ -789,24 +778,8 @@ void dispatcher_start(const char* config_path,
     } TX_END
   }
   else {
-    state = pmemobj_open(file_path.c_str(),
-			 "disp_state");
-    if(state == NULL) {
-      BOOST_LOG_TRIVIAL(fatal)
-	<< "Unable to open pmemobj pool for dispatcher state:"
-	<< strerror(errno);
-      exit(-1);
-    }
-    TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-    TX_BEGIN(state) {
-      D_RW(root)->nvheap_root = nvheap_setup_callback(D_RO(root)->nvheap_root, state);
-    } TX_ONABORT {
-      BOOST_LOG_TRIVIAL(fatal) 
-	<< "Application unable to recover state:"
-	<< strerror(errno);
-      exit(-1);
-    } TX_END
-    BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered state";
+    BOOST_LOG_TRIVIAL(fatal) << "DISPATCHER: Recovery not supported yet !";
+    exit(-1);
   }
 
   // Setup RO state
@@ -817,8 +790,6 @@ void dispatcher_start(const char* config_path,
   }
   
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  BOOST_LOG_TRIVIAL(info) << "committed global txid = " 
-			  << D_RO(root)->committed_global_txid;
   for(int i=0;i<MAX_CLIENTS;i++) {
     client_blocked[i] = -1;
   }
@@ -827,7 +798,6 @@ void dispatcher_start(const char* config_path,
   execute_rpc_leader = rpc_leader_callback;
 
   gc_rpc      = gc_callback;
-  last_global_txid = 0; // Count up from zero, always
   pending_rpc_head = pending_rpc_tail = NULL;
   // Boot cyclone -- this can lead to rep cbs on recovery
   cyclone_handle = cyclone_boot(config_path,
