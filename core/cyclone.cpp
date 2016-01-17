@@ -525,16 +525,11 @@ void* cyclone_boot(const char *config_path,
 
   /* setup connections */
   cyclone_handle->zmq_context  = zmq_init(1); // One thread should be enough ?
-  cyclone_handle->router = new cyclone_switch(cyclone_handle->zmq_context,
-					      &cyclone_handle->pt,
-					      cyclone_handle->me,
-					      cyclone_handle->replicas,
-					      cyclone_handle->replicas,
-					      cyclone_handle->pt.get<int>("machines.machines"),
-					      baseport,
-					      baseport,
-					      true,
-					      false);
+  cyclone_handle->router = new raft_switch(cyclone_handle->zmq_context,
+					   &cyclone_handle->pt,
+					   cyclone_handle->me,
+					   cyclone_handle->replicas,
+					   false);
   for(int i=0;i<cyclone_handle->replicas;i++) {
     raft_add_peer(cyclone_handle->raft_handle,
 		  cyclone_handle->router->output_socket(i),

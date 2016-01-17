@@ -73,7 +73,7 @@ typedef struct cyclone_st {
   boost::property_tree::ptree pt;
   struct throttle_st *throttles;
   void *zmq_context;
-  cyclone_switch *router;
+  raft_switch *router;
   int replicas;
   int me;
   boost::thread *monitor_thread;

@@ -242,51 +242,42 @@ static void cyclone_bind_endpoint(void *socket, const char *endpoint)
   }
 }
 
-class cyclone_switch {
-  int nodes_local;
-  int nodes_remote;
+class raft_switch {
   void **sockets_out;
   void **sockets_in;
-  std::stringstream key;
-  std::stringstream addr;
 public:
-  cyclone_switch(void *context, 
-		 boost::property_tree::ptree *pt,
-		 int me,
-		 int nodes_local_in,
-		 int nodes_remote_in,
-		 int machines,
-		 int baseport_local,
-		 int baseport_remote,
-		 bool loopback,
-		 bool use_hwm)
-    :nodes_local(nodes_local_in),
-     nodes_remote(nodes_remote_in)
+  raft_switch(void *context,
+	      boost::property_tree::ptree *pt,
+	      int me,
+	      int replicas,
+	      bool use_hwm)
   {
-    sockets_in = new void *[nodes_remote];
-    sockets_out = new void *[nodes_remote];
-    unsigned long port;
-    int mc_me = me % machines;
-
-    for(int i=0;i<nodes_remote;i++) {
+    std::stringstream key;
+    std::stringstream addr;
+    sockets_in  = new void *[replicas];
+    sockets_out = new void *[replicas];
+    key.str("");key.clear();
+    key << "quorum.baseport";
+    int baseport =  pt->get<int>(key.str().c_str());
+    for(int i=0;i<replicas;i++) {
       // input wire from i
-      if(i == me && loopback) {
+      if(i == me) {
 	sockets_in[i] = cyclone_socket_in_loopback(context);
       }
       else {
-	sockets_in[i] = cyclone_socket_in(context);
+  	sockets_in[i] = cyclone_socket_in(context);
       }
       key.str("");key.clear();
       addr.str("");addr.clear();
-      key << "machines.iface" << mc_me;
+      key << "machines.iface" << me;
       addr << "tcp://";
       addr << pt->get<std::string>(key.str().c_str());
-      port = baseport_local + me*nodes_remote + i;
+      port = baseport + me*replicas + i;
       addr << ":" << port;
       cyclone_bind_endpoint(sockets_in[i], addr.str().c_str());
       
       // output wire to i
-      if(i == me && loopback) {
+      if(i == me) {
 	sockets_out[i] = cyclone_socket_out_loopback(context);
       }
       else {
@@ -299,11 +290,10 @@ public:
       key << "machines.addr" << mc_remote;
       addr << "tcp://";
       addr << pt->get<std::string>(key.str().c_str());
-      port = baseport_remote + i*nodes_local + me ;
+      port = baseport + i*replicas + me ;
       addr << ":" << port;
       cyclone_connect_endpoint(sockets_out[i], addr.str().c_str());
     }
-    
   }
 
   void * output_socket(int machine)
@@ -332,4 +322,176 @@ public:
   }
 };
 
+// A replica on each machine
+// A version of every client on every machine
+
+class server_switch {
+  void **sockets_out;
+  void **sockets_in;
+  int machines;
+  int clients;
+
+  int index(int mc, int client)
+  {
+    return mc*clients + client;
+  }
+  
+public:
+  server_switch(void *context, 
+		boost::property_tree::ptree *pt,
+		int me,
+		int clients_in,
+		bool use_hwm)
+    
+  {
+    std::stringstream std; 
+    key::stringstream addr;
+
+    key.str("");key.clear();
+    key << "dispatch.server_baseport";
+    int server_baseport =  pt->get<int>(key.str().c_str());
+
+    key.str("");key.clear();
+    key << "dispatch.client_baseport";
+    int client_baseport =  pt->get<int>(key.str().c_str());
+
+    key.str("");key.clear();
+    key << "machines.machines";
+    machines =  pt->get<int>(key.str().c_str());
+    clients  = clients_in;
+   
+    sockets_in  = new void *[machines*clients];
+    sockets_out = new void *[machines*clients];
+    
+    for(int i=0;i<machines;i++) {
+      for(int j=0;j<clients;j++) {
+	// input wire from client 
+	sockets_in[index(i, j)] = cyclone_socket_in(context);
+	key.str("");key.clear();
+	addr.str("");addr.clear();
+	key << "machines.iface" << me;
+	addr << "tcp://";
+	addr << pt->get<std::string>(key.str().c_str());
+	port = server_baseport + me*machines*clients + i*clients + j;
+	addr << ":" << port;
+	cyclone_bind_endpoint(sockets_in[index(i, j)], addr.str().c_str());
+
+	// output wire to client
+	sockets_out[index(i, j)] = cyclone_socket_out(context, use_hwm);
+	key.str("");key.clear();
+	addr.str("");addr.clear();
+	key << "machines.addr" << i;
+	addr << "tcp://";
+	addr << pt->get<std::string>(key.str().c_str());
+	port = client_baseport + j*machines + me;
+	addr << ":" << port;
+	cyclone_connect_endpoint(sockets_out[index(i, j)], addr.str().c_str());
+      }
+    }
+  }
+  
+  void * output_socket(int machine, int client)
+  {
+    return sockets_out[index(machine, client)];
+  }
+
+  void *input_socket(int machine, int client)
+  {
+    return sockets_in[index(machine, client)];
+  }
+
+  ~server_switch()
+  {
+    for(int i=0;i<machines;i++) {
+      for(int j=0;j<clients;j++) {
+	zmq_close(output_socket(i, j));
+	zmq_close(input_socket(i, j));
+    }
+    delete[] sockets_out;
+    delete[] sockets_in;
+  }
+};
+
+class client_switch {
+  void **sockets_out;
+  void **sockets_in;
+  int machines;
+
+public:
+  client_switch(void *context, 
+		boost::property_tree::ptree *pt,
+		int me,
+		int me_mc,
+		int clients,
+		bool use_hwm)
+    
+  {
+    std::stringstream std; 
+    key::stringstream addr;
+
+    key.str("");key.clear();
+    key << "dispatch.server_baseport";
+    int server_baseport =  pt->get<int>(key.str().c_str());
+
+    key.str("");key.clear();
+    key << "dispatch.client_baseport";
+    int client_baseport =  pt->get<int>(key.str().c_str());
+
+    key.str("");key.clear();
+    key << "machines.machines";
+    machines =  pt->get<int>(key.str().c_str());
+    
+    sockets_in  = new void *[machines];
+    sockets_out = new void *[machines];
+    
+    for(int i=0;i<machines;i++) {
+      // input wire from server 
+      sockets_in[i] = cyclone_socket_in(context);
+      key.str("");key.clear();
+      addr.str("");addr.clear();
+      key << "machines.iface" << me;
+      addr << "tcp://";
+      addr << pt->get<std::string>(key.str().c_str());
+      port = client_baseport + me*machines + i;
+      addr << ":" << port;
+      cyclone_bind_endpoint(sockets_in[i], addr.str().c_str());
+      
+      // output wire to server
+      sockets_out[i] = cyclone_socket_out(context, use_hwm);
+      key.str("");key.clear();
+      addr.str("");addr.clear();
+      key << "machines.addr" << i;
+      addr << "tcp://";
+      addr << pt->get<std::string>(key.str().c_str());
+      port =
+	server_baseport +
+	i*machines*clients +
+	me_mc*clients +
+	me;
+      addr << ":" << port;
+      cyclone_connect_endpoint(sockets_out[i], addr.str().c_str());
+    }
+  }
+    
+  void * output_socket(int machine)
+  {
+    return sockets_out[machine];
+  }
+
+  void *input_socket(int machine)
+  {
+    return sockets_in[machine];
+  }
+
+  ~client_switch()
+  {
+    for(int i=0;i<machines;i++) {
+      zmq_close(output_socket(i));
+      zmq_close(input_socket(i));
+    delete[] sockets_out;
+    delete[] sockets_in;
+  }
+};
+
+  
 #endif

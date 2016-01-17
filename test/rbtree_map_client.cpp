@@ -56,7 +56,11 @@ int main(int argc, const char *argv[]) {
   int me = atoi(argv[1]);
   int replicas = atoi(argv[2]);
   int clients  = atoi(argv[3]);
-  void * handle = cyclone_client_init(me, replicas, clients, "cyclone_test.ini");
+  void * handle = cyclone_client_init(me,
+				      me,
+				      replicas,
+				      clients,
+				      "cyclone_test.ini");
   char *buffer = new char[CLIENT_MAXPAYLOAD];
   struct proposal *prop = (struct proposal *)buffer;
   srand(time(NULL));

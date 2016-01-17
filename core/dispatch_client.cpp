@@ -10,7 +10,7 @@
 
 typedef struct rpc_client_st {
   int me;
-  cyclone_switch *router;
+  client_switch *router;
   rpc_t *packet_out;
   rpc_t *packet_in;
   int server;
@@ -194,25 +194,23 @@ typedef struct rpc_client_st {
 } rpc_client_t;
 
 
-void* cyclone_client_init(int client_id, int replicas, int clients, const char *config)
+void* cyclone_client_init(int client_id,
+			  int client_mc,
+			  int replicas,
+			  int clients,
+			  const char *config)
 {
   rpc_client_t * client = new rpc_client_t();
   client->me = client_id;
   boost::property_tree::ptree pt;
   boost::property_tree::read_ini(config, pt);
   void *zmq_context = zmq_init(1);
-  unsigned long server_port = pt.get<unsigned long>("dispatch.server_baseport");
-  unsigned long client_port = pt.get<unsigned long>("dispatch.client_baseport");
-  client->router = new cyclone_switch(zmq_context,
-				      &pt,
-				      client_id,
-				      clients,
-				      replicas,
-				      pt.get<int>("machines.machines"),
-				      client_port,
-				      server_port,
-				      false,
-				      false);
+  client->router = new client_switch(zmq_context,
+				     &pt,
+				     client_id,
+				     client_mc,
+				     clients,
+				     false);
   void *buf = new char[DISP_MAX_MSGSIZE];
   client->packet_out = (rpc_t *)buf;
   buf = new char[DISP_MAX_MSGSIZE];

@@ -338,7 +338,7 @@ void exec_rpc_internal_ro(rpc_info_t *rpc)
 
 static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
 static unsigned char rx_buffer[DISP_MAX_MSGSIZE];
-static cyclone_switch *router;
+static server_switch *router;
 
 static void gc_pending_rpc_list(bool is_master)
 {
@@ -831,17 +831,10 @@ void dispatcher_start(const char* config_path,
   dispatcher_loop_obj    = new dispatcher_loop();
   dispatcher_loop_obj->zmq_context = zmq_context;
   dispatcher_loop_obj->clients = clients;
-  int dispatch_server_baseport = pt.get<int>("dispatch.server_baseport");
-  int dispatch_client_baseport = pt.get<int>("dispatch.client_baseport");
-  router = new cyclone_switch(zmq_context,
-			      &pt,
-			      me,
-			      replicas,
-			      clients,
-			      pt.get<int>("machines.machines"),
-			      dispatch_server_baseport,
-			      dispatch_client_baseport,
-			      false,
-			      false);
+  router = new server_switch(zmq_context,
+			     &pt,
+			     me,
+			     clients,
+			     false);
   (*dispatcher_loop_obj)();
 }
