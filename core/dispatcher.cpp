@@ -392,7 +392,8 @@ static void gc_pending_rpc_list(bool is_master)
 	  rep_sz += tmp->sz;
 	}
       }
-      cyclone_tx(router->output_socket(client_blocked[tmp->rpc->client_id]), 
+      cyclone_tx(router->output_socket(client_blocked[tmp->rpc->client_id],
+				       tmp->rpc->client_id), 
 		 tx_buffer, 
 		 rep_sz, 
 		 "Dispatch reply");
@@ -568,6 +569,7 @@ void cyclone_pop_cb(void *user_arg,
 struct dispatcher_loop {
   void *zmq_context;
   int clients;
+  int machines;
 
   void send_kicker()
   {
@@ -688,7 +690,7 @@ struct dispatcher_loop {
       exit(-1);
     }
     if(rep_sz > 0) {
-      cyclone_tx(router->output_socket(requestor), 
+      cyclone_tx(router->output_socket(requestor, rpc_req->client_id), 
 		 tx_buffer, 
 		 rep_sz, 
 		 "Dispatch reply");
@@ -701,15 +703,17 @@ struct dispatcher_loop {
     bool is_master = false;
     clock.start();
     while(true) {
-      for(int i=0;i<clients;i++) {
-	unsigned long sz = cyclone_rx_noblock(router->input_socket(i),
-					      rx_buffer,
-					      DISP_MAX_MSGSIZE,
-					      "DISP RCV");
-	if(sz == -1) {
-	  continue;
+      for(int i=0;i<machines;i++) {
+	for(int j=0;j<clients;j++) {
+	  unsigned long sz = cyclone_rx_noblock(router->input_socket(i, j),
+						rx_buffer,
+						DISP_MAX_MSGSIZE,
+						"DISP RCV");
+	  if(sz == -1) {
+	    continue;
+	  }
+	  handle_rpc(sz, i);
 	}
-	handle_rpc(sz, i);
       }
       clock.stop();
       if(clock.elapsed_time() >= PERIODICITY) {
@@ -741,7 +745,7 @@ void dispatcher_start(const char* config_path,
 		      rpc_gc_callback_t gc_callback,
 		      rpc_nvheap_setup_callback_t nvheap_setup_callback,
 		      int me,
-		      int replicas,
+		      int machines,
 		      int clients)
 {
   boost::property_tree::read_ini(config_path, pt);
@@ -824,13 +828,14 @@ void dispatcher_start(const char* config_path,
 				&cyclone_pop_cb,
 				&cyclone_commit_cb,
 				me,
-				replicas,
+				machines,
 				NULL);
   // Listen on port
   void *zmq_context = zmq_init(1);
   dispatcher_loop_obj    = new dispatcher_loop();
   dispatcher_loop_obj->zmq_context = zmq_context;
-  dispatcher_loop_obj->clients = clients;
+  dispatcher_loop_obj->clients  = clients;
+  dispatcher_loop_obj->machines = machines;
   router = new server_switch(zmq_context,
 			     &pt,
 			     me,

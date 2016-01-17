@@ -245,12 +245,14 @@ static void cyclone_bind_endpoint(void *socket, const char *endpoint)
 class raft_switch {
   void **sockets_out;
   void **sockets_in;
+  int replicas;
 public:
   raft_switch(void *context,
 	      boost::property_tree::ptree *pt,
 	      int me,
-	      int replicas,
+	      int replicas_in,
 	      bool use_hwm)
+    :replicas(replicas_in)
   {
     std::stringstream key;
     std::stringstream addr;
@@ -272,7 +274,7 @@ public:
       key << "machines.iface" << me;
       addr << "tcp://";
       addr << pt->get<std::string>(key.str().c_str());
-      port = baseport + me*replicas + i;
+      int port = baseport + me*replicas + i;
       addr << ":" << port;
       cyclone_bind_endpoint(sockets_in[i], addr.str().c_str());
       
@@ -284,10 +286,9 @@ public:
 	sockets_out[i] = cyclone_socket_out(context, use_hwm);
       }
 
-      int mc_remote = i % machines;
       key.str("");key.clear();
       addr.str("");addr.clear();
-      key << "machines.addr" << mc_remote;
+      key << "machines.addr" << i;
       addr << "tcp://";
       addr << pt->get<std::string>(key.str().c_str());
       port = baseport + i*replicas + me ;
@@ -311,9 +312,9 @@ public:
     return sockets_in;
   }
 
-  ~cyclone_switch()
+  ~raft_switch()
   {
-    for(int i=0;i<=nodes_remote;i++) {
+    for(int i=0;i<=replicas;i++) {
       zmq_close(sockets_out[i]);
       zmq_close(sockets_in[i]);
     }
@@ -344,8 +345,8 @@ public:
 		bool use_hwm)
     
   {
-    std::stringstream std; 
-    key::stringstream addr;
+    std::stringstream key; 
+    std::stringstream addr;
 
     key.str("");key.clear();
     key << "dispatch.server_baseport";
@@ -372,7 +373,7 @@ public:
 	key << "machines.iface" << me;
 	addr << "tcp://";
 	addr << pt->get<std::string>(key.str().c_str());
-	port = server_baseport + me*machines*clients + i*clients + j;
+	int port = server_baseport + me*machines*clients + i*clients + j;
 	addr << ":" << port;
 	cyclone_bind_endpoint(sockets_in[index(i, j)], addr.str().c_str());
 
@@ -406,6 +407,7 @@ public:
       for(int j=0;j<clients;j++) {
 	zmq_close(output_socket(i, j));
 	zmq_close(input_socket(i, j));
+      }
     }
     delete[] sockets_out;
     delete[] sockets_in;
@@ -426,8 +428,8 @@ public:
 		bool use_hwm)
     
   {
-    std::stringstream std; 
-    key::stringstream addr;
+    std::stringstream key; 
+    std::stringstream addr;
 
     key.str("");key.clear();
     key << "dispatch.server_baseport";
@@ -452,7 +454,7 @@ public:
       key << "machines.iface" << me;
       addr << "tcp://";
       addr << pt->get<std::string>(key.str().c_str());
-      port = client_baseport + me*machines + i;
+      int port = client_baseport + me*machines + i;
       addr << ":" << port;
       cyclone_bind_endpoint(sockets_in[i], addr.str().c_str());
       
@@ -488,6 +490,7 @@ public:
     for(int i=0;i<machines;i++) {
       zmq_close(output_socket(i));
       zmq_close(input_socket(i));
+    }
     delete[] sockets_out;
     delete[] sockets_in;
   }

@@ -56,6 +56,7 @@ int main(int argc, const char *argv[]) {
   int clients  = atoi(argv[3]);
   unsigned long sleep_time = atol(argv[4]);
   void * handle = cyclone_client_init(me,
+				      me,
 				      replicas,
 				      clients,
 				      "cyclone_test.ini");
