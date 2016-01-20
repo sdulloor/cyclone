@@ -339,7 +339,8 @@ class server_switch {
   
 public:
   server_switch(void *context, 
-		boost::property_tree::ptree *pt,
+		boost::property_tree::ptree *pt_server,
+		boost::property_tree::ptree *pt_client,
 		int me,
 		int clients_in,
 		bool use_hwm)
@@ -350,15 +351,15 @@ public:
 
     key.str("");key.clear();
     key << "dispatch.server_baseport";
-    int server_baseport =  pt->get<int>(key.str().c_str());
+    int server_baseport =  pt_server->get<int>(key.str().c_str());
 
     key.str("");key.clear();
     key << "dispatch.client_baseport";
-    int client_baseport =  pt->get<int>(key.str().c_str());
+    int client_baseport =  pt_client->get<int>(key.str().c_str());
 
     key.str("");key.clear();
     key << "machines.machines";
-    machines =  pt->get<int>(key.str().c_str());
+    machines =  pt_client->get<int>(key.str().c_str());
     clients  = clients_in;
    
     sockets_in  = new void *[machines*clients];
@@ -372,7 +373,7 @@ public:
 	addr.str("");addr.clear();
 	key << "machines.iface" << me;
 	addr << "tcp://";
-	addr << pt->get<std::string>(key.str().c_str());
+	addr << pt_server->get<std::string>(key.str().c_str());
 	int port = server_baseport + me*machines*clients + i*clients + j;
 	addr << ":" << port;
 	cyclone_bind_endpoint(sockets_in[index(i, j)], addr.str().c_str());
@@ -383,7 +384,7 @@ public:
 	addr.str("");addr.clear();
 	key << "machines.addr" << i;
 	addr << "tcp://";
-	addr << pt->get<std::string>(key.str().c_str());
+	addr << pt_client->get<std::string>(key.str().c_str());
 	port = client_baseport + j*machines + me;
 	addr << ":" << port;
 	cyclone_connect_endpoint(sockets_out[index(i, j)], addr.str().c_str());

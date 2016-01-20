@@ -20,7 +20,8 @@
 #include "timeouts.hpp"
 
 static void *cyclone_handle;
-static boost::property_tree::ptree pt;
+static boost::property_tree::ptree pt_server;
+static boost::property_tree::ptree pt_client;
 
 struct client_ro_state_st {
   unsigned long committed_txid;
@@ -738,7 +739,8 @@ struct dispatcher_loop {
 
 static dispatcher_loop * dispatcher_loop_obj;
 
-void dispatcher_start(const char* config_path,
+void dispatcher_start(const char* config_server_path,
+		      const char* config_client_path,
 		      rpc_callback_t rpc_callback,
 		      rpc_leader_callback_t rpc_leader_callback,
 		      rpc_follower_callback_t rpc_follower_callback,
@@ -748,9 +750,10 @@ void dispatcher_start(const char* config_path,
 		      int machines,
 		      int clients)
 {
-  boost::property_tree::read_ini(config_path, pt);
+  boost::property_tree::read_ini(config_server_path, pt_server);
+  boost::property_tree::read_ini(config_client_path, pt_client);
   // Load/Setup state
-  std::string file_path = pt.get<std::string>("dispatch.filepath");
+  std::string file_path = pt_server.get<std::string>("dispatch.filepath");
   char me_str[100];
   sprintf(me_str,"%d", me);
   file_path.append(me_str);
@@ -837,7 +840,8 @@ void dispatcher_start(const char* config_path,
   dispatcher_loop_obj->clients  = clients;
   dispatcher_loop_obj->machines = machines;
   router = new server_switch(zmq_context,
-			     &pt,
+			     &pt_server,
+			     &pt_client,
 			     me,
 			     clients,
 			     false);

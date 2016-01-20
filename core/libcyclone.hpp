@@ -38,7 +38,8 @@ typedef TOID(char) (*rpc_nvheap_setup_callback_t)(TOID(char) recovered,
 						  PMEMobjpool *state);
 
 // Start the dispatcher loop -- note: does not return
-void dispatcher_start(const char* config_path, 
+void dispatcher_start(const char* config_server_path,
+		      const char* config_client_path,
 		      rpc_callback_t rpc_callback,
 		      rpc_leader_callback_t rpc_leader_callback,
 		      rpc_follower_callback_t rpc_follower_callback,

@@ -297,7 +297,7 @@ int main(int argc, char *argv[])
   server_id = atoi(argv[1]);
   int replicas = atoi(argv[2]);
   int clients  = atoi(argv[3]);
-  dispatcher_start("cyclone_test.ini", callback, 
+  dispatcher_start("cyclone_test.ini", "cyclone_test.ini", callback, 
 		   callback_leader, callback_follower, 
 		   gc, nvheap_setup, server_id, replicas, clients);
 }
