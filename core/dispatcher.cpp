@@ -826,7 +826,7 @@ void dispatcher_start(const char* config_server_path,
   gc_rpc      = gc_callback;
   pending_rpc_head = pending_rpc_tail = NULL;
   // Boot cyclone -- this can lead to rep cbs on recovery
-  cyclone_handle = cyclone_boot(config_path,
+  cyclone_handle = cyclone_boot(config_server_path,
 				&cyclone_rep_cb,
 				&cyclone_pop_cb,
 				&cyclone_commit_cb,
