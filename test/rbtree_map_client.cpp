@@ -60,6 +60,7 @@ int main(int argc, const char *argv[]) {
 				      me,
 				      replicas,
 				      clients,
+				      "cyclone_test.ini",
 				      "cyclone_test.ini");
   char *buffer = new char[CLIENT_MAXPAYLOAD];
   struct proposal *prop = (struct proposal *)buffer;

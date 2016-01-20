@@ -7,6 +7,8 @@ typedef struct rbtree_tx_st {
   int num_versions;
   int num_inserts;
   int num_deletes;
+  int breadcrumb_txid;
+  uint64_t breadcrumb_status;
   char payload[0];
 } rbtree_tx_t;
 
@@ -61,4 +63,8 @@ static rbtree_tx_t * make_tx(int num_locks,
   return tx;
 }
 
+struct coordination_status {
+  int tx_status;  // 0 == fail, 1 == success
+  int delta_txid;
+};
 #endif

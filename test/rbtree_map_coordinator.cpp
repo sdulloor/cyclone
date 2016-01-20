@@ -31,7 +31,23 @@ int leader_callback(const unsigned char *data,
 		    int * follower_data_size, 
 		    void **return_value)
 {
-  // TBD
+  rbtree_tx_t * tx = (rbtree_tx_t *)data;
+
+  for(int i=0;i<tx->num_locks;i++) {
+  }
+
+  for(int i=0;i<tx->num_versions;i++) {
+  }
+
+  for(int i=0;i<tx->num_inserts;i++) {
+  }
+
+  for(int i=0;i<tx->num_deletes;i++) {
+  }
+
+  for(int i=0;i<tx->num_locks;i++) {
+  }
+  
 }
 
 int follower_callback(const unsigned char *data,
@@ -40,11 +56,14 @@ int follower_callback(const unsigned char *data,
 		      int follower_data_size, 
 		      void **return_value)
 {
+  struct coordinator_status stat =
+    (struct coordinator_status *)follower_data;
   TX_ADD(txid);
   uint64_t *txidp = pmemobj_direct(txid);
-  *txidp = *txidp + *(int *)follower_data;
-  *return_value = NULL;
-  return 0;
+  *txidp = *txidp + stat->delta_txid;
+  *return_value = malloc(sizeof(int));
+  *(int *)*return_value = stat->tx_status;
+  return sizeof(int);
 }
 
 int main(int argc, char *argv[])

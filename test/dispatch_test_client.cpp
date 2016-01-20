@@ -38,6 +38,7 @@ int main(int argc, char *argv[])
 				      me,
 				      replicas,
 				      clients,
+				      "cyclone_test.ini",
 				      "cyclone_test.ini");
   char *proposal = new char[CLIENT_MAXPAYLOAD];
   int ctr = get_last_txid(handle) + 1;

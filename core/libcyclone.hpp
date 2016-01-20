@@ -55,7 +55,8 @@ void* cyclone_client_init(int client_id,
 			  int client_mc,
 			  int replicas,
 			  int clients,
-			  const char *config);
+			  const char *config_server,
+			  const char *config_client);
 // Make an rpc call -- returns size of response
 int make_rpc(void *handle,
 	     void *payload,

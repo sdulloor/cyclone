@@ -198,15 +198,19 @@ void* cyclone_client_init(int client_id,
 			  int client_mc,
 			  int replicas,
 			  int clients,
-			  const char *config)
+			  const char *config_server,
+			  const char *config_client)
 {
   rpc_client_t * client = new rpc_client_t();
   client->me = client_id;
-  boost::property_tree::ptree pt;
-  boost::property_tree::read_ini(config, pt);
+  boost::property_tree::ptree pt_server;
+  boost::property_tree::ptree pt_client;
+  boost::property_tree::read_ini(config_server, pt_server);
+  boost::property_tree::read_ini(config_client, pt_client);
   void *zmq_context = zmq_init(1);
   client->router = new client_switch(zmq_context,
-				     &pt,
+				     &pt_server,
+				     &pt_client,
 				     client_id,
 				     client_mc,
 				     clients,
