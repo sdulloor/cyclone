@@ -329,7 +329,8 @@ public:
 class server_switch {
   void **sockets_out;
   void **sockets_in;
-  int machines;
+  int client_machines;
+  int server_machines;
   int clients;
 
   int index(int mc, int client)
@@ -359,13 +360,15 @@ public:
 
     key.str("");key.clear();
     key << "machines.machines";
-    machines =  pt_client->get<int>(key.str().c_str());
+    client_machines =  pt_client->get<int>(key.str().c_str());
+    server_machines =  pt_server->get<int>(key.str().c_str());
+    
     clients  = clients_in;
    
-    sockets_in  = new void *[machines*clients];
-    sockets_out = new void *[machines*clients];
+    sockets_in  = new void *[client_machines*clients];
+    sockets_out = new void *[client_machines*clients];
     
-    for(int i=0;i<machines;i++) {
+    for(int i=0;i<client_machines;i++) {
       for(int j=0;j<clients;j++) {
 	// input wire from client 
 	sockets_in[index(i, j)] = cyclone_socket_in(context);
@@ -374,7 +377,7 @@ public:
 	key << "machines.iface" << me;
 	addr << "tcp://";
 	addr << pt_server->get<std::string>(key.str().c_str());
-	int port = server_baseport + me*machines*clients + i*clients + j;
+	int port = server_baseport + me*client_machines*clients + i*clients + j;
 	addr << ":" << port;
 	cyclone_bind_endpoint(sockets_in[index(i, j)], addr.str().c_str());
 
@@ -385,7 +388,7 @@ public:
 	key << "machines.addr" << i;
 	addr << "tcp://";
 	addr << pt_client->get<std::string>(key.str().c_str());
-	port = client_baseport + j*machines + me;
+	port = client_baseport + j*server_machines + me;
 	addr << ":" << port;
 	cyclone_connect_endpoint(sockets_out[index(i, j)], addr.str().c_str());
       }
@@ -404,7 +407,7 @@ public:
 
   ~server_switch()
   {
-    for(int i=0;i<machines;i++) {
+    for(int i=0;i<client_machines;i++) {
       for(int j=0;j<clients;j++) {
 	zmq_close(output_socket(i, j));
 	zmq_close(input_socket(i, j));
@@ -418,7 +421,8 @@ public:
 class client_switch {
   void **sockets_out;
   void **sockets_in;
-  int machines;
+  int server_machines;
+  int client_machines;
 
 public:
   client_switch(void *context, 
@@ -443,12 +447,13 @@ public:
 
     key.str("");key.clear();
     key << "machines.machines";
-    machines =  pt_server->get<int>(key.str().c_str());
+    server_machines = pt_server->get<int>(key.str().c_str());
+    client_machines = pt_client->get<int>(key.str().c_str());
+
+    sockets_in  = new void *[server_machines];
+    sockets_out = new void *[server_machines];
     
-    sockets_in  = new void *[machines];
-    sockets_out = new void *[machines];
-    
-    for(int i=0;i<machines;i++) {
+    for(int i=0;i<server_machines;i++) {
       // input wire from server 
       sockets_in[i] = cyclone_socket_in(context);
       key.str("");key.clear();
@@ -456,7 +461,7 @@ public:
       key << "machines.iface" << me;
       addr << "tcp://";
       addr << pt_client->get<std::string>(key.str().c_str());
-      int port = client_baseport + me*machines + i;
+      int port = client_baseport + me*server_machines + i;
       addr << ":" << port;
       cyclone_bind_endpoint(sockets_in[i], addr.str().c_str());
       
@@ -469,7 +474,7 @@ public:
       addr << pt_server->get<std::string>(key.str().c_str());
       port =
 	server_baseport +
-	i*machines*clients +
+	i*client_machines*clients +
 	me_mc*clients +
 	me;
       addr << ":" << port;
@@ -489,7 +494,7 @@ public:
 
   ~client_switch()
   {
-    for(int i=0;i<machines;i++) {
+    for(int i=0;i<server_machines;i++) {
       zmq_close(output_socket(i));
       zmq_close(input_socket(i));
     }

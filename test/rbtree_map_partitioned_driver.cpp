@@ -47,8 +47,8 @@
 
 int main(int argc, const char *argv[]) {
   rtc_clock clock;
-  if(argc != 6) {
-    printf("Usage: %s client_id replicas clients sleep_usecs partitions \n", argv[0]);
+  if(argc != 8) {
+    printf("Usage: %s client_id replicas clients sleep_usecs partitions server_config_prefix client_config_prefix\n", argv[0]);
     exit(-1);
   }
   int me = atoi(argv[1]);
@@ -57,14 +57,17 @@ int main(int argc, const char *argv[]) {
   unsigned long sleep_time = atol(argv[4]);
   int partitions = atoi(argv[5]);
   void **handles = new void *[partitions];
-  char fname[50];
+  char fname_server[50];
+  char fname_client[50];
   for(int i=0;i<partitions;i++) {
-    sprintf(fname, "cyclone_test%d.ini", i);
+    sprintf(fname_server, "%s%d.ini", argv[6], i);
+    sprintf(fname_client, "%s%d.ini", argv[7], i);
     handles[i] = cyclone_client_init(me,
 				     me,
 				     replicas,
 				     clients,
-				     fname);
+				     fname_server,
+				     fname_client);
   }
   char *buffer = new char[CLIENT_MAXPAYLOAD];
   struct proposal *prop = (struct proposal *)buffer;
@@ -75,7 +78,11 @@ int main(int argc, const char *argv[]) {
   unsigned long tx_block_cnt   = 0;
   unsigned long tx_block_begin = clock.current_time();
   unsigned long total_latency  = 0;
-  int ctr = get_last_txid(handle) + 1;
+  
+  int ctr[partitions];
+  for(int i=0;i<partitions;i++) {
+    ctr[i] = get_last_txid(handles[i]) + 1;
+  }
   
   for(int i=0;i<KEYS;i++) {
     prop->fn = FN_INSERT;
@@ -85,14 +92,14 @@ int main(int argc, const char *argv[]) {
     prop->src       = me;
     prop->order     = (order++);
     unsigned long tx_begin_time = clock.current_time();
-    int partition = key % partitions;
+    int partition = prop->kv_data.key % partitions;
     sz = make_rpc(handles[partition],
 		  buffer,
 		  sizeof(struct proposal),
 		  &resp,
-		  ctr,
+		  ctr[partition],
 		  0);
-    ctr++;
+    ctr[partition]++;
     total_latency += (clock.current_time() - tx_begin_time);
     usleep(sleep_time);
     tx_block_cnt++;
@@ -121,14 +128,14 @@ int main(int argc, const char *argv[]) {
       prop->src       = me;
       prop->order     = (order++);
       unsigned long tx_begin_time = clock.current_time();
-      int partition = key % partitions;
+      int partition = prop->k_data.key % partitions;
       sz = make_rpc(handles[partition],
 		    buffer,
 		    sizeof(struct proposal),
 		    &resp,
-		    ctr,
+		    ctr[partition],
 		    0);
-      ctr++;
+      ctr[partition]++;
       total_latency += (clock.current_time() - tx_begin_time);
       usleep(sleep_time);
       tx_block_cnt++;
