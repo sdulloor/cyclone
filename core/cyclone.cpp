@@ -148,16 +148,15 @@ static int __persist_term(raft_server_t* raft,
 
 static int __applylog(raft_server_t* raft,
 		      void *udata,
-		      const unsigned char *data,
-		      const int len)
+		      raft_entry_t *ety)
 {
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  unsigned char *chunk = (unsigned char *)malloc(len);
+  unsigned char *chunk = (unsigned char *)malloc(ety->data.len);
   TX_BEGIN(cyclone_handle->pop_raft_state) {
-    (void)cyclone_handle->read_from_log(chunk, (unsigned long)data);
+    (void)cyclone_handle->read_from_log(chunk, (unsigned long)ety->data.buf);
   } TX_END
   if(cyclone_handle->cyclone_commit_cb != NULL) {    
-    cyclone_handle->cyclone_commit_cb(cyclone_handle->user_arg, chunk, len);
+    cyclone_handle->cyclone_commit_cb(cyclone_handle->user_arg, chunk, ety->data.len);
   }
   free(chunk);
   return 0;
