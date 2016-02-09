@@ -27,7 +27,7 @@ static struct kv *versions_list(rbtree_tx_t *tx, int index)
      index*sizeof(struct kv));
 }
 
-static struct kv *inserts_list(rbtree_tx_t *tx)
+static struct kv *inserts_list(rbtree_tx_t *tx, int index)
 {
   return (struct kv *)
     (tx->payload +
@@ -36,7 +36,7 @@ static struct kv *inserts_list(rbtree_tx_t *tx)
      index*sizeof(struct kv));
 }
 
-static struct k *deletes_list(rbtree_tx_t *tx)
+static struct k *deletes_list(rbtree_tx_t *tx, int index)
 {
   return (struct kv *)
     (tx->payload +
@@ -46,7 +46,7 @@ static struct k *deletes_list(rbtree_tx_t *tx)
      index*sizeof(struct k));
 }
 
-static rbtree_tx_t * make_tx(int num_locks,
+static rbtree_tx_t * alloc_tx(int num_locks,
 			     int num_inserts,
 			     int num_deletes)
 {
@@ -56,15 +56,23 @@ static rbtree_tx_t * make_tx(int num_locks,
     num_inserts * sizeof(struct kv) +
     num_deletes * sizeof(struct k);
   rbtree_tx_t *tx = malloc(sizeof(rbtree_tx_t) + size);
+  return tx;
+}
+
+static void init_tx(rbtree_tx_t * tx,
+		    int num_locks,
+		    int num_inserts,
+		    int num_deletes)
+{
+
   tx->num_locks    = num_locks;
   tx->num_versions = num_versions;
   tx->num_inserts  = num_inserts;
   tx->num_deletes  = num_deletes;
-  return tx;
 }
 
-struct coordination_status {
+typedef struct coordination_status {
   int tx_status;  // 0 == fail, 1 == success
   int delta_txid;
-};
+}costat;
 #endif
