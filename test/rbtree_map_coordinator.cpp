@@ -1,4 +1,7 @@
 // Implement a distrbuted transaction co-ordinator for the red black tree
+#include "rbtree_map_coordinator.hpp"
+#include <stdio.h>
+
 
 TOID_DECLARE(uint64_t, TOID_NUM_BASE);
 
@@ -7,7 +10,7 @@ void **quorum_handles;
 int me;
 int quorums;
 
-int ctr[partitions];
+int *ctr;
 
 TOID(char) nvheap_setup(TOID(char) recovered,
 			PMEMobjpool *state)
@@ -34,7 +37,8 @@ int leader_callback(const unsigned char *data,
 {
   rbtree_tx_t * tx = (rbtree_tx_t *)data;
   costat *rep;
-  *follower_data = rep = (costat *)malloc(sizeof(costat));
+  rep = (costat *)malloc(sizeof(costat));
+  *follower_data = (unsigned char *)rep;
   *follower_data_size = sizeof(costat);
   rep->tx_status  = 1;
   struct kv *info;
@@ -44,15 +48,15 @@ int leader_callback(const unsigned char *data,
     info = locks_list(tx, i);
     int partition = info->key % quorums;
     struct proposal req;
-    struct proposal resp;
+    struct proposal *resp;
     req.fn = FN_LOCK;
     req.kv_data = *info;
-    sz = make_rpc(quorum_handles[partition],
-		  &req,
-		  sizeof(struct proposal),
-		  &resp,
-		  ctr[partition],
-		  0);
+    int sz = make_rpc(quorum_handles[partition],
+		      &req,
+		      sizeof(struct proposal),
+		      (void **)&resp,
+		      ctr[partition],
+		      0);
     ctr[partition]++;
   }
 
@@ -67,12 +71,12 @@ int leader_callback(const unsigned char *data,
     struct proposal resp;
     req.fn = FN_INSERT;
     req.kv_data = *info;
-    sz = make_rpc(quorum_handles[partition],
-		  &req,
-		  sizeof(struct proposal),
-		  &resp,
-		  ctr[partition],
-		  0);
+    int sz = make_rpc(quorum_handles[partition],
+		      &req,
+		      sizeof(struct proposal),
+		      (void **)&resp,
+		      ctr[partition],
+		      0);
     ctr[partition]++;
   }
 
@@ -83,12 +87,12 @@ int leader_callback(const unsigned char *data,
     struct proposal resp;
     req.fn = FN_DELETE;
     req.kv_data = *info;
-    sz = make_rpc(quorum_handles[partition],
-		  &req,
-		  sizeof(struct proposal),
-		  &resp,
-		  ctr[partition],
-		  0);
+    int sz = make_rpc(quorum_handles[partition],
+		      &req,
+		      sizeof(struct proposal),
+		      (void **)&resp,
+		      ctr[partition],
+		      0);
     ctr[partition]++;
   }
 
@@ -100,10 +104,10 @@ int leader_callback(const unsigned char *data,
     struct proposal resp;
     req.fn = FN_UNLOCK;
     req.kv_data = *info;
-    sz = make_rpc(quorum_handles[partition],
+    int sz = make_rpc(quorum_handles[partition],
 		  &req,
 		  sizeof(struct proposal),
-		  &resp,
+		  (void **)&resp,
 		  ctr[partition],
 		  0);
     ctr[partition]++;
@@ -119,11 +123,10 @@ int follower_callback(const unsigned char *data,
 		      int follower_data_size, 
 		      void **return_value)
 {
-  struct coordinator_status stat =
+  struct coordinator_status *stat =
     (struct coordinator_status *)follower_data;
   TX_ADD(txid);
-  uint64_t *txidp = pmemobj_direct(txid);
-  *txidp = *txidp + stat->delta_txid;
+  *D_RW(txid) = *D_RO(txid) + stat->delta_txid; 
   *return_value = malloc(sizeof(int));
   *(int *)*return_value = stat->tx_status;
   return sizeof(int);
@@ -141,7 +144,12 @@ int main(int argc, char *argv[])
     printf("Usage: %s coord_id coord_replicas clients partitions replicas coord_config_prefix server_config_prefix client_config_prefix\n", argv[0]);
     exit(-1);
   }
+  int partitions = atoi(argv[4]);
+  int replicas   = atoi(argv[5]);
+  int coord_id   = atoi(argv[1]);
+  int coord_replicas = atoi(argv[2]);
   quorum_handles = new void *[partitions];
+  ctr = new int[partitions];
   char fname_server[50];
   char fname_client[50];
   int clients  = atoi(argv[3]);
@@ -154,8 +162,10 @@ int main(int argc, char *argv[])
 					    clients,
 					    fname_server,
 					    fname_client);
+    ctr[i] = get_last_txid(quorum_handles[i]);
   }
-  dispatcher_start(argv[6], argv[8], callback, callback_leader,
-		   callback_follower, gc, nvheap_setup, argv[1],
-		   argv[2], clients);
+  sprintf(fname_client, "%s%d.ini", argv[8], partitions);
+  dispatcher_start(argv[6], argv[8], NULL, leader_callback,
+		   follower_callback, gc, nvheap_setup, coord_id,
+		   coord_replicas, clients);
 }
