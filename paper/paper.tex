@@ -1,0 +1,56 @@
+\documentclass[twocolumn]{article}
+\usepackage{times}
+
+\begin{document}
+\title{Cyclone: Fault Tolerance Middleware for NVM Clusters}
+\author{Amitabha Roy et al. \\ amitabha.roy@intel.com}
+\maketitle
+\begin{abstract}
+Memory technology in the datacenter is due to undergo a paradigm shift with the
+introduction of directly addressable non-volatile memory both in the form of
+battery backed non-volatile DIMMs as well as newer memory types such as
+3D XPoint. Datacenter applications typically use storage devices to survive
+faults that take one more machines offline by combining the persistence offered by
+durable storage with availability through replication. Building such fault
+tolerant applications is hard and users are forced to either build
+them from scratch or modify their applications to fit the interfaces of solutions
+such as zookeeper. In addition to a loss of flexibility such applications today
+are unable to take advantage of the speed of directly attached non-volatile
+memory as opposed to older slower storage in the form of disks and SSDs.
+
+This paper presents Cyclone - fault tolerance middleware that exposes a
+replicated and durable heap. This heap can be directly manipulated using loads and
+stores. Cyclone transparently provides both failure atomicity as well as
+strongly consistent replication thereby giving strong guarantees to programmers
+with minimal effort on their part. Under the hood Cyclone decouples modification
+of local persistent memory from replication to maximize performance. In
+addition, unlike traditional systems that provide strong replication, Cyclone
+does not take checkpoints since NVM is directly manipulated by programmers and
+therefore up to date till the last executed transaction. Instead, Cyclone
+provides a novel NVM copy mechanism to bring up new nodes added to the cluster.
+\end{abstract}  
+
+\section{Introduction}
+
+\section{Programming Model}
+Cyclone provides users with a replicated 
+
+
+\section{Failure Atomicity}
+
+\section{Replication}
+
+\section{Evauation}
+
+\subsection{Baseline}
+
+\subsection{Configuration Management}
+
+\subsection{Transaction Processing}
+
+\subsection{Network Function Virtualization}
+
+\end{document}
+
+
+
