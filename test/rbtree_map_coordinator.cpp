@@ -140,8 +140,8 @@ void gc(void *data)
 
 int main(int argc, char *argv[])
 {
-  if(argc != 9) {
-    printf("Usage: %s coord_id coord_replicas clients partitions replicas coord_config_prefix server_config_prefix client_config_prefix\n", argv[0]);
+  if(argc != 10) {
+    printf("Usage: %s coord_id coord_replicas clients partitions replicas coord_config coord_client_config server_config_prefix client_config_prefix\n", argv[0]);
     exit(-1);
   }
   int partitions = atoi(argv[4]);
@@ -154,8 +154,8 @@ int main(int argc, char *argv[])
   char fname_client[50];
   int clients  = atoi(argv[3]);
   for(int i=0;i<partitions;i++) {
-    sprintf(fname_server, "%s%d.ini", argv[7], i);
-    sprintf(fname_client, "%s%d.ini", argv[8], i);
+    sprintf(fname_server, "%s%d.ini", argv[8], i);
+    sprintf(fname_client, "%s%d.ini", argv[9], i);
     quorum_handles[i] = cyclone_client_init(clients - 1,
 					    coord_id,
 					    replicas,
@@ -164,8 +164,7 @@ int main(int argc, char *argv[])
 					    fname_client);
     ctr[i] = get_last_txid(quorum_handles[i]);
   }
-  sprintf(fname_client, "%s%d.ini", argv[8], partitions);
-  dispatcher_start(argv[6], argv[8], NULL, leader_callback,
+  dispatcher_start(argv[6], argv[7], NULL, leader_callback,
 		   follower_callback, gc, nvheap_setup, coord_id,
 		   coord_replicas, clients);
 }
