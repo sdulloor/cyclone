@@ -33,10 +33,93 @@ provides a novel NVM copy mechanism to bring up new nodes added to the cluster.
 \section{Introduction}
 
 \section{Programming Model}
-Cyclone provides users with a replicated 
+Cyclone provides users with a replicated and durable heap that can be
+manipulated via a set of library routines. The library provides special
+functions to allocate and free persistent memory as well as fat pointers that
+wrap pointers to persistent memory to ensure that they do not change across
+restarts - since the virtual memory ranges into which persistent memory is
+mapped may change.
 
+\begin{figure}
+\begin{verbatim}
+
+struct ll_node {
+  int value;
+  TOID(ll_node) next;
+};
+
+void insert_after(TOID(ll_node) prev, TOID(ll_node) new_node)
+{
+  D_RW(new_node)->next = D_RO(prev)->next;
+  D_RW(prev)->next = new_node;
+}
+
+\end{verbatim}
+\caption{A Persistent Linked List of Integers}
+\label{fig:example}
+\end{figure}
+
+Figure~\ref{fig:example} shows the example of a linked list node and a function
+for inserting a new node after a given one. The {\tt TOID} declaration wraps the
+linked list node type to produce a fat pointer to it. A {\tt TOID(ll\_node)}
+type therefore is a pointer to a linked list node stored in persistent memory.
+The {\tt insert\_after} function used the {\tt D\_RO} and {\tt D\_RW} calls to
+convert fat pointers into directly accessible read-only and read-write pointers
+respectively. Other than the mechanics of using fat pointers the code entirely
+resembles that which a programmer might write for a standard linked list in
+DRAM.
 
 \section{Failure Atomicity}
+Programmers typically find it hard to reason about failures when writing
+code. This is a problem when directly manipulating data structures in persistent
+memory. Depending on the specifics of the system architecture, updates to
+persistent memory can be persisted out of order thereby leaving  the data
+structure in an inconsistent state. To illustrate this consider a failure during
+execution of the code to add a node to a linked list in
+Figure~\ref{fig:example}. If either of the two updates to the next fields of the
+previous or new node fail to be persisted, the linked list is left in a
+disconnected state with one or more connected nodes inaccessible.
+
+Cyclone provides tools for programmers to write code that is failure
+atomic. Portions of the code are delimited as transactions that are either
+completely executed in terms of its effects on persistent memory or not executed
+at all. Under the hood, Cyclone tracks all updates to persistent memory in a
+persistent undo log - the log entries are persisted before the update to the
+actual memory is allowed. On a failure, the undo log is used to roll back
+incomplete transactions. A transaction is considered complete when it completes
+execution and the updated objects are flushed (automatically by Cyclone) to
+persistent memory. The log entries for the transaction are then immediately
+deleted. The only burden placed on a programmer for failure atomicity is that
+they must inform the Cyclone runtime about objects that are
+updated. Figure~\ref{fig:example_fatomic} shows how to convert the function for
+adding a node to a linked list into a failure atomic one. The only additions are
+the transaction delimiters and the {\tt TX\_ADD} calls to mark the objects being
+updated \emph{before} the actual updates to them.
+
+
+\begin{figure}
+\begin{verbatim}
+
+struct ll_node {
+  int value;
+  TOID(ll_node) next;
+};
+
+void insert_after(TOID(ll_node) prev, TOID(ll_node) new_node)
+{
+  TX_BEGIN {
+    TX_ADD(new_node);
+    D_RW(new_node)->next = D_RO(prev)->next;
+    TX_ADD(prev);
+    D_RW(prev)->next = new_node;
+  } TX_END
+}
+
+\end{verbatim}
+\caption{A Persistent Linked List of Integers}
+\label{fig:example}
+\end{figure}
+
 
 \section{Replication}
 
