@@ -1,6 +1,7 @@
 #ifndef _RBTREE_COORD_
 #define _RBTREE_COORD_
 #include "tree_map.hpp"
+#include <stdlib.h>
 
 typedef struct rbtree_tx_st {
   int num_locks;
@@ -23,7 +24,7 @@ static struct kv *versions_list(rbtree_tx_t *tx, int index)
 {
   return (struct kv *)
     (tx->payload +
-     tx->locks*sizeof(struct kv) +
+     tx->num_locks*sizeof(struct kv) +
      index*sizeof(struct kv));
 }
 
@@ -31,36 +32,38 @@ static struct kv *inserts_list(rbtree_tx_t *tx, int index)
 {
   return (struct kv *)
     (tx->payload +
-     tx->locks*sizeof(struct kv) +
-     tx->versions*sizeof(struct kv) +
+     tx->num_locks*sizeof(struct kv) +
+     tx->num_versions*sizeof(struct kv) +
      index*sizeof(struct kv));
 }
 
 static struct k *deletes_list(rbtree_tx_t *tx, int index)
 {
-  return (struct kv *)
+  return (struct k *)
     (tx->payload +
-     tx->locks*sizeof(struct kv) +
-     tx->versions*sizeof(struct kv) +
-     tx->inserts*sizeof(struct kv) +
+     tx->num_locks*sizeof(struct kv) +
+     tx->num_versions*sizeof(struct kv) +
+     tx->num_inserts*sizeof(struct kv) +
      index*sizeof(struct k));
 }
 
 static rbtree_tx_t * alloc_tx(int num_locks,
-			     int num_inserts,
-			     int num_deletes)
+			      int num_versions,
+			      int num_inserts,
+			      int num_deletes)
 {
   int size =
     num_locks * sizeof(struct kv) +
     num_versions * sizeof(struct kv) +
     num_inserts * sizeof(struct kv) +
     num_deletes * sizeof(struct k);
-  rbtree_tx_t *tx = malloc(sizeof(rbtree_tx_t) + size);
+  rbtree_tx_t *tx = (rbtree_tx_t *)malloc(sizeof(rbtree_tx_t) + size);
   return tx;
 }
 
 static void init_tx(rbtree_tx_t * tx,
 		    int num_locks,
+		    int num_versions,
 		    int num_inserts,
 		    int num_deletes)
 {
@@ -71,7 +74,7 @@ static void init_tx(rbtree_tx_t * tx,
   tx->num_deletes  = num_deletes;
 }
 
-typedef struct coordination_status {
+typedef struct coordinator_status {
   int tx_status;  // 0 == fail, 1 == success
   int delta_txid;
 }costat;
