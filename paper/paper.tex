@@ -41,6 +41,7 @@ restarts - since the virtual memory ranges into which persistent memory is
 mapped may change.
 
 \begin{figure}
+{\scriptsize
 \begin{verbatim}
 
 struct ll_node {
@@ -55,6 +56,7 @@ void insert_after(TOID(ll_node) prev, TOID(ll_node) new_node)
 }
 
 \end{verbatim}
+}
 \caption{A Persistent Linked List of Integers}
 \label{fig:example}
 \end{figure}
@@ -94,10 +96,12 @@ they must inform the Cyclone runtime about objects that are
 updated. Figure~\ref{fig:example_fatomic} shows how to convert the function for
 adding a node to a linked list into a failure atomic one. The only additions are
 the transaction delimiters and the {\tt TX\_ADD} calls to mark the objects being
-updated \emph{before} the actual updates to them.
+updated \emph{before} the actual updates to them. Figure~\ref{fig:undo_log}
+shows how Cyclone maintains the undo-log of objects.
 
 
 \begin{figure}
+{\scriptsize
 \begin{verbatim}
 
 struct ll_node {
@@ -116,9 +120,58 @@ void insert_after(TOID(ll_node) prev, TOID(ll_node) new_node)
 }
 
 \end{verbatim}
+}
 \caption{A Persistent Linked List of Integers}
-\label{fig:example}
+\label{fig:example_fatomic}
 \end{figure}
+
+\begin{figure}
+{\scriptsize
+\begin{verbatim}
+TX_BEGIN()
+{
+  Initialize undo log
+}
+
+TX_ADD(o)
+{
+  if(o not already in undo log) {
+    Append <o, value of o> to undo log
+  }
+}
+
+TX_END()
+{
+  for each entry <o, v> in undo log {
+    flush o to persistent storage
+  }
+  truncate undo log
+}
+
+Recover()
+{
+  for each entry <o, v> in undo log {
+    set o to v
+    flush o to persistent storage
+  }   
+}
+
+\end{verbatim}
+}
+\caption{Undo Log in Cyclone}
+\label{fig:undo_log}
+\end{figure}
+
+A crucial feature of Cyclone is that it abstracts the details of the persistent
+mechanism away from programmers. This allows the same code to be deployed on
+clusters with a persistent storage medium such as 3D XPoint or on clusters with
+battery backed NVDIMMs for example. In the former case, explicit {\tt PCOMMIT}
+instructions are necessary for persistence [ref PMFS paper], while in the latter
+case no such instructions are necessary as on failure the CPU caches and DRAM
+are flushed to stable storage under battery (or capacitor) power. Even in the
+NVDIMM case however, the undo log is necessary to protect against OS or
+application crashes to ensure that the persistent memory is always left in a
+consistent state.
 
 
 \section{Replication}
@@ -132,6 +185,8 @@ void insert_after(TOID(ll_node) prev, TOID(ll_node) new_node)
 \subsection{Transaction Processing}
 
 \subsection{Network Function Virtualization}
+
+\section{Related Work}
 
 \end{document}
 
