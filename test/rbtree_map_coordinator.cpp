@@ -9,7 +9,7 @@ static TOID(uint64_t) txid;
 void **quorum_handles;
 int me;
 int quorums;
-
+int clients;
 int *ctr;
 
 TOID(char) nvheap_setup(TOID(char) recovered,
@@ -43,6 +43,7 @@ int leader_callback(const unsigned char *data,
   rep->tx_status  = 1;
   struct kv *info;
   struct k* del_info;
+
   // Acquire locks
   for(int i=0;i<tx->num_locks;i++) {
     info = locks_list(tx, i);
@@ -68,9 +69,11 @@ int leader_callback(const unsigned char *data,
     info = inserts_list(tx, i);
     int partition = info->key % quorums;
     struct proposal req;
-    struct proposal resp;
+    struct proposal *resp;
     req.fn = FN_INSERT;
     req.kv_data = *info;
+    req.src       = clients - 1;
+    req.order     = 0;
     int sz = make_rpc(quorum_handles[partition],
 		      &req,
 		      sizeof(struct proposal),
@@ -84,7 +87,7 @@ int leader_callback(const unsigned char *data,
     del_info = deletes_list(tx, i);
     int partition = del_info->key % quorums;
     struct proposal req;
-    struct proposal resp;
+    struct proposal *resp;
     req.fn = FN_DELETE;
     req.kv_data = *info;
     int sz = make_rpc(quorum_handles[partition],
@@ -101,7 +104,7 @@ int leader_callback(const unsigned char *data,
     info = locks_list(tx, i);
     int partition = info->key % quorums;
     struct proposal req;
-    struct proposal resp;
+    struct proposal *resp;
     req.fn = FN_UNLOCK;
     req.kv_data = *info;
     int sz = make_rpc(quorum_handles[partition],
@@ -145,6 +148,7 @@ int main(int argc, char *argv[])
     exit(-1);
   }
   int partitions = atoi(argv[4]);
+  quorums = partitions;
   int replicas   = atoi(argv[5]);
   int coord_id   = atoi(argv[1]);
   int coord_replicas = atoi(argv[2]);
@@ -152,7 +156,7 @@ int main(int argc, char *argv[])
   ctr = new int[partitions];
   char fname_server[50];
   char fname_client[50];
-  int clients  = atoi(argv[3]);
+  clients  = atoi(argv[3]);
   for(int i=0;i<partitions;i++) {
     sprintf(fname_server, "%s%d.ini", argv[8], i);
     sprintf(fname_client, "%s%d.ini", argv[9], i);
@@ -162,7 +166,7 @@ int main(int argc, char *argv[])
 					    clients,
 					    fname_server,
 					    fname_client);
-    ctr[i] = get_last_txid(quorum_handles[i]);
+    ctr[i] = get_last_txid(quorum_handles[i]) + 1;
   }
   dispatcher_start(argv[6], argv[7], NULL, leader_callback,
 		   follower_callback, gc, nvheap_setup, coord_id,
