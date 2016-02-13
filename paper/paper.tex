@@ -32,7 +32,7 @@ provides a novel NVM copy mechanism to bring up new nodes added to the cluster.
 
 \section{Introduction}
 
-\section{Programming Model}
+\section{Single Node Programming Model}
 Cyclone provides users with a replicated and durable heap that can be
 manipulated via a set of library routines. The library provides special
 functions to allocate and free persistent memory as well as fat pointers that
@@ -175,7 +175,79 @@ consistent state.
 
 
 \section{Replication}
+Cyclone replicates the state of the NVM heap across multiple machines in a
+cluster. Cyclone provides strong consistency - a majority of machines in the
+quorum of replicas always agrees on the current state of the NVM heap. Unlike
+traditional approaches to strong replication however, Cyclone is designed to
+decouple replication from execution of user code modifying NVM. It does so by
+encapsulating changes in to the NVM heap in RPC calls driven by client requests.
+We chose this model since it closely reflects the use cases most suitable for
+NVM-based clusters.
 
+Cyclone replicates state \emph{by executing the same sequence of RPC calls on
+  all members of the quorum}. Unlike traditional replication therefore Cyclone
+does not replicate logs of changes to apply to replicas. Instead it replicates
+the RPC call and its arguments, executing it on every replica. By executing the
+same sequence of RPC calls on all machines we end up with the same
+state. Cyclone uses RAFT under the hood for consensus on the contents of the log
+of RPC calls - although any other similar state machine replication protocol
+such as Paxos is also suitable. Cyclone provides the means to achieve exactly
+once semantics to clients by numbering RPC calls and remembering the results of
+the last executed RPC call.
+
+\subsection{RPC Call Numbering}
+Cyclone is preconfigured for a fixed (large) number of clients. All RPC calls
+from a client are numbered and Cyclone remembers the results of the last RPC
+call made by a client. A particular client can exist on any machine - cyclone
+treats all instances of the client as a single client. Cyclone rejects RPC calls
+that are not in sequence. Any RPC call is executed exactly once across the
+quorum - regardless of failure and reconfigurations. This provides the means for
+clients to easily achieve exactly once semantics, provided the client does not
+crash. Cyclone can supply the last executed RPC call number and its result to
+assist recovering and stateless clients.
+
+\subsection{Asynchronous Replication}
+By default, Cyclone decouples execution of the RPC call on any replica from its
+replication. This is particularly beneficial to performance since it allows
+overlapping the update of non-volatile state with the network I/O associated
+with replication. Persisting RAFT log entries, making the upcall to the
+application and executing the RPC call in a failure atomic transaction takes a
+significant amount of time and therefore it makes sense to overlap this with the
+round-trip delay on the network for replication. This is possible in Cyclone and
+not other traditional replication systems since we use failure atomic
+transactions that cna be rolled back. Replication can fail due to various
+reasons such as failure of nodes, a network partition or a new leader getting
+elected in the underlying replication protocol (RAFT). Since failure atomic
+transactions can be rolled back, we are able to speculatively apply the changes
+to NVM without waiting for replication to finish.
+
+The runtime steps associated with asynchronous replication are shown in
+Figure~\ref{fig:async_rep}.
+
+\begin{figure}
+{\scriptsize
+\begin{verbatim}
+Initiate replication of RPC call and arguments
+TX_BEGIN {
+  Execute RPC call and modify local NVM
+  while(!replication_complete);
+  if(replication_failed) {
+    TX_ABORT;
+  }
+} TX_END
+\end{verbatim}
+}
+\caption{Asynchronous Replication}
+\label{fig:async_rep}
+\end{figure}
+
+\subsection{Synchronous Replication}
+
+
+\section{Multi-node Programming Model}
+
+\subsection{Example: Distributed Transactions}
+  
 \section{Evauation}
 
 \subsection{Baseline}
