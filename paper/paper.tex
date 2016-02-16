@@ -242,12 +242,70 @@ TX_BEGIN {
 \end{figure}
 
 \subsection{Synchronous Replication}
+Asynchronous replication provides good performance but lacks some guarantees
+necessary for certain distributed systems paradigms such as output commit and
+the ability to integrate code that has non-deterministic execution paths or side
+effects - such as reading the time. Cyclone therefore provides programmers the
+ability to closely synchronize execution across the replicas using synchronous
+replication. Synchronous replication extends the programming model provided by
+cyclone to users - neccessitating some awareness on the part of the user about
+the difference between the leader and follower replicas. We show later
+(Sec~\ref{sec:examples}) how this awareness enables the crafting of efficient
+fault tolerant application with little effort on the part of the programmer.
+
+Figure~\ref{fig:sync_rep} shows how synchronous replication operates. Execution
+of the RPC call is only initiated when the call and its arguments have been
+replicated. This ensures that any side effects such as calls to other machines
+only happen after it is guaranteed that the effects of the RPC call will be
+committed to the replicas. This provides the output commit property necessary
+for some of the applications we discuss below. Next the RPC call is executed on
+the leader and the result of the RPC call is replicated to the followers. The
+followers then proceed to execute the RPC call locally taking into account the
+result from the leader. This result can include data to synchronize
+non-deterministic steps such as reading the time on the replica. This process is
+always conditional on the view (current configuration of replicas and choice
+leader) staying unchanged. On a view change the process is reexcuted to ensure
+than only one set of RPC call results is propagated across the replicas. 
+
+\begin{figure}
+{\scriptsize
+\begin{verbatim}
+Initiate replication of RPC call and arguments
+TX_BEGIN {
+  while(!replication_complete);
+  if(replication_failed) {
+    TX_ABORT;
+  }  
+  while(true) {
+    if(is_leader && !have_execution_result) {
+      Execute RPC call and modify local NVM
+      replicate_rpc_call_result in current view;
+      if(result replication failed) {
+        continue;
+      }
+      while(!result replication complete && !view change);
+      if(view change) {
+        continue;
+      }
+    }
+    else {
+      while(!result replication complete && !view change);
+      if(view change) {
+        continue;
+      }
+      Execute RPC call to modify local NVM with result from leader
+    }
+  }
+} TX_END
+\end{verbatim}
+}
+\caption{Synchronous Replication}
+\label{fig:sync_rep}
+\end{figure}
 
 
-\section{Multi-node Programming Model}
+\section{Example Applications}
 
-\subsection{Example: Distributed Transactions}
-  
 \section{Evauation}
 
 \subsection{Baseline}
