@@ -78,4 +78,9 @@ typedef struct coordinator_status {
   int tx_status;  // 0 == fail, 1 == success
   int delta_txid;
 }costat;
+
+typedef struct tx_client_response_st {
+  int tx_status; // 0 == fail, 1 == success
+} tx_client_response;
+
 #endif

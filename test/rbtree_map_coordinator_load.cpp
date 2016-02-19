@@ -75,7 +75,7 @@ int main(int argc, const char *argv[]) {
     init_tx(tx, 1, 1);
     struct kv *info = inserts_list(tx, 0);
     info->key   = me*KEYS + i;
-    info->value = 0xdeadbeef;
+    info->value = me*KEYS + i;
     sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, ctr, 0);
     ctr++;
     total_latency += (clock.current_time() - tx_begin_time);

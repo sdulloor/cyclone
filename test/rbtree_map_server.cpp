@@ -112,10 +112,18 @@ int callback(const unsigned char *data,
     return sizeof(struct proposal);
   }
   else if(code == FN_INSERT) {
-    rbtree_map_insert(pop, 
-		    the_tree, 
-		    req->kv_data.key,
-		    new_store_item(req->kv_data.value).oid);
+    PMEMoid item = rbtree_map_get(pop, the_tree, req->kv_data.key);
+    if(!OID_IS_NULL(item)) {
+      pmemobj_tx_add_range(item, 0, sizeof(uint64_t));
+      uint64_t *ptr = (uint64_t *)pmemobj_direct(item);
+      *ptr = req->kv_data.value;
+    }
+    else {
+      rbtree_map_insert(pop, 
+			the_tree, 
+			req->kv_data.key,
+			new_store_item(req->kv_data.value).oid);
+    }
     return 0;
   }
   else if(code == FN_DELETE) {

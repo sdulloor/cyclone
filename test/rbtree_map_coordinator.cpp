@@ -44,6 +44,11 @@ int leader_callback(const unsigned char *data,
   struct kv *info;
   struct k* del_info;
 
+  tx_client_response *resp;
+  *return_value = malloc(sizeof(tx_client_reponse));
+  resp = (tx_client_response *)*return_value;
+  resp->tx_status = 1;
+  
   // Acquire locks
   for(int i=0;i<tx->num_locks;i++) {
     info = locks_list(tx, i);
@@ -52,6 +57,8 @@ int leader_callback(const unsigned char *data,
     struct proposal *resp;
     req.fn = FN_LOCK;
     req.kv_data = *info;
+    req.src       = clients - 1;
+    req.order     = 0;
     int sz = make_rpc(quorum_handles[partition],
 		      &req,
 		      sizeof(struct proposal),
@@ -59,12 +66,45 @@ int leader_callback(const unsigned char *data,
 		      ctr[partition],
 		      0);
     ctr[partition]++;
+    if(resp->code != req.kv_data.value) {
+      // Cleanup and fail
+      resp->tx_status = 0;
+      tx->num_locks = i;
+      break;
+    }
   }
 
+  if(resp->tx_status == 0) {
+    goto cleanup;
+  }
+  
   for(int i=0;i<tx->num_versions;i++) {
-    // No version check
+    info = versions_list(tx, i);
+    int partition = info->key % quorums;
+    struct proposal req;
+    struct proposal *resp;
+    req.fn = FN_GET_VERSION;
+    req.k_data.key = info->key;
+    req.src       = clients - 1;
+    req.order     = 0;
+    int sz = make_rpc(quorum_handles[partition],
+		      &req,
+		      sizeof(struct proposal),
+		      (void **)&resp,
+		      ctr[partition],
+		      0);
+    ctr[partition]++;
+    if(resp->code != req.kv_data.value) {
+      // Cleanup and fail
+      resp->tx_status = 0;
+      break;
+    }
   }
 
+  if(resp->tx_status == 0) {
+    goto cleanup;
+  }
+  
   for(int i=0;i<tx->num_inserts;i++) {
     info = inserts_list(tx, i);
     int partition = info->key % quorums;
@@ -90,6 +130,8 @@ int leader_callback(const unsigned char *data,
     struct proposal *resp;
     req.fn = FN_DELETE;
     req.kv_data = *info;
+    req.src       = clients - 1;
+    req.order     = 0;
     int sz = make_rpc(quorum_handles[partition],
 		      &req,
 		      sizeof(struct proposal),
@@ -99,14 +141,17 @@ int leader_callback(const unsigned char *data,
     ctr[partition]++;
   }
 
+ cleanup:
+  
   for(int i=0;i<tx->num_locks;i++) {
-    info = locks_list(tx, i);
     info = locks_list(tx, i);
     int partition = info->key % quorums;
     struct proposal req;
     struct proposal *resp;
     req.fn = FN_UNLOCK;
     req.kv_data = *info;
+    req.src       = clients - 1;
+    req.order     = 0;
     int sz = make_rpc(quorum_handles[partition],
 		  &req,
 		  sizeof(struct proposal),
@@ -115,9 +160,8 @@ int leader_callback(const unsigned char *data,
 		  0);
     ctr[partition]++;
   }
-  return 0;
- fail:
-  return 0;
+
+  return sizeof(tx_client_response);
 }
 
 int follower_callback(const unsigned char *data,
