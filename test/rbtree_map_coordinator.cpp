@@ -44,11 +44,11 @@ int leader_callback(const unsigned char *data,
   struct kv *info;
   struct k* del_info;
 
-  tx_client_response *resp;
-  *return_value = malloc(sizeof(tx_client_reponse));
-  resp = (tx_client_response *)*return_value;
-  resp->tx_status = 1;
-  
+  tx_client_response *client_resp;
+  *return_value = malloc(sizeof(tx_client_response));
+  client_resp = (tx_client_response *)*return_value;
+  client_resp->tx_status = 1;
+
   // Acquire locks
   for(int i=0;i<tx->num_locks;i++) {
     info = locks_list(tx, i);
@@ -59,22 +59,24 @@ int leader_callback(const unsigned char *data,
     req.kv_data = *info;
     req.src       = clients - 1;
     req.order     = 0;
+
     int sz = make_rpc(quorum_handles[partition],
 		      &req,
 		      sizeof(struct proposal),
 		      (void **)&resp,
 		      ctr[partition],
 		      0);
+
     ctr[partition]++;
     if(resp->code != req.kv_data.value) {
       // Cleanup and fail
-      resp->tx_status = 0;
+      client_resp->tx_status = 0;
       tx->num_locks = i;
       break;
     }
   }
 
-  if(resp->tx_status == 0) {
+  if(client_resp->tx_status == 0) {
     goto cleanup;
   }
   
@@ -87,21 +89,23 @@ int leader_callback(const unsigned char *data,
     req.k_data.key = info->key;
     req.src       = clients - 1;
     req.order     = 0;
+
     int sz = make_rpc(quorum_handles[partition],
 		      &req,
 		      sizeof(struct proposal),
 		      (void **)&resp,
 		      ctr[partition],
 		      0);
+
     ctr[partition]++;
     if(resp->code != req.kv_data.value) {
       // Cleanup and fail
-      resp->tx_status = 0;
+      client_resp->tx_status = 0;
       break;
     }
   }
 
-  if(resp->tx_status == 0) {
+  if(client_resp->tx_status == 0) {
     goto cleanup;
   }
   
@@ -114,12 +118,14 @@ int leader_callback(const unsigned char *data,
     req.kv_data = *info;
     req.src       = clients - 1;
     req.order     = 0;
+
     int sz = make_rpc(quorum_handles[partition],
 		      &req,
 		      sizeof(struct proposal),
 		      (void **)&resp,
 		      ctr[partition],
 		      0);
+
     ctr[partition]++;
   }
 

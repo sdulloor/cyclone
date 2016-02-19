@@ -72,11 +72,12 @@ int main(int argc, const char *argv[]) {
   int ctr = get_last_txid(handle) + 1;
   
   for(int i=0;i<KEYS;i++) {
-    init_tx(tx, 1, 1);
-    struct kv *info = inserts_list(tx, 0);
-    info->key   = me*KEYS + i;
-    info->value = 0xdeadbeef;
-    sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, ctr, 0);
+    init_tx(tx, 0, 0, 1, 0);
+    struct kv *infok = inserts_list(tx, 0);
+    infok->key   = me*KEYS + i;
+    infok->value = 0xdeadbeef;
+    unsigned long tx_begin_time = clock.current_time();
+    sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, ctr, RPC_FLAG_SYNCHRONOUS);
     ctr++;
     total_latency += (clock.current_time() - tx_begin_time);
     usleep(sleep_time);
