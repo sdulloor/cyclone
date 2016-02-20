@@ -71,10 +71,11 @@ int main(int argc, const char *argv[]) {
   unsigned long total_latency  = 0;
   int ctr = get_last_txid(handle) + 1;
   
-  for(int i=0;i<KEYS;i++) {
-    init_tx(tx, 0, 0, 1, 0);
+  while(true) {
+    init_tx(tx, 1, 0, 1, 1);
+    unint64_t key = me*KEYS + (uint64_t)((KEYS - 1)*(rand()/(1.0*RAND_MAX)));
     struct kv *infok = inserts_list(tx, 0);
-    infok->key   = me*KEYS + i;
+    infok->key   = me*KEYS + ;
     infok->value = 0xdeadbeef;
     unsigned long tx_begin_time = clock.current_time();
     sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, ctr, RPC_FLAG_SYNCHRONOUS);
@@ -94,10 +95,5 @@ int main(int argc, const char *argv[]) {
       total_latency  = 0;
     }
   }
-
-  total_latency = 0;
-  tx_block_cnt  = 0;
-  tx_block_begin = clock.current_time();
-  BOOST_LOG_TRIVIAL(info) << "Complete";
   return 0;
 }
