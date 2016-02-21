@@ -102,10 +102,10 @@ int main(int argc, const char *argv[]) {
     
     
     ctr_array[q]++;
-    struct kv *infolock = lock_lists(tx, 0);
+    struct kv *infolock = locks_list(tx, 0);
     struct kv *infok = inserts_list(tx, 0);
     infolock->key = me*KEYS + key;
-    infolock->version = ((struct proposal *)resp)->code;
+    infolock->value = ((struct proposal *)resp)->code;
     infok->key   = me*KEYS + key;
     infok->value = 0xdeadbeef;
     unsigned long tx_begin_time = clock.current_time();
