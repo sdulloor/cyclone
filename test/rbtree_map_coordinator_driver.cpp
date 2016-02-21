@@ -47,8 +47,8 @@
 
 int main(int argc, const char *argv[]) {
   rtc_clock clock;
-  if(argc != 7) {
-    printf("Usage: %s client_id replicas clients sleep_usecs server_config client_config\n", argv[0]);
+  if(argc != 10) {
+    printf("Usage: %s client_id replicas clients sleep_usecs server_config  client_config partitions quorum_server_prefix quorum_client_prefix\n", argv[0]);
     exit(-1);
   }
   int me = atoi(argv[1]);
@@ -61,6 +61,22 @@ int main(int argc, const char *argv[]) {
 				      clients,
 				      argv[5],
 				      argv[6]);
+  int partitions = atoi(argv[7]);
+  void **quorum_handles = new void*[partitions];
+  int *ctr_array = new int[partitions];
+  char fname_server[50];
+  char fname_client[50];
+  for(int i=0;i<partitions;i++) {
+    sprintf(fname_server, "%s%d.ini", argv[8], i);
+    sprintf(fname_client, "%s%d.ini", argv[9], i);
+    quorum_handles[i] = cyclone_client_init(me,
+					    me,
+					    replicas,
+					    clients,
+					    fname_server,
+					    fname_client);
+    ctr_array[i] = get_last_txid(quorum_handles[i]) + 1;
+  }
   char *buffer = new char[CLIENT_MAXPAYLOAD];
   rbtree_tx_t *tx = (rbtree_tx_t *)buffer;
   int sz;
@@ -72,13 +88,28 @@ int main(int argc, const char *argv[]) {
   int ctr = get_last_txid(handle) + 1;
   
   while(true) {
-    init_tx(tx, 1, 0, 1, 1);
+    init_tx(tx, 1, 0, 1, 0);
     uint64_t key = me*KEYS + (uint64_t)((KEYS - 1)*(rand()/(1.0*RAND_MAX)));
+    struct proposal vquery;
+    vquery.fn = FN_GET_VERSION;
+    vquery.k_data.key   = me*KEYS + key;
+    vquery.timestamp = clock.current_time();
+    vquery.src       = me;
+    vquery.order     = 0;
+    int q = vquery.k_data.key % partitions;
+    sz = make_rpc(quorum_handles[q], &vquery, sizeof(struct proposal), &resp,
+		  ctr_array[q], 0);
+    
+    
+    ctr_array[q]++;
+    struct kv *infolock = lock_lists(tx, 0);
     struct kv *infok = inserts_list(tx, 0);
+    infolock->key = me*KEYS + key;
+    infolock->version = ((struct proposal *)resp)->code;
     infok->key   = me*KEYS + key;
     infok->value = 0xdeadbeef;
     unsigned long tx_begin_time = clock.current_time();
-    sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, ctr, RPC_FLAG_SYNCHRONOUS);
+    sz = make_rpc(handle, buffer, sizeof(rbtree_tx_t), &resp, ctr, RPC_FLAG_SYNCHRONOUS);
     ctr++;
     total_latency += (clock.current_time() - tx_begin_time);
     usleep(sleep_time);

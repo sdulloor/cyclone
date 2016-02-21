@@ -74,6 +74,7 @@ int leader_callback(const unsigned char *data,
       tx->num_locks = i;
       break;
     }
+    info->value = resp->code + 1;
   }
 
   if(client_resp->tx_status == 0) {

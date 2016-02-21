@@ -77,7 +77,7 @@ int main(int argc, const char *argv[]) {
     infok->key   = me*KEYS + i;
     infok->value = me*KEYS + i;
     unsigned long tx_begin_time = clock.current_time();
-    sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, ctr, RPC_FLAG_SYNCHRONOUS);
+    sz = make_rpc(handle, buffer, sizeof(rbtree_tx_t), &resp, ctr, RPC_FLAG_SYNCHRONOUS);
     ctr++;
     total_latency += (clock.current_time() - tx_begin_time);
     usleep(sleep_time);
