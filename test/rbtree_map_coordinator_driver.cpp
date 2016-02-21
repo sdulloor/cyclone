@@ -73,9 +73,9 @@ int main(int argc, const char *argv[]) {
   
   while(true) {
     init_tx(tx, 1, 0, 1, 1);
-    unint64_t key = me*KEYS + (uint64_t)((KEYS - 1)*(rand()/(1.0*RAND_MAX)));
+    uint64_t key = me*KEYS + (uint64_t)((KEYS - 1)*(rand()/(1.0*RAND_MAX)));
     struct kv *infok = inserts_list(tx, 0);
-    infok->key   = me*KEYS + ;
+    infok->key   = me*KEYS + key;
     infok->value = 0xdeadbeef;
     unsigned long tx_begin_time = clock.current_time();
     sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, ctr, RPC_FLAG_SYNCHRONOUS);
