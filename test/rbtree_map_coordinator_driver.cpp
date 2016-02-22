@@ -112,7 +112,7 @@ int main(int argc, const char *argv[]) {
     infok->key   = me*KEYS + key;
     infok->value = 0xdeadbeef;
     unsigned long tx_begin_time = clock.current_time();
-    sz = make_rpc(handle, buffer, sizeof(rbtree_tx_t), &resp, ctr, RPC_FLAG_SYNCHRONOUS);
+    sz = make_rpc(handle, buffer, size_tx(tx), &resp, ctr, RPC_FLAG_SYNCHRONOUS);
     if(sz != sizeof(tx_client_response)) {
       fprintf(stderr, "unexepected response to version query of size %d", sz);
       exit(-1);
