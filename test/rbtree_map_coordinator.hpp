@@ -61,6 +61,15 @@ static rbtree_tx_t * alloc_tx(int num_locks,
   return tx;
 }
 
+static int size_tx(rbtree_tx_t *tx)
+{
+  return sizeof(rbtree_tx_t) 
+    + tx->num_locks * sizeof(struct kv)
+    + tx->num_versions * sizeof(struct kv)
+    + tx->num_inserts  * sizeof(struct kv)
+    + tx->num_deletes  * sizeof(struct k);
+}
+
 static void init_tx(rbtree_tx_t * tx,
 		    int num_locks,
 		    int num_versions,
