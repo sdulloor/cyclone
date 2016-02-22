@@ -100,7 +100,10 @@ int main(int argc, const char *argv[]) {
     sz = make_rpc(quorum_handles[q], &vquery, sizeof(struct proposal), &resp,
 		  ctr_array[q], 0);
     
-    
+    if(sz != sizeof(struct proposal)) {
+      fprintf(stderr, "unexepected response to version query of size %d", sz);
+      exit(-1);
+    }
     ctr_array[q]++;
     struct kv *infolock = locks_list(tx, 0);
     struct kv *infok = inserts_list(tx, 0);
@@ -110,6 +113,14 @@ int main(int argc, const char *argv[]) {
     infok->value = 0xdeadbeef;
     unsigned long tx_begin_time = clock.current_time();
     sz = make_rpc(handle, buffer, sizeof(rbtree_tx_t), &resp, ctr, RPC_FLAG_SYNCHRONOUS);
+    if(sz != sizeof(tx_client_response)) {
+      fprintf(stderr, "unexepected response to version query of size %d", sz);
+      exit(-1);
+    }
+    if(((tx_client_response *)resp)->tx_status != 1) {
+      fprintf(stderr, "Tx failed !");
+      exit(-1);
+    }
     ctr++;
     total_latency += (clock.current_time() - tx_begin_time);
     usleep(sleep_time);
