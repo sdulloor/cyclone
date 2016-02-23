@@ -609,7 +609,9 @@ struct dispatcher_loop {
       break;
     case RPC_REQ_FN:
       if(get_max_client_txid(rpc_req->client_id) >= rpc_req->client_txid) {
-	// Repeat request - ignore
+	rpc_rep->client_txid = rpc_req->client_txid;
+	rep_sz = sizeof(rpc_t);
+	rpc_rep->code = RPC_REP_PENDING;
       }
       else if(rpc_req->flags & RPC_FLAG_RO) {
 	rpc_rep->client_txid = rpc_req->client_txid;
@@ -676,7 +678,7 @@ struct dispatcher_loop {
 	    rpc_rep->code = RPC_REP_COMPLETE;
 	  }
 	  else { // Don't remember old results
-	    rpc_rep->code = RPC_REP_COMPLETE;
+	    rpc_rep->code = RPC_REP_OLD;
 	  }
 	}
       }

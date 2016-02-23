@@ -64,5 +64,5 @@ static const int RPC_REP_COMPLETE       = 6; // DONE
 static const int RPC_REP_PENDING        = 7; // PENDING 
 static const int RPC_REP_UNKNOWN        = 8; // UNKNOWN RPC
 static const int RPC_REP_INVSRV         = 9; // WRONG master  -- master set in reply
-
+static const int RPC_REP_OLD            = 10; // RPC too old to cache results
 #endif

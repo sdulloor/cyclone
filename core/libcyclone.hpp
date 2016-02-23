@@ -71,4 +71,7 @@ int get_last_txid(void *handle);
 static const int RPC_FLAG_SYNCHRONOUS   = 1; // Synchronous execution across replicas
 static const int RPC_FLAG_RO            = 2; // Read-only RPC
 
+// Possible error codes
+static const int RPC_EOLD               = -1; // RPC too old to cache result
+
 #endif
