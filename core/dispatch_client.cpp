@@ -189,7 +189,7 @@ typedef struct rpc_client_st {
       break;
     }
     if(packet_in->code == RPC_REP_OLD) {
-      return RPC_EOLD
+      return RPC_EOLD;
     }
     *response = (void *)(packet_in + 1);
     return (int)(resp_sz - sizeof(rpc_t));
