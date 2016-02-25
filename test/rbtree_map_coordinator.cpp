@@ -231,7 +231,7 @@ int leader_callback(const unsigned char *data,
     if(sz == RPC_EOLD) {
       int *recovery_ctr = new int[quorums];
       for(int i=0;i<quorums;i++) {
-	recover_ctr[i] = get_last_txid(quorum_handles[i]) + 1;
+	recovery_ctr[i] = get_last_txid(quorum_handles[i]) + 1;
       }
       free(rep);
       free(*return_value);
@@ -243,7 +243,7 @@ int leader_callback(const unsigned char *data,
 				 return_value,
 				 recovery_ctr,
 				 1); // TBD: fix tx status
-      delete recover_ctr;
+      delete recovery_ctr;
       return recovery_ret_value;
     }
 
