@@ -199,9 +199,12 @@ int leader_callback(const unsigned char *data,
 {
   rbtree_tx_t * tx = (rbtree_tx_t *)data;
   costat *rep;
-  rep = (costat *)malloc(sizeof(costat));
+  rep = (costat *)malloc(sizeof(costat) + quorums*sizeof(int));
+  for(int i=0;i<quroums;i++) {
+    rep->delta_txid[i] = 0;
+  }
   *follower_data = (unsigned char *)rep;
-  *follower_data_size = sizeof(costat);
+  *follower_data_size = sizeof(costat) + quorums*sizeof(int);
   rep->tx_status  = 1;
   struct kv *info;
   struct k* del_info;
@@ -248,9 +251,11 @@ int leader_callback(const unsigned char *data,
     }
 
     ctr[partition]++;
+    rep->delta_txid[partition]++;
     if(resp->code != req.kv_data.value) {
       // Cleanup and fail
       client_resp->tx_status = 0;
+      rep->tx_status = 0;
       tx->num_locks = i;
       break;
     }
@@ -279,9 +284,11 @@ int leader_callback(const unsigned char *data,
 		      0);
 
     ctr[partition]++;
+    rep->delta_txid[partition]++;
     if(resp->code != req.kv_data.value) {
       // Cleanup and fail
       client_resp->tx_status = 0;
+      rep->tx_status = 0;
       break;
     }
   }
@@ -307,6 +314,7 @@ int leader_callback(const unsigned char *data,
 		      ctr[partition],
 		      0);
 
+    rep->delta_txid[partition]++;
     ctr[partition]++;
   }
 
@@ -325,6 +333,7 @@ int leader_callback(const unsigned char *data,
 		      (void **)&resp,
 		      ctr[partition],
 		      0);
+    rep->delta_txid[partition]++;
     ctr[partition]++;
   }
 
@@ -346,6 +355,7 @@ int leader_callback(const unsigned char *data,
 		  ctr[partition],
 		  0);
     ctr[partition]++;
+    rep->delta_txid[partition]++;
   }
 
   return sizeof(tx_client_response);
@@ -359,11 +369,12 @@ int follower_callback(const unsigned char *data,
 {
   struct coordinator_status *stat =
     (struct coordinator_status *)follower_data;
-  TX_ADD(txid);
-  *D_RW(txid) = *D_RO(txid) + stat->delta_txid; 
-  *return_value = malloc(sizeof(int));
-  *(int *)*return_value = stat->tx_status;
-  return sizeof(int);
+  for(int i=0;i<quorums;i++) {
+    ctr[i] += stat->delta_txid[i];
+  }
+  *return_value = malloc(sizeof(tx_client_response));
+  ((tx_client_response *)*return_value)->tx_status = stat->tx_status;
+  return sizeof(tx_client_response);
 }
 
 

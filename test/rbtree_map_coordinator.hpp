@@ -84,8 +84,8 @@ static void init_tx(rbtree_tx_t * tx,
 }
 
 typedef struct coordinator_status {
-  int tx_status;  // 0 == fail, 1 == success
-  int delta_txid;
+  int tx_status;     // 0 == fail, 1 == success
+  int delta_txid[0]; // txid increments
 }costat;
 
 typedef struct tx_client_response_st {
