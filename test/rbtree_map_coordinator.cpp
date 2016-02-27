@@ -200,7 +200,7 @@ int leader_callback(const unsigned char *data,
   rbtree_tx_t * tx = (rbtree_tx_t *)data;
   costat *rep;
   rep = (costat *)malloc(sizeof(costat) + quorums*sizeof(int));
-  for(int i=0;i<quroums;i++) {
+  for(int i=0;i<quorums;i++) {
     rep->delta_txid[i] = 0;
   }
   *follower_data = (unsigned char *)rep;
