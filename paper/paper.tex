@@ -41,7 +41,7 @@ restarts - since the virtual memory ranges into which persistent memory is
 mapped may change.
 
 \begin{figure}
-{\scriptsize
+{ \scriptsize
 \begin{verbatim}
 
 struct ll_node {
@@ -101,7 +101,7 @@ shows how Cyclone maintains the undo-log of objects.
 
 
 \begin{figure}
-{\scriptsize
+{ \scriptsize
 \begin{verbatim}
 
 struct ll_node {
@@ -126,7 +126,7 @@ void insert_after(TOID(ll_node) prev, TOID(ll_node) new_node)
 \end{figure}
 
 \begin{figure}
-{\scriptsize
+{ \scriptsize
 \begin{verbatim}
 TX_BEGIN()
 {
@@ -225,7 +225,7 @@ The runtime steps associated with asynchronous replication are shown in
 Figure~\ref{fig:async_rep}.
 
 \begin{figure}
-{\scriptsize
+{ \scriptsize
 \begin{verbatim}
 Initiate replication of RPC call and arguments
 TX_BEGIN {
@@ -267,8 +267,8 @@ always conditional on the view (current configuration of replicas and choice
 leader) staying unchanged. On a view change the process is reexcuted to ensure
 than only one set of RPC call results is propagated across the replicas. 
 
-\begin{figure}
-{\scriptsize
+\begin{figure*}
+{ \scriptsize
 \begin{verbatim}
 Initiate replication of RPC call and arguments
 TX_BEGIN {
@@ -301,10 +301,11 @@ TX_BEGIN {
 }
 \caption{Synchronous Replication}
 \label{fig:sync_rep}
-\end{figure}
+\end{figure*}
 
 
 \section{Example Applications}
+\label{sec:examples}
 
 \section{Evauation}
 
