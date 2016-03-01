@@ -85,6 +85,9 @@ typedef struct rpc_client_st {
 
   int retrieve_response(void **response, int txid)
   {
+    rtc_clock clock;
+    int retcode;
+    int resp_sz;
     packet_out->client_id   = me;
     packet_out->client_txid = txid;
     packet_out->timestamp   = clock.current_time();
