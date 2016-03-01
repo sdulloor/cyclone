@@ -66,6 +66,10 @@ int make_rpc(void *handle,
 	     int rpc_flags);
 // Get last accepred txid
 int get_last_txid(void *handle);
+// Get the last response
+int get_response(void *handle,
+		 void **response,
+		 int txid);
 
 // Possible flags 
 static const int RPC_FLAG_SYNCHRONOUS   = 1; // Synchronous execution across replicas
