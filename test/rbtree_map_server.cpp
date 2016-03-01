@@ -78,7 +78,7 @@ int callback(const unsigned char *data,
   int code = req->fn;
   *return_value  = malloc(sizeof(struct proposal));
   struct proposal *rep  = (struct proposal *)*return_value;
-  memcpy(rep->cookie, req->cookie, sizeof(cookie_t));
+  memcpy(&rep->cookie, &req->cookie, sizeof(cookie_t));
 
   if(code == FN_LOCK) {
     uint64_t *vptr = D_RW(version_table) +
