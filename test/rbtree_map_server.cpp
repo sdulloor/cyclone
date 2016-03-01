@@ -76,32 +76,30 @@ int callback(const unsigned char *data,
 {
   struct proposal *req = (struct proposal *)data;
   int code = req->fn;
+  *return_value  = malloc(sizeof(struct proposal));
+  struct proposal *rep  = (struct proposal *)*return_value;
+  memcpy(rep->cookie, req->cookie, sizeof(cookie_t));
+
   if(code == FN_LOCK) {
     uint64_t *vptr = D_RW(version_table) +
       key_to_vtable_index(req->kv_data.key);
-    *return_value  = malloc(sizeof(struct proposal));
-    struct proposal *rep  = (struct proposal *)*return_value;
     uint64_t version = *vptr;
     rep->code = version;
     if(version == req->kv_data.value) { // UNLOCKED ?
       pmemobj_tx_add_range_direct(vptr, sizeof(uint64_t));
       *vptr = *vptr + 1; // LOCK
     }
-    return sizeof(struct proposal);
   }
   else if(code == FN_GET_VERSION) {
     uint64_t *vptr = D_RW(version_table) +
       key_to_vtable_index(req->k_data.key);
-    *return_value  = malloc(sizeof(struct proposal));
     struct proposal *rep  = (struct proposal *)*return_value;
     uint64_t version = *vptr;
     rep->code = version;
-    return sizeof(struct proposal);
   }
   else if(code == FN_UNLOCK) {
     uint64_t *vptr = D_RW(version_table) +
       key_to_vtable_index(req->kv_data.key);
-    *return_value  = malloc(sizeof(struct proposal));
     struct proposal *rep  = (struct proposal *)*return_value;
     uint64_t version = *vptr;
     rep->code = version;
@@ -109,13 +107,15 @@ int callback(const unsigned char *data,
       pmemobj_tx_add_range_direct(vptr, sizeof(uint64_t));
       *vptr = *vptr + 1; // UNLOCK
     }
-    return sizeof(struct proposal);
   }
   else if(code == FN_INSERT) {
     PMEMoid item = rbtree_map_get(pop, the_tree, req->kv_data.key);
+    rep->code = CODE_OK;
+    rep->kv_data.key = req->kv_data.key;
     if(!OID_IS_NULL(item)) {
       pmemobj_tx_add_range(item, 0, sizeof(uint64_t));
       uint64_t *ptr = (uint64_t *)pmemobj_direct(item);
+      rep->kv_data.value = *ptr;
       *ptr = req->kv_data.value;
     }
     else {
@@ -123,29 +123,24 @@ int callback(const unsigned char *data,
 			the_tree, 
 			req->kv_data.key,
 			new_store_item(req->kv_data.value).oid);
+      rep->kv_data.value = req->kv_data.value;
     }
-    return 0;
   }
   else if(code == FN_DELETE) {
     PMEMoid item = rbtree_map_remove(pop,
 				   the_tree, 
 				   req->k_data.key);
     if(OID_IS_NULL(item)) {
-      return 0;
+      rep->code = CODE_NOK;
     }
     else {
-      *return_value  = malloc(sizeof(struct proposal));
-      struct proposal *rep  = (struct proposal *)*return_value;
       rep->code = CODE_OK;
       rep->kv_data.key   = req->k_data.key;
       rep->kv_data.value = *(uint64_t *)pmemobj_direct(item);
       pmemobj_tx_free(item);
-      return sizeof(struct proposal);
     }
   }
   else if(code == FN_LOOKUP) {
-    *return_value  = malloc(sizeof(struct proposal));
-    struct proposal *rep  = (struct proposal *)*return_value;
     PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);
     if(OID_IS_NULL(item)) {
       rep->code = CODE_NOK;
@@ -155,11 +150,8 @@ int callback(const unsigned char *data,
       rep->kv_data.key     = req->k_data.key;
       rep->kv_data.value = *(uint64_t *)pmemobj_direct(item);
     }
-    return sizeof(struct proposal);
   }
   else if(code == FN_BUMP) {
-    *return_value  = malloc(sizeof(struct proposal));
-    struct proposal *rep  = (struct proposal *)*return_value;
     PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);
     if(OID_IS_NULL(item)) {
       rep->code = CODE_NOK;
@@ -172,12 +164,12 @@ int callback(const unsigned char *data,
       (*ptr)++;
       rep->kv_data.value = *ptr;
     }
-    return sizeof(struct proposal);
   }
   else {
     BOOST_LOG_TRIVIAL(fatal) << "Tree: unknown fn !";
     exit(-1);
   }
+  return sizeof(struct proposal);
 }
 
 int callback_leader(const unsigned char *data,

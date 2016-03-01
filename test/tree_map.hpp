@@ -53,6 +53,20 @@ const int CODE_NOK  = 1;
 
 struct k {uint64_t key;};
 struct kv {uint64_t key; uint64_t value;};
+
+
+typedef struct cookie_st {
+  int phase;
+  int locks_taken;
+  int index;
+} cookie_t;
+
+const int COOKIE_PHASE_LOCK     = 0;
+const int COOKIE_PHASE_VERSION  = 1;
+const int COOKIE_PHASE_INSERT   = 2;
+const int COOKIE_PHASE_DELETE   = 3;
+const int COOKIE_PHASE_UNLOCK   = 4;
+
 struct proposal {
   union {
     int fn;
@@ -65,6 +79,7 @@ struct proposal {
     struct kv kv_data;
     struct k k_data;
   };
+  cookie_t cookie;
 };
 
 
