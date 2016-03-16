@@ -55,11 +55,11 @@ int leader_callback_recovery(const unsigned char *data,
   client_resp->tx_status = 1;
   
   for(int i=0;i<quorums;i++) {
-    struct proposal *resp;
+    struct proposal *response;
     int txid = get_last_txid(quorum_handles[i]);
     if(txid != ctr[i]) {
       ctr[i] = txid++;
-      int sz = get_response(quorum_handles[i], &response, txid);
+      int sz = get_response(quorum_handles[i], (void **)&response, txid);
       if(sz == RPC_EOLD) {
 	free(client_resp);
 	return -1;
@@ -80,13 +80,13 @@ int leader_callback_recovery(const unsigned char *data,
       }
       if(response->cookie.phase == COOKIE_PHASE_LOCK) {
 	info = locks_list(tx, response->cookie.index);
-	if(info->kv_data.val != rsponse->kv_data.val) {
+	if(info->value != response->kv_data.value) {
 	  client_resp->tx_status = 0;
 	}
       }
       else if(response->cookie.phase == COOKIE_PHASE_VERSION) {
 	info = versions_list(tx, response->cookie.index);
-	if(info->kv_data.val != rsponse->kv_data.val) {
+	if(info->value != response->kv_data.value) {
 	  client_resp->tx_status = 0;
 	}
       }
@@ -97,7 +97,7 @@ int leader_callback_recovery(const unsigned char *data,
     goto phase_locks;
   }
   else if(current_phase == COOKIE_PHASE_VERSION) {
-    goto phase_version;
+    goto phase_versions;
   }
   else if(current_phase == COOKIE_PHASE_INSERT) {
     goto phase_inserts;
