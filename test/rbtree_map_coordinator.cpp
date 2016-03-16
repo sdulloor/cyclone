@@ -33,10 +33,9 @@ int leader_callback_recovery(const unsigned char *data,
 			     const int len,
 			     unsigned char **follower_data,
 			     int *follower_data_size,
-			     void **return_value,
-			     int *ctr_recovery,
-			     int tx_status)
+			     void **return_value)
 {
+  int *ctr_recovery;
   rbtree_tx_t * tx = (rbtree_tx_t *)data;
   costat *rep;
   rep = (costat *)malloc(sizeof(costat));
@@ -45,21 +44,79 @@ int leader_callback_recovery(const unsigned char *data,
   rep->tx_status  = 1;
   struct kv *info;
   struct k* del_info;
-
   tx_client_response *client_resp;
   *return_value = malloc(sizeof(tx_client_response));
   client_resp = (tx_client_response *)*return_value;
-  client_resp->tx_status = tx_status;
 
-  if(tx_status == 0) {
-    for(int i=0;i<quorums;i++) {
-      ctr[i] = ctr_recovery[i];
+  /* run a recovery pass to determing ctr values and state */
+  int current_phase = COOKIE_PHASE_LOCK;
+  int locks_taken   = 0;
+  int index         = 0; 
+  client_resp->tx_status = 1;
+  
+  for(int i=0;i<quorums;i++) {
+    struct proposal *resp;
+    int txid = get_last_txid(quorum_handles[i]);
+    if(txid != ctr[i]) {
+      ctr[i] = txid++;
+      int sz = get_response(quorum_handles[i], &response, txid);
+      if(sz == RPC_EOLD) {
+	free(client_resp);
+	return -1;
+      }
+      if(response->cookie.phase > current_phase) {
+	current_phase = response->cookie.phase;
+      }
+      if(response->cookie.phase == current_phase &&
+	 response->cookie.index >= index) {
+	index = response->cookie.index + 1;
+      }
+      if(response->cookie.locks_taken > locks_taken) {
+	locks_taken = response->cookie.locks_taken;
+      }
+      /* Determine the state of the transaction */
+      if(!response->cookie.success) {
+	client_resp->tx_status = 0;
+      }
+      if(response->cookie.phase == COOKIE_PHASE_LOCK) {
+	info = locks_list(tx, response->cookie.index);
+	if(info->kv_data.val != rsponse->kv_data.val) {
+	  client_resp->tx_status = 0;
+	}
+      }
+      else if(response->cookie.phase == COOKIE_PHASE_VERSION) {
+	info = versions_list(tx, response->cookie.index);
+	if(info->kv_data.val != rsponse->kv_data.val) {
+	  client_resp->tx_status = 0;
+	}
+      }
     }
-    goto cleanup;
+  }
+
+  if(current_phase == COOKIE_PHASE_LOCK) {
+    goto phase_locks;
+  }
+  else if(current_phase == COOKIE_PHASE_VERSION) {
+    goto phase_version;
+  }
+  else if(current_phase == COOKIE_PHASE_INSERT) {
+    goto phase_inserts;
+  }
+  else if(current_phase == COOKIE_PHASE_DELETE) {
+    goto phase_deletes;
+  }
+  else if(current_phase == COOKIE_PHASE_UNLOCK) {
+    goto phase_unlocks;
+  }
+  else {
+    fprintf(stderr, "Unknown phase in cookie %d\n", current_phase);
+    exit(-1);
   }
   
+ phase_locks:
+  
   // Acquire locks
-  for(int i=0;i<tx->num_locks;i++) {
+  for(int i=index;i<tx->num_locks;i++) {
     info = locks_list(tx, i);
     int partition = info->key % quorums;
     struct proposal req;
@@ -69,18 +126,19 @@ int leader_callback_recovery(const unsigned char *data,
     req.src       = clients - 1;
     req.order     = 0;
 
-    bool make_call = (ctr_recovery[partition] <= ctr[partition]);
-    if(make_call) {
-      int sz = make_rpc(quorum_handles[partition],
-			&req,
-			sizeof(struct proposal),
-			(void **)&resp,
-			ctr[partition],
-			0);
+    int sz = make_rpc(quorum_handles[partition],
+		      &req,
+		      sizeof(struct proposal),
+		      (void **)&resp,
+		      ctr[partition],
+		      0);
+    if(sz == RPC_EOLD) {
+      free(client_resp);
+      return -1;
     }
     ctr[partition]++;
 
-    if(make_call && resp->code != req.kv_data.value) {
+    if(resp->code != req.kv_data.value) {
       // Cleanup and fail
       client_resp->tx_status = 0;
       tx->num_locks = i;
@@ -92,8 +150,10 @@ int leader_callback_recovery(const unsigned char *data,
   if(client_resp->tx_status == 0) {
     goto cleanup;
   }
+
+ phase_versions:
   
-  for(int i=0;i<tx->num_versions;i++) {
+  for(int i=index;i<tx->num_versions;i++) {
     info = versions_list(tx, i);
     int partition = info->key % quorums;
     struct proposal req;
@@ -102,19 +162,18 @@ int leader_callback_recovery(const unsigned char *data,
     req.k_data.key = info->key;
     req.src       = clients - 1;
     req.order     = 0;
-    bool make_call = (ctr_recovery[partition] <= ctr[partition]);
-
-    if(make_call) {
-      int sz = make_rpc(quorum_handles[partition],
-			&req,
-			sizeof(struct proposal),
-			(void **)&resp,
-			ctr[partition],
-			0);
-
+    int sz = make_rpc(quorum_handles[partition],
+		      &req,
+		      sizeof(struct proposal),
+		      (void **)&resp,
+		      ctr[partition],
+		      0);
+    if(sz == RPC_EOLD) {
+      free(client_resp);
+      return -1;
     }
     ctr[partition]++;
-    if(make_call && resp->code != req.kv_data.value) {
+    if(resp->code != req.kv_data.value) {
       // Cleanup and fail
       client_resp->tx_status = 0;
       break;
@@ -124,8 +183,10 @@ int leader_callback_recovery(const unsigned char *data,
   if(client_resp->tx_status == 0) {
     goto cleanup;
   }
+
+ phase_inserts:
   
-  for(int i=0;i<tx->num_inserts;i++) {
+  for(int i=index;i<tx->num_inserts;i++) {
     info = inserts_list(tx, i);
     int partition = info->key % quorums;
     struct proposal req;
@@ -135,19 +196,22 @@ int leader_callback_recovery(const unsigned char *data,
     req.src       = clients - 1;
     req.order     = 0;
 
-    bool make_call = (ctr_recovery[partition] <= ctr[partition]);
-    if(make_call) {
-      int sz = make_rpc(quorum_handles[partition],
-			&req,
-			sizeof(struct proposal),
-			(void **)&resp,
-			ctr[partition],
-			0);
+    int sz = make_rpc(quorum_handles[partition],
+		      &req,
+		      sizeof(struct proposal),
+		      (void **)&resp,
+		      ctr[partition],
+		      0);
+    if(sz == RPC_EOLD) {
+      free(client_resp);
+      return -1;
     }
     ctr[partition]++;
   }
 
-  for(int i=0;i<tx->num_deletes;i++) {
+ phase_deletes:
+  
+  for(int i=index;i<tx->num_deletes;i++) {
     del_info = deletes_list(tx, i);
     int partition = del_info->key % quorums;
     struct proposal req;
@@ -156,21 +220,23 @@ int leader_callback_recovery(const unsigned char *data,
     req.kv_data = *info;
     req.src       = clients - 1;
     req.order     = 0;
-    bool make_call = (ctr_recovery[partition] <= ctr[partition]);
-    if(make_call) {
-      int sz = make_rpc(quorum_handles[partition],
-			&req,
-			sizeof(struct proposal),
-			(void **)&resp,
-			ctr[partition],
-			0);
+    int sz = make_rpc(quorum_handles[partition],
+		      &req,
+		      sizeof(struct proposal),
+		      (void **)&resp,
+		      ctr[partition],
+		      0);
+    if(sz == RPC_EOLD) {
+      free(client_resp);
+      return -1;
     }
     ctr[partition]++;
   }
 
  cleanup:
+ phase_unlocks:
   
-  for(int i=0;i<tx->num_locks;i++) {
+  for(int i=index;i<tx->num_locks;i++) {
     info = locks_list(tx, i);
     int partition = info->key % quorums;
     struct proposal req;
@@ -179,12 +245,19 @@ int leader_callback_recovery(const unsigned char *data,
     req.kv_data = *info;
     req.src       = clients - 1;
     req.order     = 0;
-    int sz = make_rpc(quorum_handles[partition],
-		  &req,
-		  sizeof(struct proposal),
-		  (void **)&resp,
-		  ctr[partition],
-		  0);
+    bool make_call = (ctr_recovery[partition] <= ctr[partition]);
+    if(make_call) {
+      int sz = make_rpc(quorum_handles[partition],
+			&req,
+			sizeof(struct proposal),
+			(void **)&resp,
+			ctr[partition],
+			0);
+      if(sz == RPC_EOLD) {
+	free(client_resp);
+	return -1;
+      }
+    }
     ctr[partition]++;
   }
 
@@ -224,7 +297,11 @@ int leader_callback(const unsigned char *data,
     req.kv_data = *info;
     req.src       = clients - 1;
     req.order     = 0;
-
+    req.cookie.phase       = COOKIE_PHASE_LOCK;
+    req.cookie.locks_taken = i;
+    req.cookie.index       = i;
+    req.cookie.success     = client_resp->tx_status;
+    
     int sz = make_rpc(quorum_handles[partition],
 		      &req,
 		      sizeof(struct proposal),
@@ -232,22 +309,18 @@ int leader_callback(const unsigned char *data,
 		      ctr[partition],
 		      0);
     if(sz == RPC_EOLD) {
-      int *recovery_ctr = new int[quorums];
-      for(int i=0;i<quorums;i++) {
-	recovery_ctr[i] = get_last_txid(quorum_handles[i]) + 1;
-      }
       free(rep);
       free(*return_value);
-      int recovery_ret_value =
-	leader_callback_recovery(data,
-				 len,
-				 follower_data,
-				 follower_data_size,
-				 return_value,
-				 recovery_ctr,
-				 1); // TBD: fix tx status
-      delete recovery_ctr;
-      return recovery_ret_value;
+      while(true) {
+	int recovery_sz = leader_callback_recovery(data,
+						   len,
+						   follower_data,
+						   follower_data_size,
+						   return_value);
+	if(recovery_sz != -1) {
+	  return recovery_sz;
+	}
+      }
     }
 
     ctr[partition]++;
@@ -275,7 +348,11 @@ int leader_callback(const unsigned char *data,
     req.k_data.key = info->key;
     req.src       = clients - 1;
     req.order     = 0;
-
+    req.cookie.phase       = COOKIE_PHASE_VERSION;
+    req.cookie.locks_taken = tx->num_locks;
+    req.cookie.index       = i;
+    req.cookie.success     = client_resp->tx_status;
+    
     int sz = make_rpc(quorum_handles[partition],
 		      &req,
 		      sizeof(struct proposal),
@@ -283,6 +360,21 @@ int leader_callback(const unsigned char *data,
 		      ctr[partition],
 		      0);
 
+    if(sz == RPC_EOLD) {
+      free(rep);
+      free(*return_value);
+      while(true) {
+
+	int recovery_sz = leader_callback_recovery(data,
+						   len,
+						   follower_data,
+						   follower_data_size,
+						   return_value);
+	if(recovery_sz != -1) {
+	  return recovery_sz;
+	}
+      }
+    }
     ctr[partition]++;
     rep->delta_txid[partition]++;
     if(resp->code != req.kv_data.value) {
@@ -306,14 +398,31 @@ int leader_callback(const unsigned char *data,
     req.kv_data = *info;
     req.src       = clients - 1;
     req.order     = 0;
-
+    req.cookie.phase       = COOKIE_PHASE_INSERT;
+    req.cookie.locks_taken = tx->num_locks;
+    req.cookie.index       = i;
+    req.cookie.success     = client_resp->tx_status;
+    
     int sz = make_rpc(quorum_handles[partition],
 		      &req,
 		      sizeof(struct proposal),
 		      (void **)&resp,
 		      ctr[partition],
 		      0);
-
+    if(sz == RPC_EOLD) {
+      free(rep);
+      free(*return_value);
+      while(true) {
+	int recovery_sz = leader_callback_recovery(data,
+						   len,
+						   follower_data,
+						   follower_data_size,
+						   return_value);
+	if(recovery_sz != -1) {
+	  return recovery_sz;
+	}
+      }
+    }
     rep->delta_txid[partition]++;
     ctr[partition]++;
   }
@@ -327,12 +436,31 @@ int leader_callback(const unsigned char *data,
     req.kv_data = *info;
     req.src       = clients - 1;
     req.order     = 0;
+    req.cookie.phase       = COOKIE_PHASE_DELETE;
+    req.cookie.locks_taken = tx->num_locks;
+    req.cookie.index       = i;
+    req.cookie.success     = client_resp->tx_status;
+    
     int sz = make_rpc(quorum_handles[partition],
 		      &req,
 		      sizeof(struct proposal),
 		      (void **)&resp,
 		      ctr[partition],
 		      0);
+    if(sz == RPC_EOLD) {
+      free(rep);
+      free(*return_value);
+      while(true) {
+	int recovery_sz = leader_callback_recovery(data,
+						   len,
+						   follower_data,
+						   follower_data_size,
+						   return_value);
+	if(recovery_sz != -1) {
+	  return recovery_sz;
+	}
+      }
+    }
     rep->delta_txid[partition]++;
     ctr[partition]++;
   }
@@ -348,12 +476,30 @@ int leader_callback(const unsigned char *data,
     req.kv_data = *info;
     req.src       = clients - 1;
     req.order     = 0;
+    req.cookie.phase       = COOKIE_PHASE_UNLOCK;
+    req.cookie.locks_taken = tx->num_locks;
+    req.cookie.index       = i;
+    req.cookie.success     = client_resp->tx_status;
     int sz = make_rpc(quorum_handles[partition],
 		  &req,
 		  sizeof(struct proposal),
 		  (void **)&resp,
 		  ctr[partition],
 		  0);
+    if(sz == RPC_EOLD) {
+      free(rep);
+      free(*return_value);
+      while(true) {
+	int recovery_sz = leader_callback_recovery(data,
+						   len,
+						   follower_data,
+						   follower_data_size,
+						   return_value);
+	if(recovery_sz != -1) {
+	  return recovery_sz;
+	}
+      }
+    }
     ctr[partition]++;
     rep->delta_txid[partition]++;
   }
