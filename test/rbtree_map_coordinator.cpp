@@ -5,7 +5,7 @@
 
 TOID_DECLARE(uint64_t, TOID_NUM_BASE);
 
-static TOID(uint64_t) txid;
+static TOID(uint64_t) txnum;
 void **quorum_handles;
 int me;
 int quorums;
@@ -17,13 +17,13 @@ TOID(char) nvheap_setup(TOID(char) recovered,
 {
   TOID(char) store;
   if(TOID_IS_NULL(recovered)) {
-    txid = TX_ALLOC(uint64_t, sizeof(uint64_t));
-    *D_RW(txid) = 1;
+    txnum = TX_ALLOC(uint64_t, sizeof(uint64_t));
+    *D_RW(txnum) = 1;
     store = TX_ALLOC(char, sizeof(TOID(uint64_t)));
-    TX_MEMCPY(D_RW(store), &txid, sizeof(TOID(uint64_t)));
+    TX_MEMCPY(D_RW(store), &txnum, sizeof(TOID(uint64_t)));
   }
   else {
-    TX_MEMCPY(&txid, D_RO(store), sizeof(TOID(uint64_t)));
+    TX_MEMCPY(&txnum, D_RO(store), sizeof(TOID(uint64_t)));
   }
   return store; 
 }
@@ -90,6 +90,9 @@ int leader_callback_recovery(const unsigned char *data,
 	  client_resp->tx_status = 0;
 	}
       }
+    }
+    if(response->cookie.txnum != *D_RO(txnum)) {
+      pmemobj_tx_abort(-1);
     }
   }
 
@@ -301,6 +304,7 @@ int leader_callback(const unsigned char *data,
     req.cookie.locks_taken = i;
     req.cookie.index       = i;
     req.cookie.success     = client_resp->tx_status;
+    req.cookie.txnum       = *D_RO(txnum);
     
     int sz = make_rpc(quorum_handles[partition],
 		      &req,
@@ -352,6 +356,7 @@ int leader_callback(const unsigned char *data,
     req.cookie.locks_taken = tx->num_locks;
     req.cookie.index       = i;
     req.cookie.success     = client_resp->tx_status;
+    req.cookie.txnum       = *D_RO(txnum);
     
     int sz = make_rpc(quorum_handles[partition],
 		      &req,
@@ -402,6 +407,7 @@ int leader_callback(const unsigned char *data,
     req.cookie.locks_taken = tx->num_locks;
     req.cookie.index       = i;
     req.cookie.success     = client_resp->tx_status;
+    req.cookie.txnum       = *D_RO(txnum);
     
     int sz = make_rpc(quorum_handles[partition],
 		      &req,
@@ -440,6 +446,7 @@ int leader_callback(const unsigned char *data,
     req.cookie.locks_taken = tx->num_locks;
     req.cookie.index       = i;
     req.cookie.success     = client_resp->tx_status;
+    req.cookie.txnum       = *D_RO(txnum);
     
     int sz = make_rpc(quorum_handles[partition],
 		      &req,
@@ -480,6 +487,8 @@ int leader_callback(const unsigned char *data,
     req.cookie.locks_taken = tx->num_locks;
     req.cookie.index       = i;
     req.cookie.success     = client_resp->tx_status;
+    req.cookie.txnum       = *D_RO(txnum);
+
     int sz = make_rpc(quorum_handles[partition],
 		  &req,
 		  sizeof(struct proposal),
@@ -504,6 +513,8 @@ int leader_callback(const unsigned char *data,
     rep->delta_txid[partition]++;
   }
 
+  TX_ADD(txnum);
+  *D_RW(txnum) = *D_RO(txnum) + 1;
   return sizeof(tx_client_response);
 }
 
@@ -520,6 +531,8 @@ int follower_callback(const unsigned char *data,
   }
   *return_value = malloc(sizeof(tx_client_response));
   ((tx_client_response *)*return_value)->tx_status = stat->tx_status;
+  TX_ADD(txnum);
+  *D_RW(txnum) = *D_RO(txnum) + 1;
   return sizeof(tx_client_response);
 }
 

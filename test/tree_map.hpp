@@ -56,6 +56,7 @@ struct kv {uint64_t key; uint64_t value;};
 
 
 typedef struct cookie_st {
+  int txnum;
   int phase;
   int locks_taken;
   int success;
