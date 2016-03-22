@@ -24,10 +24,13 @@ quorums=config.getint('meta', 'quorums')
 replicas=config.getint('meta','replicas')
 co_replicas=config.getint('meta','co_replicas')
 clients=config.getint('meta','clients')
-raftpath=config.get('meta','raftpath')
-filepath=config.get('meta','filepath')
-coord_raftpath=config.get('meta','coord_raftpath')
-coord_filepath=config.get('meta','coord_filepath')
+
+raftpath=config.get('meta','raftpath') + ".cyclone"
+filepath=config.get('meta','filepath') + ".cyclone"
+coord_raftpath=config.get('meta','coord_raftpath') + ".cyclone"
+coord_filepath=config.get('meta','coord_filepath') + ".cyclone"
+
+
 logsize=config.getint('meta','logsize')
 server_baseports = {}
 client_baseports = {}

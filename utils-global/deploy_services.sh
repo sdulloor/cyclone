@@ -26,9 +26,7 @@ do
     fi
 done
 
-clush -w ${GROUP} 'rm -rf /dev/shm/disp*'
-clush -w ${GROUP} 'rm -rf /dev/shm/raft*'
-clush -w ${GROUP} 'rm -rf /dev/shm/coord*'
+clush -w ${GROUP} 'rm -rf /dev/shm/*.cyclone*'
 clush -w ${GROUP} cp ${deploy_dir}/cyclone.git/test/rbtree_map_server ${deploy_dir}
 clush -w ${GROUP} cp ${deploy_dir}/cyclone.git/test/rbtree_map_coordinator ${deploy_dir}
 clush -w ${GROUP} ./exec_servers.sh
