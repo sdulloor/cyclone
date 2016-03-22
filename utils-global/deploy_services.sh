@@ -21,7 +21,8 @@ do
 	scp ${i}/* ${mc}:${deploy_dir}
 	scp exec_servers.sh ${mc}:
 	scp exec_coord.sh ${mc}:
-	scp ${output_dir}/config_coord_client.ini ${mc}:${deploy_dir}
+	scp ${output_dir}/*.ini ${mc}:${deploy_dir}
+	
     fi
 done
 
