@@ -33,12 +33,12 @@ client_baseports = {}
 
 cond_abs_dir(output)
 
-ports=2*max(replicas,co_replicas)*clients
-
-
 #load machine config
 mc_config=ConfigParser.RawConfigParser()
 mc_config.read(cluster)
+
+
+ports=2*max(replicas,co_replicas)*mc_config.getint('machines','count')*(clients + 1)
 
 # Generate server configs
 for q in range(0, quorums):
