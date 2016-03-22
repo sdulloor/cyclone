@@ -1,6 +1,7 @@
 import sys
 import ConfigParser #Should be configparser in python v3
 import os
+import shutil
 
 baseport=7000
 
@@ -117,7 +118,7 @@ for q in range(0, quorums):
         cmd=cmd + str(r) + ' '
         cmd=cmd + str(replicas) + ' '
         cmd=cmd + str(clients) + ' '
-        cmd=cmd + 'config_server.ini config_client.ini &> server_log\n'
+        cmd=cmd + 'config_server.ini config_client.ini &> server_log &\n'
         f.write(cmd)
         f.close()
 
@@ -129,13 +130,13 @@ for r in range(0, co_replicas):
     m=mc_config.get('machines','addr' + config.get(qstring, rstring))
     dname=output + '/' + m
     f=open(dname + '/' + 'launch_coord','w')
-    cmd='./rbtree_map_server '
+    cmd='./rbtree_map_coordinator '
     cmd=cmd + str(r) + ' '
     cmd=cmd + str(co_replicas) + ' '
     cmd=cmd + str(clients) + ' '
     cmd=cmd + str(quorums) + ' '
     cmd=cmd + str(replicas) + ' '
-    cmd=cmd + 'config_coord.ini config_coord_client.ini &> coord_log\n'
+    cmd=cmd + 'config_coord.ini config_coord_client.ini &> coord_log &\n'
     f.write(cmd)
     f.close()
 
@@ -145,7 +146,9 @@ for r in range(0, co_replicas):
 for q in range(0, quorums):
     f=open(output + '/' + 'config_client' + str(q) + '.ini', 'w')
     f.write('[machines]\n')
-    for i in range(0, mc_config.getint('machines','count')):
+    machine_count=mc_config.getint('machines','count')
+    f.write('machines=' + str(machine_count) + '\n')
+    for i in range(0, machine_count):
         addr=mc_config.get('machines','addr' + str(i))
         iface=mc_config.get('machines','iface' + str(i))
         f.write('addr' + str(i) + '=' + addr + '\n')
@@ -155,6 +158,14 @@ for q in range(0, quorums):
     f.write('client_baseport=' + str(client_baseports[str(q)]) + '\n')
     f.close()
 
+#Copy client configs
+for q in range(0, quorums):
+    for r in range(0, replicas):
+        qstring='quorum' + str(q)
+        rstring='mc' + str(r)
+        m=mc_config.get('machines','addr' + config.get(qstring, rstring))
+        dname=output + '/' + m
+        shutil.copy(output + '/config_client' + str(q) + '.ini', dname + '/config_client.ini')
 
 #Generate coord client configs
 f=open(output + '/' + 'config_coord_client.ini', 'w')
