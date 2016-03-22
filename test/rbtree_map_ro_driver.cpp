@@ -59,8 +59,8 @@ int main(int argc, const char *argv[]) {
 				      me,
 				      replicas,
 				      clients,
-				      "cyclone_test.ini",
-				      "cyclone_test.ini");
+				      "config_server.ini",
+				      "config_client.ini");
   char *buffer = new char[CLIENT_MAXPAYLOAD];
   struct proposal *prop = (struct proposal *)buffer;
   srand(time(NULL));

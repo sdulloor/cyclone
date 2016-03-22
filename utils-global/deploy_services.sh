@@ -28,7 +28,10 @@ done
 
 clush -w ${GROUP} 'rm -rf /dev/shm/disp*'
 clush -w ${GROUP} 'rm -rf /dev/shm/raft*'
+clush -w ${GROUP} 'rm -rf /dev/shm/coord*'
 clush -w ${GROUP} cp ${deploy_dir}/cyclone.git/test/rbtree_map_server ${deploy_dir}
 clush -w ${GROUP} cp ${deploy_dir}/cyclone.git/test/rbtree_map_coordinator ${deploy_dir}
 clush -w ${GROUP} ./exec_servers.sh
+echo "Deployed servers sleeping 10 sec ..."
+sleep 10
 clush -w ${GROUP} ./exec_coord.sh

@@ -26,6 +26,7 @@ co_replicas=config.getint('meta','co_replicas')
 clients=config.getint('meta','clients')
 raftpath=config.get('meta','raftpath')
 filepath=config.get('meta','filepath')
+coord_raftpath=config.get('meta','coord_raftpath')
 coord_filepath=config.get('meta','coord_filepath')
 logsize=config.getint('meta','logsize')
 server_baseports = {}
@@ -87,7 +88,7 @@ for r in range(0, co_replicas):
     cond_abs_rm(output + '/' + 'launch_coord.sh')
     f=open(dname + '/' + 'config_coord.ini', 'w')
     f.write('[storage]\n')
-    f.write('raftpath=' + raftpath + '\n')
+    f.write('raftpath=' + coord_raftpath + '\n')
     f.write('logsize=' + str(logsize) + '\n')
     f.write('[quorum]\n')
     f.write('baseport=6000\n')
@@ -172,6 +173,8 @@ for q in range(0, quorums):
 #Generate coord client configs
 f=open(output + '/' + 'config_coord_client.ini', 'w')
 f.write('[machines]\n')
+machine_count=mc_config.getint('machines','count')
+f.write('machines=' + str(machine_count) + '\n')
 for i in range(0, mc_config.getint('machines','count')):
     addr=mc_config.get('machines','addr' + str(i))
     iface=mc_config.get('machines','iface' + str(i))
