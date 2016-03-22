@@ -27,7 +27,8 @@ raftpath=config.get('meta','raftpath')
 filepath=config.get('meta','filepath')
 coord_filepath=config.get('meta','coord_filepath')
 logsize=config.getint('meta','logsize')
-
+server_baseports = {}
+client_baseports = {}
 
 cond_abs_dir(output)
 
@@ -40,6 +41,10 @@ mc_config.read(cluster)
 
 # Generate server configs
 for q in range(0, quorums):
+    server_baseports[str(q)] = baseport
+    baseport = baseport + ports
+    client_baseports[str(q)] = baseport
+    baseport = baseport + ports
     for r in range(0, replicas):
         qstring='quorum' + str(q)
         rstring='mc' + str(r)
@@ -60,16 +65,19 @@ for q in range(0, quorums):
             f.write('addr'+ str(mc) + '=' + mc_config.get('machines', 'addr' + str(mc_id)) + '\n')
             f.write('iface'+ str(mc) + '=' + mc_config.get('machines', 'iface' + str(mc_id)) + '\n')
         f.write('[dispatch]\n')
-        f.write('server_baseport=' + str(baseport) + '\n')
-        baseport = baseport + ports
-        f.write('client_baseport=' + str(baseport) + '\n')
-        baseport = baseport + ports
+        f.write('server_baseport=' + str(server_baseports[str(q)]) + '\n')
+        f.write('client_baseport=' + str(client_baseports[str(q)]) + '\n')
         f.write('filepath=' + str(filepath) + '\n')
         f.close()
 
 # Generate coordinator configs
+coord_baseport = baseport
+baseport = baseport + ports
+coord_client_baseport = baseport
+baseport = baseport + ports
 for r in range(0, co_replicas):
     qstring='coord'
+    rstring='mc' + str(r)
     m=mc_config.get('machines','addr' + config.get(qstring, rstring))
     dname=output + '/' + m
     cond_abs_dir(dname)
@@ -87,9 +95,9 @@ for r in range(0, co_replicas):
         f.write('addr'+ str(mc) + '=' + mc_config.get('machines', 'addr' + str(mc_id)) + '\n')
         f.write('iface'+ str(mc) + '=' + mc_config.get('machines', 'iface' + str(mc_id)) + '\n')
     f.write('[dispatch]\n')
-    f.write('server_baseport='+str(baseport) + '\n')
+    f.write('server_baseport='+ str(coord_baseport) + '\n')
     baseport=baseport+ports
-    f.write('client_baseport='+str(baseport) + '\n')
+    f.write('client_baseport='+ str(coord_client_baseport) + '\n')
     baseport=baseport+ports
     f.write('filepath=' + str(coord_filepath) + '\n')
     f.close()
@@ -117,6 +125,7 @@ for q in range(0, quorums):
 # Generate coord launch cmd
 for r in range(0, co_replicas):
     qstring='coord'
+    rstring='mc' + str(r)
     m=mc_config.get('machines','addr' + config.get(qstring, rstring))
     dname=output + '/' + m
     f=open(dname + '/' + 'launch_coord','w')
@@ -130,5 +139,34 @@ for r in range(0, co_replicas):
     f.write(cmd)
     f.close()
 
-    
+
+
+#Generate client configs
+for q in range(0, quorums):
+    f=open(output + '/' + 'config_client' + str(q) + '.ini', 'w')
+    f.write('[machines]\n')
+    for i in range(0, mc_config.getint('machines','count')):
+        addr=mc_config.get('machines','addr' + str(i))
+        iface=mc_config.get('machines','iface' + str(i))
+        f.write('addr' + str(i) + '=' + addr + '\n')
+        f.write('iface' + str(i) + '=' + iface + '\n')
+    f.write('[dispatch]\n')
+    f.write('server_baseport=' + str(server_baseports[str(q)]) + '\n')
+    f.write('client_baseport=' + str(client_baseports[str(q)]) + '\n')
+    f.close()
+
+
+#Generate coord client configs
+f=open(output + '/' + 'config_coord_client.ini', 'w')
+f.write('[machines]\n')
+for i in range(0, mc_config.getint('machines','count')):
+    addr=mc_config.get('machines','addr' + str(i))
+    iface=mc_config.get('machines','iface' + str(i))
+    f.write('addr' + str(i) + '=' + addr + '\n')
+    f.write('iface' + str(i) + '=' + iface + '\n')
+f.write('[dispatch]\n')
+f.write('server_baseport=' + str(coord_baseport) + '\n')
+f.write('client_baseport=' + str(coord_client_baseport) + '\n')
+f.close()
+      
     
