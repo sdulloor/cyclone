@@ -749,7 +749,7 @@ void dispatcher_start(const char* config_server_path,
 		      rpc_gc_callback_t gc_callback,
 		      rpc_nvheap_setup_callback_t nvheap_setup_callback,
 		      int me,
-		      int machines,
+		      int replicas,
 		      int clients)
 {
   boost::property_tree::read_ini(config_server_path, pt_server);
@@ -833,14 +833,14 @@ void dispatcher_start(const char* config_server_path,
 				&cyclone_pop_cb,
 				&cyclone_commit_cb,
 				me,
-				machines,
+				replicas,
 				NULL);
   // Listen on port
   void *zmq_context = zmq_init(1);
   dispatcher_loop_obj    = new dispatcher_loop();
   dispatcher_loop_obj->zmq_context = zmq_context;
   dispatcher_loop_obj->clients  = clients;
-  dispatcher_loop_obj->machines = machines;
+  dispatcher_loop_obj->machines = pt_client.get<int>("machines.machines");
   router = new server_switch(zmq_context,
 			     &pt_server,
 			     &pt_client,
