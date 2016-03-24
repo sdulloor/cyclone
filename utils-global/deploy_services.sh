@@ -1,9 +1,14 @@
 #!/bin/bash
+if [ $# -ne 3 ]
+    then echo "Usage $0 output_dir deploy_dir group"
+    exit
+fi
 output_dir=$1
 deploy_dir=$2
-GROUP='arch-h[2-30/2]'
+GROUP=$3
 echo "output dir = $output_dir"
 echo "deploy dir = $deploy_dir"
+echo "group = $GROUP"
 echo '#!/bin/bash' > exec_servers.sh
 echo "export LD_LIBRARY_PATH=/usr/local/lib:/usr/lib" >> exec_servers.sh
 echo "cd $deploy_dir" >> exec_servers.sh

@@ -1,7 +1,12 @@
 #!/bin/bash
+if [ $# -ne 2 ]
+    then echo "Usage $0 deploy_dir group"
+    exit
+fi
 deploy_dir=$1
-GROUP='arch-h[2-30/2]'
+GROUP=$2
 echo "deploy dir = $deploy_dir"
+echo "group = $GROUP"
 echo '#!/bin/bash' > exec_client.sh
 echo "export LD_LIBRARY_PATH=/usr/local/lib:/usr/lib" >> exec_client.sh
 echo "cd $deploy_dir" >> exec_client.sh

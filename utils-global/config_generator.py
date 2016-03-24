@@ -77,11 +77,29 @@ for q in range(0, quorums):
         cond_abs_rm(output + '/' + 'launch_servers.sh')
         shutil.copy(config_name,  dname + '/' + 'config_server.ini')
 
-# Generate coordinator configs
+# Generate coordinator config
 coord_baseport = baseport
 baseport = baseport + ports
 coord_client_baseport = baseport
 baseport = baseport + ports
+f=open(output + '/' + 'config_coord.ini', 'w')
+f.write('[storage]\n')
+f.write('raftpath=' + coord_raftpath + '\n')
+f.write('logsize=' + str(logsize) + '\n')
+f.write('[quorum]\n')
+f.write('baseport=6000\n')
+f.write('[machines]\n')
+f.write('machines='+str(co_replicas)+'\n')
+for mc in range(0, co_replicas):
+    qstring='coord'
+    mc_id=config.getint(qstring, 'mc' + str(mc))
+    f.write('addr'+ str(mc) + '=' + mc_config.get('machines', 'addr' + str(mc_id)) + '\n')
+    f.write('iface'+ str(mc) + '=' + mc_config.get('machines', 'iface' + str(mc_id)) + '\n')
+f.write('[dispatch]\n')
+f.write('server_baseport='+ str(coord_baseport) + '\n')
+f.write('client_baseport='+ str(coord_client_baseport) + '\n')
+f.write('filepath=' + str(coord_filepath) + '\n')
+f.close()
 for r in range(0, co_replicas):
     qstring='coord'
     rstring='mc' + str(r)
@@ -89,28 +107,7 @@ for r in range(0, co_replicas):
     dname=output + '/' + m
     cond_abs_dir(dname)
     cond_abs_rm(output + '/' + 'launch_coord.sh')
-    f=open(dname + '/' + 'config_coord.ini', 'w')
-    f.write('[storage]\n')
-    f.write('raftpath=' + coord_raftpath + '\n')
-    f.write('logsize=' + str(logsize) + '\n')
-    f.write('[quorum]\n')
-    f.write('baseport=6000\n')
-    f.write('[machines]\n')
-    f.write('machines='+str(co_replicas)+'\n')
-    for mc in range(0, co_replicas):
-        mc_id=config.getint(qstring, 'mc' + str(mc))
-        f.write('addr'+ str(mc) + '=' + mc_config.get('machines', 'addr' + str(mc_id)) + '\n')
-        f.write('iface'+ str(mc) + '=' + mc_config.get('machines', 'iface' + str(mc_id)) + '\n')
-    f.write('[dispatch]\n')
-    f.write('server_baseport='+ str(coord_baseport) + '\n')
-    baseport=baseport+ports
-    f.write('client_baseport='+ str(coord_client_baseport) + '\n')
-    baseport=baseport+ports
-    f.write('filepath=' + str(coord_filepath) + '\n')
-    f.close()
-        
-
-
+    
 
 # Generate server launch cmd
 for q in range(0, quorums):
@@ -163,6 +160,8 @@ for q in range(0, quorums):
     f.write('client_baseport=' + str(client_baseports[str(q)]) + '\n')
     f.close()
 
+
+
 #Copy client configs
 for q in range(0, quorums):
     for r in range(0, replicas):
@@ -186,8 +185,8 @@ f.write('[dispatch]\n')
 f.write('server_baseport=' + str(coord_baseport) + '\n')
 f.write('client_baseport=' + str(coord_client_baseport) + '\n')
 f.close()
-      
-    
+
+
 # Generate client launch cmd
 machine_count=mc_config.getint('machines','count')
 for i in range(0, machine_count):
