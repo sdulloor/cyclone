@@ -187,6 +187,34 @@ f.write('client_baseport=' + str(coord_client_baseport) + '\n')
 f.close()
 
 
+# Generate tx client launch cmd
+machine_count=mc_config.getint('machines','count')
+for i in range(0, machine_count):
+    addr=mc_config.get('machines','addr' + str(i))
+    dname=output + '/' + addr
+    cond_abs_dir(dname)
+    f=open(dname + '/' + 'launch_tx_client','w')
+    cmd='./rbtree_map_coordinator_driver '
+    cmd=cmd + str(i) + ' '
+    cmd=cmd + str(co_replicas) + ' '
+    cmd=cmd + str(clients) + ' 0 '
+    cmd=cmd + 'config_coord.ini '
+    cmd=cmd + 'config_coord_client.ini '
+    cmd=cmd + str(quorums) + ' '
+    cmd=cmd + 'config config_client &> client_tx_log &\n'
+    f.write(cmd)
+    f.close()
+    f=open(dname + '/' + 'launch_preload','w')
+    cmd='./rbtree_map_coordinator_load '
+    cmd=cmd + str(i) + ' '
+    cmd=cmd + str(co_replicas) + ' '
+    cmd=cmd + str(clients) + ' 0 '
+    cmd=cmd + 'config_coord.ini '
+    cmd=cmd + 'config_coord_client.ini '
+    f.write(cmd)
+    f.close()
+
+
 # Generate client launch cmd
 machine_count=mc_config.getint('machines','count')
 for i in range(0, machine_count):
@@ -194,12 +222,10 @@ for i in range(0, machine_count):
     dname=output + '/' + addr
     cond_abs_dir(dname)
     f=open(dname + '/' + 'launch_client','w')
-    cmd='./rbtree_map_coordinator_driver '
+    cmd='./rbtree_map_partitioned_driver '
     cmd=cmd + str(i) + ' '
     cmd=cmd + str(co_replicas) + ' '
     cmd=cmd + str(clients) + ' 0 '
-    cmd=cmd + 'config_coord.ini '
-    cmd=cmd + 'config_coord_client.ini '
     cmd=cmd + str(quorums) + ' '
     cmd=cmd + 'config config_client &> client_log &\n'
     f.write(cmd)

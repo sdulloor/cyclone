@@ -177,7 +177,7 @@ static void mark_done(const rpc_t *rpc,
   }
   if(ret_size > 0) {
     cstate->last_return_value = TX_ALLOC(char, ret_size);
-    TX_MEMCPY(D_RW(cstate->last_return_value), ret_value, ret_size);
+    pmemobj_memcpy_persist(state, D_RW(cstate->last_return_value), ret_value, ret_size);
   }
   else {
     TOID_ASSIGN(cstate->last_return_value, OID_NULL);
