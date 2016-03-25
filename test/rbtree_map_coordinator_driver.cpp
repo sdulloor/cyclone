@@ -42,8 +42,8 @@
 #include "../core/logging.hpp"
 #include <libcyclone.hpp>
 
-
-#define KEYS 100
+// Make prime to avoid convoying
+#define KEYS 191
 
 int main(int argc, const char *argv[]) {
   rtc_clock clock;
@@ -87,6 +87,7 @@ int main(int argc, const char *argv[]) {
   unsigned long total_latency  = 0;
   int ctr = get_last_txid(handle) + 1;
   
+  srand(me);
   while(true) {
     init_tx(tx, 1, 0, 1, 0);
     uint64_t key = me*KEYS + (uint64_t)((KEYS - 1)*(rand()/(1.0*RAND_MAX)));
