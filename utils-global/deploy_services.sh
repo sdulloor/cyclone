@@ -17,7 +17,8 @@ echo "source launch_servers" >> exec_servers.sh
 echo "source launch_coord" >> exec_coord.sh
 chmod u+x exec_servers.sh
 chmod u+x exec_coord.sh
-clush -w ${GROUP} echo " " > ${deploy_dir}/launch_coord
+clush -w ${GROUP} rm -f ${deploy_dir}/launch_servers
+clush -w ${GROUP} rm -f ${deploy_dir}/launch_coord
 for i in ${output_dir}/* 
 do
     if [ -d "$i" ] ; then
