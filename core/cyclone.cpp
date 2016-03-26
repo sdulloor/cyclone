@@ -37,8 +37,8 @@ static int __send_appendentries(raft_server_t* raft,
 {
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   void *socket      = raft_node_get_udata(node);
-  unsigned char *ptr = cyclone_handle->cyclone_buffer_out;
-  msg_t msg;
+  msg_t *msg = cyclone_handle->cyclone_buffer_out;
+  unsigned char *ptr = (unsigned char *)(msg + 1);
   rtc_clock clock;
   int nodeidx = raft_node_get_id(node);
   if(m->prev_log_term == cyclone_handle->throttles[nodeidx].prev_log_term &&
@@ -60,19 +60,25 @@ static int __send_appendentries(raft_server_t* raft,
     cyclone_handle->throttles[nodeidx].last_tx_time = clock.current_time();
     cyclone_handle->throttles[nodeidx].timeout = RAFT_REQUEST_TIMEOUT;
   }
-  msg.msg_type         = MSG_APPENDENTRIES;
-  msg.source           = cyclone_handle->me;
-  msg.ae.term          = m->term;
-  msg.ae.prev_log_idx  = m->prev_log_idx;
-  msg.ae.prev_log_term = m->prev_log_term;
-  msg.ae.leader_commit = m->leader_commit;
-  msg.ae.n_entries     = m->n_entries;
-  memcpy(ptr, &msg, sizeof(msg));
-  ptr = ptr + sizeof(msg);
+  msg->msg_type         = MSG_APPENDENTRIES;
+  msg->source           = cyclone_handle->me;
+  msg->ae.term          = m->term;
+  msg->ae.prev_log_idx  = m->prev_log_idx;
+  msg->ae.prev_log_term = m->prev_log_term;
+  msg->ae.leader_commit = m->leader_commit;
+  unsigned long spc_remains = MSG_MAXSIZE - sizeof(msg);
   for(int i=0;i<m->n_entries;i++) {
+    unsigned long spc_needed = sizeof(msg_entry_t) + m->entries[i].data.len;
+    if(spc_needed > spc_remains) {
+      break;
+    }
+    spc_remains -= spc_needed;
     memcpy(ptr, &m->entries[i], sizeof(msg_entry_t));
     ptr += sizeof(msg_entry_t);
   }
+  // Adjust number of entries
+  m->n_entries          = i;
+  msg->ae.n_entries     = m->n_entries;
   for(int i=0;i<m->n_entries;i++) {
     (void)cyclone_handle->read_from_log(ptr,
 					(unsigned long)m->entries[i].data.buf);
