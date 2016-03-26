@@ -43,7 +43,7 @@ static int __send_appendentries(raft_server_t* raft,
   int nodeidx = raft_node_get_id(node);
   if(m->prev_log_term == cyclone_handle->throttles[nodeidx].prev_log_term &&
      m->prev_log_idx   == cyclone_handle->throttles[nodeidx].prev_log_idx &&
-     m->n_entries == cyclone_handle->throttles[nodeidx].prev_entries) {
+     m->n_entries >= cyclone_handle->throttles[nodeidx].prev_entries) {
     if((clock.current_time() - cyclone_handle->throttles[nodeidx].last_tx_time) <=
        cyclone_handle->throttles[nodeidx].timeout) {
       return 0; // throttle retx
