@@ -37,7 +37,7 @@ static int __send_appendentries(raft_server_t* raft,
 {
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   void *socket      = raft_node_get_udata(node);
-  msg_t *msg = cyclone_handle->cyclone_buffer_out;
+  msg_t *msg = (msg_t *)cyclone_handle->cyclone_buffer_out;
   unsigned char *ptr = (unsigned char *)(msg + 1);
   rtc_clock clock;
   int nodeidx = raft_node_get_id(node);
@@ -66,8 +66,9 @@ static int __send_appendentries(raft_server_t* raft,
   msg->ae.prev_log_idx  = m->prev_log_idx;
   msg->ae.prev_log_term = m->prev_log_term;
   msg->ae.leader_commit = m->leader_commit;
-  unsigned long spc_remains = MSG_MAXSIZE - sizeof(msg);
-  for(int i=0;i<m->n_entries;i++) {
+  unsigned long spc_remains = MSG_MAXSIZE - sizeof(msg_t);
+  int i;
+  for(i=0;i<m->n_entries;i++) {
     unsigned long spc_needed = sizeof(msg_entry_t) + m->entries[i].data.len;
     if(spc_needed > spc_remains) {
       break;
@@ -79,7 +80,7 @@ static int __send_appendentries(raft_server_t* raft,
   // Adjust number of entries
   m->n_entries          = i;
   msg->ae.n_entries     = m->n_entries;
-  for(int i=0;i<m->n_entries;i++) {
+  for(i=0;i<m->n_entries;i++) {
     (void)cyclone_handle->read_from_log(ptr,
 					(unsigned long)m->entries[i].data.buf);
 #ifdef TRACING
