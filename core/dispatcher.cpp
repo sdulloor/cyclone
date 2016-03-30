@@ -56,7 +56,7 @@ static void lock(volatile unsigned long *lockp)
 static void unlock(volatile unsigned long *lockp)
 {
   __sync_synchronize();
-  *lockp = 0;
+  __sync_bool_compare_and_swap(lockp, 1, 0);
   __sync_synchronize();
 }
 
