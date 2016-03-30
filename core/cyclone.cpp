@@ -313,6 +313,8 @@ raft_cbs_t raft_funcs = {
 int cyclone_is_leader(void *cyclone_handle)
 {
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
+  if(handle->replicas == 1)
+    return 1;
   int leader = raft_get_current_leader(handle->raft_handle);
   return (leader == handle->me) ? 1:0;
 }
