@@ -20,14 +20,17 @@ memory as opposed to older slower storage in the form of disks and SSDs.
 
 This paper presents Cyclone - fault tolerance middleware that exposes a
 replicated and durable heap. This heap can be directly manipulated using loads and
-stores. Cyclone transparently provides both failure atomicity as well as
-strongly consistent replication thereby giving strong guarantees to programmers
+stores. Cyclone provides both failure atomicity as well as
+strongly consistent replication when updates to the heap are enclosed in
+software transactions thereby giving strong guarantees to programmers
 with minimal effort on their part. Under the hood Cyclone decouples modification
 of local persistent memory from replication to maximize performance. In
 addition, unlike traditional systems that provide strong replication, Cyclone
-does not take checkpoints since NVM is directly manipulated by programmers and
-therefore up to date till the last executed transaction. Instead, Cyclone
-provides a novel NVM copy mechanism to bring up new nodes added to the cluster.
+does require programs to be provisioned for checkpoints since NVM is directly
+manipulated by programmers and therefore up to date till the last executed
+transaction. Instead, Cyclone provides a novel NVM copy mechanism to bring up
+new nodes added to the cluster.
+
 \end{abstract}  
 
 \section{Introduction}
@@ -75,11 +78,11 @@ DRAM.
 Programmers typically find it hard to reason about failures when writing
 code. This is a problem when directly manipulating data structures in persistent
 memory. Depending on the specifics of the system architecture, updates to
-persistent memory can be persisted out of order thereby leaving  the data
+persistent memory can be persisted out of order thereby leaving the data
 structure in an inconsistent state. To illustrate this consider a failure during
 execution of the code to add a node to a linked list in
 Figure~\ref{fig:example}. If either of the two updates to the next fields of the
-previous or new node fail to be persisted, the linked list is left in a
+previous and new node fail to be persisted, the linked list is left in a
 disconnected state with one or more connected nodes inaccessible.
 
 Cyclone provides tools for programmers to write code that is failure
@@ -162,16 +165,18 @@ Recover()
 \label{fig:undo_log}
 \end{figure}
 
-A crucial feature of Cyclone is that it abstracts the details of the persistent
+A crucial feature of Cyclone is that it abstracts the details of the persistence
 mechanism away from programmers. This allows the same code to be deployed on
 clusters with a persistent storage medium such as 3D XPoint or on clusters with
 battery backed NVDIMMs for example. In the former case, explicit {\tt PCOMMIT}
 instructions are necessary for persistence [ref PMFS paper], while in the latter
 case no such instructions are necessary as on failure the CPU caches and DRAM
 are flushed to stable storage under battery (or capacitor) power. Even in the
-NVDIMM case however, the undo log is necessary to protect against OS or
+NVDIMM case however, the undo log can be desirable to protect against OS or
 application crashes to ensure that the persistent memory is always left in a
-consistent state.
+consistent state. Cyclone's programmer visible features are designed to enable
+the construction of applications that work regardless of the underlying
+persistence mechancisms.
 
 
 \section{Replication}
@@ -180,20 +185,19 @@ cluster. Cyclone provides strong consistency - a majority of machines in the
 quorum of replicas always agrees on the current state of the NVM heap. Unlike
 traditional approaches to strong replication however, Cyclone is designed to
 decouple replication from execution of user code modifying NVM. It does so by
-encapsulating changes in to the NVM heap in RPC calls driven by client requests.
+encapsulating changes to the NVM heap in RPC calls driven by client requests.
 We chose this model since it closely reflects the use cases most suitable for
 NVM-based clusters.
 
 Cyclone replicates state \emph{by executing the same sequence of RPC calls on
-  all members of the quorum}. Unlike traditional replication therefore Cyclone
-does not replicate logs of changes to apply to replicas. Instead it replicates
-the RPC call and its arguments, executing it on every replica. By executing the
-same sequence of RPC calls on all machines we end up with the same
-state. Cyclone uses RAFT under the hood for consensus on the contents of the log
-of RPC calls - although any other similar state machine replication protocol
-such as Paxos is also suitable. Cyclone provides the means to achieve exactly
-once semantics to clients by numbering RPC calls and remembering the results of
-the last executed RPC call.
+  all members of the quorum}. By executing the same sequence of RPC calls on all
+machines we end up with the same state\footnote{We discuss how to handle
+  non-determinism in Section~\ref{sec:synch}}. Cyclone uses RAFT [cite usenix
+  raft paper] under the hood for consensus on the contents of the log of RPC
+calls - although any other similar state machine replication protocol such as
+Paxos is also suitable. Cyclone provides the means to achieve exactly once
+semantics to clients by numbering RPC calls and remembering the result of the
+last executed RPC call.
 
 \subsection{RPC Call Numbering}
 Cyclone is preconfigured for a fixed (large) number of clients. All RPC calls
@@ -213,15 +217,15 @@ overlapping the update of non-volatile state with the network I/O associated
 with replication. Persisting RAFT log entries, making the upcall to the
 application and executing the RPC call in a failure atomic transaction takes a
 significant amount of time and therefore it makes sense to overlap this with the
-round-trip delay on the network for replication. This is possible in Cyclone and
-not other traditional replication systems since we use failure atomic
-transactions that cna be rolled back. Replication can fail due to various
-reasons such as failure of nodes, a network partition or a new leader getting
-elected in the underlying replication protocol (RAFT). Since failure atomic
-transactions can be rolled back, we are able to speculatively apply the changes
-to NVM without waiting for replication to finish.
+round-trip delay on the network for replication. This is possible in Cyclone
+since we use failure atomic transactions that can be rolled back. Replication
+can fail due to various reasons such as failure of nodes, a network partition or
+a new leader getting elected in the underlying replication protocol
+(RAFT). Since failure atomic transactions can be rolled back, we are able to
+speculatively apply the changes to NVM without waiting for replication to
+finish.
 
-The runtime steps associated with asynchronous replication are shown in
+The runtime steps for asynchronous replication are shown in
 Figure~\ref{fig:async_rep}.
 
 \begin{figure}
@@ -230,8 +234,8 @@ Figure~\ref{fig:async_rep}.
 Initiate replication of RPC call and arguments
 TX_BEGIN {
   Execute RPC call and modify local NVM
-  while(!replication_complete);
-  if(replication_failed) {
+  // Block till replication result known
+  if(replication failed) {
     TX_ABORT;
   }
 } TX_END
@@ -242,56 +246,59 @@ TX_BEGIN {
 \end{figure}
 
 \subsection{Synchronous Replication}
-Asynchronous replication provides good performance but lacks some guarantees
-necessary for certain distributed systems paradigms such as output commit and
+\label{sec:synch}
+Asynchronous replication provides good performance but lacks guarantees
+occasionally necessary for distributed systems paradigms such as output commit and
 the ability to integrate code that has non-deterministic execution paths or side
 effects - such as reading the time. Cyclone therefore provides programmers the
 ability to closely synchronize execution across the replicas using synchronous
 replication. Synchronous replication extends the programming model provided by
-cyclone to users - neccessitating some awareness on the part of the user about
+cyclone - but neccessitates some awareness on the part of the user about
 the difference between the leader and follower replicas. We show later
 (Sec~\ref{sec:examples}) how this awareness enables the crafting of efficient
-fault tolerant application with little effort on the part of the programmer.
+fault tolerant applications with little effort on the part of the programmer.
 
-Figure~\ref{fig:sync_rep} shows how synchronous replication operates. Execution
-of the RPC call is only initiated when the call and its arguments have been
-replicated. This ensures that any side effects such as calls to other machines
-only happen after it is guaranteed that the effects of the RPC call will be
-committed to the replicas. This provides the output commit property necessary
-for some of the applications we discuss below. Next the RPC call is executed on
-the leader and the result of the RPC call is replicated to the followers. The
-followers then proceed to execute the RPC call locally taking into account the
-result from the leader. This result can include data to synchronize
-non-deterministic steps such as reading the time on the replica. This process is
-always conditional on the view (current configuration of replicas and choice
-leader) staying unchanged. On a view change the process is reexcuted to ensure
-than only one set of RPC call results is propagated across the replicas. 
+Figure~\ref{fig:sync_rep} shows how synchronous replication operates.  Execution
+of the RPC call \emph{waits until the call and its arguments have been
+  replicated.} This crucial difference from asynchronous RPC execution ensures
+that any externally visible side effects of the RPC such as calls to other
+machines only happen after it is guaranteed that the effects of the RPC call
+will be committed to the replicas. This provides the output commit property
+necessary for some fault tolerance features in applications. Next the RPC call
+is executed on the leader and the result of the RPC call is replicated to the
+followers. The followers then proceed to execute the RPC call locally taking
+into account the result from the leader. This result can include data to
+synchronize non-deterministic steps such as reading the time on the replica.
+
+This process is made conditional on the view (current configuration of
+replicas and choice of leader) staying unchanged. To successfully complete
+execution, the leader must be able to execute the RPC call and replicate the
+result within the current view. This ensures that in the event of a network
+partition and later repair an old execution of a previous leader cannot commit a
+log record with results from a synchronously executed RPC call.
 
 \begin{figure*}
 { \scriptsize
 \begin{verbatim}
 Initiate replication of RPC call and arguments
-TX_BEGIN {
-  while(!replication_complete);
-  if(replication_failed) {
-    TX_ABORT;
-  }  
-  while(true) {
+while(true) {
+  TX_BEGIN {
+    // Block till replication result known
+    if(replication failed) {
+      TX_ABORT;
+    }  
     if(is_leader && !have_execution_result) {
       Execute RPC call and modify local NVM
-      replicate_rpc_call_result in current view;
+      replicate rpc call result in current view;
+      // Block till replication result known
       if(result replication failed) {
-        continue;
-      }
-      while(!result replication complete && !view change);
-      if(view change) {
-        continue;
+        TX_ABORT;
       }
     }
     else {
-      while(!result replication complete && !view change);
-      if(view change) {
-        continue;
+      // Block till replication done or view changes
+      if(!result replication complete) {
+        TX_ABORT;
       }
       Execute RPC call to modify local NVM with result from leader
     }
