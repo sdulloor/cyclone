@@ -40,9 +40,9 @@ cond_abs_dir(output)
 #load machine config
 mc_config=ConfigParser.RawConfigParser()
 mc_config.read(cluster)
+machines=mc_config.getint('machines','count')
 
-
-ports=2*max(replicas,co_replicas)*mc_config.getint('machines','count')*(clients + 1)
+ports=2*max(replicas,co_replicas)*machines*(clients + 1)
 
 # Generate server configs
 for q in range(0, quorums):
@@ -148,9 +148,8 @@ for r in range(0, co_replicas):
 for q in range(0, quorums):
     f=open(output + '/' + 'config_client' + str(q) + '.ini', 'w')
     f.write('[machines]\n')
-    machine_count=mc_config.getint('machines','count')
-    f.write('machines=' + str(machine_count) + '\n')
-    for i in range(0, machine_count):
+    f.write('machines=' + str(machines) + '\n')
+    for i in range(0, machines):
         addr=mc_config.get('machines','addr' + str(i))
         iface=mc_config.get('machines','iface' + str(i))
         f.write('addr' + str(i) + '=' + addr + '\n')
@@ -174,9 +173,8 @@ for q in range(0, quorums):
 #Generate coord client configs
 f=open(output + '/' + 'config_coord_client.ini', 'w')
 f.write('[machines]\n')
-machine_count=mc_config.getint('machines','count')
-f.write('machines=' + str(machine_count) + '\n')
-for i in range(0, mc_config.getint('machines','count')):
+f.write('machines=' + str(machines) + '\n')
+for i in range(0, machines):
     addr=mc_config.get('machines','addr' + str(i))
     iface=mc_config.get('machines','iface' + str(i))
     f.write('addr' + str(i) + '=' + addr + '\n')
@@ -188,57 +186,42 @@ f.close()
 
 
 # Generate tx client launch cmd
-machine_count=mc_config.getint('machines','count')
-for i in range(0, machine_count):
-    addr=mc_config.get('machines','addr' + str(i))
+for m in range(0, machines):
+    addr=mc_config.get('machines','addr' + str(m))
     dname=output + '/' + addr
     cond_abs_dir(dname)
-    f=open(dname + '/' + 'launch_tx_client','w')
-    cmd='./rbtree_map_coordinator_driver '
-    cmd=cmd + str(i) + ' '
-    cmd=cmd + str(co_replicas) + ' '
-    cmd=cmd + str(clients) + ' 0 '
-    cmd=cmd + 'config_coord.ini '
-    cmd=cmd + 'config_coord_client.ini '
-    cmd=cmd + str(quorums) + ' '
-    cmd=cmd + 'config config_client &> client_tx_log &\n'
-    f.write(cmd)
-    f.close()
-    f=open(dname + '/' + 'launch_preload','w')
-    cmd='./rbtree_map_coordinator_load '
-    cmd=cmd + str(i) + ' '
-    cmd=cmd + str(co_replicas) + ' '
-    cmd=cmd + str(clients) + ' 0 '
-    cmd=cmd + 'config_coord.ini '
-    cmd=cmd + 'config_coord_client.ini '
-    f.write(cmd)
-    f.close()
-
-
-# Generate client launch cmd
-machine_count=mc_config.getint('machines','count')
-for i in range(0, machine_count):
-    addr=mc_config.get('machines','addr' + str(i))
-    dname=output + '/' + addr
-    cond_abs_dir(dname)
-    f=open(dname + '/' + 'launch_client','w')
-    cmd='./rbtree_map_partitioned_driver '
-    cmd=cmd + str(i) + ' '
-    cmd=cmd + str(co_replicas) + ' '
-    cmd=cmd + str(clients) + ' 0 '
-    cmd=cmd + str(quorums) + ' '
-    cmd=cmd + 'config config_client &> client_log &\n'
-    f.write(cmd)
-    f.close()
-    f=open(dname + '/' + 'launch_preload','w')
-    cmd='./rbtree_map_coordinator_load '
-    cmd=cmd + str(i) + ' '
-    cmd=cmd + str(co_replicas) + ' '
-    cmd=cmd + str(clients) + ' 0 '
-    cmd=cmd + 'config_coord.ini '
-    cmd=cmd + 'config_coord_client.ini '
-    f.write(cmd)
-    f.close()
+    f_tx_client=open(dname + '/' + 'launch_tx_client','w')
+    f_preload=open(dname + '/' + 'launch_preload','w')
+    f_driver=open(dname + '/' + 'launch_client','w')
+    for c in range(0, clients - 1):
+        mc=c%machines
+        if mc==m:
+            cmd='./rbtree_map_coordinator_driver '
+            cmd=cmd + str(c) + ' '
+            cmd=cmd + str(co_replicas) + ' '
+            cmd=cmd + str(clients) + ' 0 '
+            cmd=cmd + 'config_coord.ini '
+            cmd=cmd + 'config_coord_client.ini '
+            cmd=cmd + str(quorums) + ' '
+            cmd=cmd + 'config config_client &> client_tx_log' + str(c) + '&\n'
+            f_tx_client.write(cmd)
+            cmd='./rbtree_map_coordinator_load '
+            cmd=cmd + str(c) + ' '
+            cmd=cmd + str(co_replicas) + ' '
+            cmd=cmd + str(clients) + ' 0 '
+            cmd=cmd + 'config_coord.ini '
+            cmd=cmd + 'config_coord_client.ini '
+            f_preload.write(cmd)
+            cmd='./rbtree_map_partitioned_driver '
+            cmd=cmd + str(c) + ' '
+            cmd=cmd + str(co_replicas) + ' '
+            cmd=cmd + str(clients) + ' 0 '
+            cmd=cmd + str(quorums) + ' '
+            cmd=cmd + 'config config_client &> client_log' + str(c) + '&\n'
+            f_driver.write(cmd)
+    f_tx_client.close()
+    f_preload.close()
+    f_driver.close()
 
 
 
