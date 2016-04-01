@@ -458,7 +458,7 @@ public:
       sockets_in[i] = cyclone_socket_in(context);
       key.str("");key.clear();
       addr.str("");addr.clear();
-      key << "machines.iface" << me;
+      key << "machines.iface" << me_mc;
       addr << "tcp://";
       addr << pt_client->get<std::string>(key.str().c_str());
       int port = client_baseport + me*server_machines + i;

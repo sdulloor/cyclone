@@ -37,6 +37,8 @@
 #include <unistd.h>
 #include <time.h>
 #include <assert.h>
+#include <boost/property_tree/ini_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
 #include "tree_map.hpp"
 #include "../core/clock.hpp"
 #include "../core/logging.hpp"
@@ -63,8 +65,10 @@ int main(int argc, const char *argv[]) {
   for(int i=0;i<partitions;i++) {
     sprintf(fname_server, "%s%d.ini", argv[6], i);
     sprintf(fname_client, "%s%d.ini", argv[7], i);
+    boost::property_tree::ptree pt_client;
+    boost::property_tree::read_ini(fname_client, pt_client);
     handles[i] = cyclone_client_init(me,
-				     me,
+				     me % pt_client.get<int>("machines.machines"),
 				     replicas,
 				     clients,
 				     fname_server,

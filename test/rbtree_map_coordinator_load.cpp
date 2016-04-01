@@ -37,6 +37,8 @@
 #include <unistd.h>
 #include <time.h>
 #include <assert.h>
+#include <boost/property_tree/ini_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
 #include "rbtree_map_coordinator.hpp"
 #include "../core/clock.hpp"
 #include "../core/logging.hpp"
@@ -55,8 +57,10 @@ int main(int argc, const char *argv[]) {
   int replicas = atoi(argv[2]);
   int clients  = atoi(argv[3]);
   unsigned long sleep_time = atol(argv[4]);
+  boost::property_tree::ptree pt_client;
+  boost::property_tree::read_ini(argv[6], pt_client);
   void * handle = cyclone_client_init(me,
-				      me,
+				      me % pt_client.get<int>("machines.machines"),
 				      replicas,
 				      clients,
 				      argv[5],
