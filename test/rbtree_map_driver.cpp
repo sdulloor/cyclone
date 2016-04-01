@@ -97,6 +97,7 @@ int main(int argc, const char *argv[]) {
       total_latency  = 0;
     }
   }
+  BOOST_LOG_TRIVIAL(info) << "LOADING COMPLETE";
 
   total_latency = 0;
   tx_block_cnt  = 0;
