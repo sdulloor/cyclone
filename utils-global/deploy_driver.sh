@@ -10,6 +10,7 @@ echo "group = $GROUP"
 echo '#!/bin/bash' > exec_client.sh
 echo "export LD_LIBRARY_PATH=/usr/local/lib:/usr/lib" >> exec_client.sh
 echo "cd $deploy_dir" >> exec_client.sh
+echo "ulimit -n 10000" >> exec_client.sh
 cp exec_client.sh exec_preload.sh
 cp exec_client.sh exec_tx_client.sh
 chmod u+x exec_client.sh

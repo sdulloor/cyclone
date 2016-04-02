@@ -12,6 +12,7 @@ echo "group = $GROUP"
 echo '#!/bin/bash' > exec_servers.sh
 echo "export LD_LIBRARY_PATH=/usr/local/lib:/usr/lib" >> exec_servers.sh
 echo "cd $deploy_dir" >> exec_servers.sh
+echo "ulimit -n 10000" >> exec_servers.sh
 cp exec_servers.sh exec_coord.sh
 echo "source launch_servers" >> exec_servers.sh
 echo "source launch_coord" >> exec_coord.sh
