@@ -162,11 +162,21 @@ static int __applylog(raft_server_t* raft,
 {
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   unsigned char *chunk = (unsigned char *)malloc(ety->data.len);
-  TX_BEGIN(cyclone_handle->pop_raft_state) {
-    (void)cyclone_handle->read_from_log(chunk, (unsigned long)ety->data.buf);
-  } TX_END
-  if(cyclone_handle->cyclone_commit_cb != NULL) {    
-    cyclone_handle->cyclone_commit_cb(cyclone_handle->user_arg, chunk, ety->data.len);
+  if(ety->type != RAFT_ADD_NODE) {
+    TX_BEGIN(cyclone_handle->pop_raft_state) {
+      (void)cyclone_handle->read_from_log(chunk, (unsigned long)ety->data.buf);
+    } TX_END
+    if(cyclone_handle->cyclone_commit_cb != NULL) {    
+      cyclone_handle->cyclone_commit_cb(cyclone_handle->user_arg, chunk, ety->data.len);
+    }
+  }
+  if(raft_entry_is_cfg_change(ety)) {
+    int delta_node_id = *(int *)chunk;
+    if(ety->type == RAFT_LOGTYPE_REMOVE_NODE && delta_node_id ==
+       cyclone_handle->me) {
+      BOOST_LOG_TRIVIAL(info) << "SHUTDOWN.";
+      exit(-1);
+    }
   }
   free(chunk);
   return 0;
@@ -210,7 +220,36 @@ static int __raft_logentry_offer(raft_server_t* raft,
 #ifdef TRACING
     trace_post_append(chunk, ety->data.len);
 #endif
-  if(cyclone_handle->cyclone_rep_cb != NULL) {    
+  if(ety->type == RAFT_LOGTYPE_ADD_NONVOTING_NODE) {
+    int delta_node_id = 
+      cyclone_handle->cyclone_nodeid_cb(cyclone_handle->user_arg,
+					chunk,
+					ety->data.len);
+    // call raft add non-voting node
+    raft_add_non_voting_node(cyclone_handle->raft_handle,
+			     cyclone_handle->router->output_socket(delta_node_id),
+			     delta_node_id,
+			     delta_node_id == cyclone_handle->me ? 1:0);
+  }
+  else if(ety->type == RAFT_LOGTYPE_ADD_NODE) {
+    int delta_node_id = *(int *)chunk;
+    // call raft add node
+    raft_add_node(cyclone_handle->raft_handle,
+		  cyclone_handle->router->output_socket(delta_node_id),
+		  delta_node_id,
+		  delta_node_id == cyclone_handle->me ? 1:0);
+  }
+  else if(ety->type == RAFT_LOGTYPE_REMOVE_NODE) {
+    int delta_node_id = 
+      cyclone_handle->cyclone_nodeid_cb(cyclone_handle->user_arg,
+					chunk,
+					ety->data.len);
+    // call raft remove node
+    raft_remove_node(cyclone_handle->raft_handle,
+		     raft_get_node(cyclone_handle->raft_handle,
+				   delta_node_id));
+  }
+  if(cyclone_handle->cyclone_rep_cb != NULL && ety->type != RAFT_ADD_NODE) {    
     cyclone_handle->cyclone_rep_cb(cyclone_handle->user_arg,
 				   (const unsigned char *)chunk,
 				   ety->data.len,
@@ -255,7 +294,10 @@ static int __raft_logentry_pop(raft_server_t* raft,
 {
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  if(cyclone_handle->cyclone_pop_cb != NULL) {    
+  if(raft_entry_is_cfg_change(entry)) {
+    // Reverse configuration change -- TBD
+  }
+  if(cyclone_handle->cyclone_pop_cb != NULL && entry->type != RAFT_ADD_NODE) {
     unsigned char *chunk = (unsigned char *)malloc(entry->data.len);
     TX_BEGIN(cyclone_handle->pop_raft_state) {
       (void)cyclone_handle->read_from_log(chunk, 
@@ -286,7 +328,19 @@ void __raft_has_sufficient_logs(raft_server_t *raft,
 				void *user_data,
 				raft_node_t *node)
 {
-  // TBD
+  msg_entry_t client_req;
+  msg_entry_response_t *client_rep;
+  client_req.id = rand();
+  client_req.data.buf = malloc(sizeof(int));
+  *(int *)client_req.data.buf = raft_node_get_id(node);
+  client_req.data.len = sizeof(int);
+  client_req.type = RAFT_LOGTYPE_ADD_NODE;
+  // TBD: Handle error
+  client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
+  (void)raft_recv_entry(raft_handle, 
+			&client_req, 
+			client_rep);
+  free(client_rep);
 }
 
 /** Raft callback for displaying debugging information */
@@ -343,6 +397,30 @@ void* cyclone_add_entry(void *cyclone_handle, void *data, int size)
   msg.msg_type    = MSG_CLIENT_REQ;
   msg.client.ptr  = data;
   msg.client.size = size;
+#ifdef TRACING
+  trace_send_cmd(data, size);
+#endif
+  cyclone_tx(handle->router->output_socket(handle->me), 
+	     (const unsigned char *)&msg, 
+	     sizeof(msg_t), 
+	     "client req");
+  cyclone_rx(handle->router->output_socket(handle->me),
+	     (unsigned char *)&cookie,
+	     sizeof(void *),
+	     "CLIENT REQ recv");
+  return cookie;
+}
+
+void* cyclone_add_entry_cfg(void *cyclone_handle, int type, void *data, int size)
+{
+  cyclone_t* handle = (cyclone_t *)cyclone_handle;
+  msg_t msg;
+  void *cookie = NULL;
+  msg.source      = handle->me;
+  msg.msg_type    = MSG_CLIENT_REQ_CFG;
+  msg.client.ptr  = data;
+  msg.client.size = size;
+  msg.client.type = type;
 #ifdef TRACING
   trace_send_cmd(data, size);
 #endif
@@ -414,6 +492,7 @@ void* cyclone_boot(const char *config_path,
 		   cyclone_callback_t cyclone_rep_callback,
 		   cyclone_callback_t cyclone_pop_callback,
 		   cyclone_commit_t cyclone_commit_callback,
+		   cyclone_nodeid_t cyclone_nodeid_callback,
 		   int me,
 		   int replicas,
 		   void *user_arg)
@@ -426,6 +505,7 @@ void* cyclone_boot(const char *config_path,
   cyclone_handle->cyclone_rep_cb = cyclone_rep_callback;
   cyclone_handle->cyclone_pop_cb = cyclone_pop_callback;
   cyclone_handle->cyclone_commit_cb = cyclone_commit_callback;
+  cyclone_handle->cyclone_nodeid_cb = cyclone_nodeid_callback,
   cyclone_handle->user_arg   = user_arg;
   
   boost::property_tree::read_ini(config_path, cyclone_handle->pt);
@@ -541,11 +621,14 @@ void* cyclone_boot(const char *config_path,
 					   cyclone_handle->me,
 					   cyclone_handle->replicas,
 					   false);
-  for(int i=0;i<cyclone_handle->replicas;i++) {
+  for(int i=0;i<cyclone_handle->pt.get<int>("active.replicas");i++) {
+    char nodeidxkey[100];
+    sprintf(nodeidxkey, "active.entry%d",i);
+    int nodeidx = pt.get<int>(nodeidxkey);
     raft_add_peer(cyclone_handle->raft_handle,
-		  cyclone_handle->router->output_socket(i),
-		  i,
-		  i == cyclone_handle->me ? 1:0);
+		  cyclone_handle->router->output_socket(nodeidx),
+		  nodeidx,
+		  nodeidx == cyclone_handle->me ? 1:0);
   }
 
   cyclone_handle->cyclone_buffer_in  = new unsigned char[MSG_MAXSIZE];

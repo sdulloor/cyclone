@@ -9,6 +9,10 @@ int cyclone_get_leader(void *cyclone_handle); // returns leader id
 int cyclone_get_term(void *cyclone_handle); // Get current term
 // Returns a non-null cookie if accepted for replication
 extern void *cyclone_add_entry(void * cyclone_handle, void *data, int size); 
+extern void *cyclone_add_entry_cfg(void * cyclone_handle,
+				   int type,
+				   void *data,
+				   int size); 
 extern void *cyclone_add_entry_term(void * cyclone_handle, 
 				    void *data, 
 				    int size,
@@ -25,11 +29,17 @@ typedef void (*cyclone_callback_t)(void *user_arg,
 typedef void (*cyclone_commit_t)(void *user_arg,
 				 const unsigned char *data,
 				 const int len);
+
+//Callback to extract nodeif for cfg change messages
+typedef int (*cyclone_nodeid_t)(void *user_arg,
+				const unsigned char *data,
+				const int len);
 // Returns a cyclone handle
 extern void* cyclone_boot(const char *config_path,
 			  cyclone_callback_t cyclone_rep_callback,
 			  cyclone_callback_t cyclone_pop_callback,
 			  cyclone_commit_t cyclone_commit_callback,
+			  cyclone_nodeid_t cyclone_nodeid_callback,
 			  int me,
 			  int replicas,
 			  void *user_arg);
@@ -60,9 +70,11 @@ static const int RPC_REQ_STATUS_BLOCK   = 2; // Check status (blocking)
 static const int RPC_REQ_LAST_TXID      = 3; // Get last seen txid from this client
 static const int RPC_REQ_MARKER         = 4; // Dispatcher internal (do not use)
 static const int RPC_REQ_DATA           = 5; // Dispatcher internal (do not use)
-static const int RPC_REP_COMPLETE       = 6; // DONE 
-static const int RPC_REP_PENDING        = 7; // PENDING 
-static const int RPC_REP_UNKNOWN        = 8; // UNKNOWN RPC
-static const int RPC_REP_INVSRV         = 9; // WRONG master  -- master set in reply
-static const int RPC_REP_OLD            = 10; // RPC too old to cache results
+static const int RPC_REQ_NODEADD        = 6; // Add a replica
+static const int RPC_REQ_NODEDEL        = 7; // Delete a replica
+static const int RPC_REP_COMPLETE       = 8; // DONE 
+static const int RPC_REP_PENDING        = 9; // PENDING 
+static const int RPC_REP_UNKNOWN        = 10; // UNKNOWN RPC
+static const int RPC_REP_INVSRV         = 11; // WRONG master  -- master set in reply
+static const int RPC_REP_OLD            = 12; // RPC too old to cache results
 #endif

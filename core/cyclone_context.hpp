@@ -39,6 +39,7 @@ typedef struct client_io_st {
   void *ptr;
   int size;
   int term;
+  int type;
 } client_t;
 
 typedef struct
@@ -83,6 +84,7 @@ typedef struct cyclone_st {
   cyclone_callback_t cyclone_rep_cb;
   cyclone_callback_t cyclone_pop_cb;
   cyclone_commit_t cyclone_commit_cb;
+  cyclone_nodeid_t cyclone_nodeid_cb;
   void *user_arg;
   unsigned char* cyclone_buffer_out;
   unsigned char* cyclone_buffer_in;
@@ -285,6 +287,37 @@ typedef struct cyclone_st {
 	       msg->client.ptr, 
 	       msg->client.size);
 	client_req.data.len = msg->client.size;
+	client_req.type = RAFT_LOGTYPE_NORMAL;
+	// TBD: Handle error
+	client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
+	(void)raft_recv_entry(raft_handle, 
+			      &client_req, 
+			      client_rep);
+	cyclone_tx(router->input_socket(me),
+		    (unsigned char *)&client_rep,
+		    sizeof(void *),
+		    "CLIENT COOKIE SEND");
+      }
+      break;
+    case MSG_CLIENT_REQ_CFG:
+#ifdef TRACING
+      trace_recv_cmd(msg->client.ptr, msg->client.size);
+#endif
+      if(!cyclone_is_leader(this)) {
+	client_rep = NULL;
+	cyclone_tx(router->input_socket(me),
+		    (unsigned char *)&client_rep,
+		    sizeof(void *),
+		    "CLIENT COOKIE SEND");
+      }
+      else {
+	client_req.id = rand();
+	client_req.data.buf = malloc(msg->client.size);
+	memcpy(client_req.data.buf, 
+	       msg->client.ptr, 
+	       msg->client.size);
+	client_req.data.len = msg->client.size;
+	client_req.type = msg->client.type;
 	// TBD: Handle error
 	client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
 	(void)raft_recv_entry(raft_handle, 
@@ -321,6 +354,7 @@ typedef struct cyclone_st {
 	       msg->client.ptr, 
 	       msg->client.size);
 	client_req.data.len = msg->client.size;
+	client_req.type = RAFT_LOGTYPE_NORMAL;
 	// TBD: Handle error
 	client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
 	(void)raft_recv_entry(raft_handle, 

@@ -97,6 +97,7 @@ int main(int argc, char *argv[])
 				&cyclone_rep_cb,
 				&cyclone_pop_cb,
 				&cyclone_cb,
+				NULL,
 				node_id,
 				replicas,
 				NULL);

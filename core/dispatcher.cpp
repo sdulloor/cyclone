@@ -279,9 +279,17 @@ void exec_rpc_internal(rpc_info_t *rpc)
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   volatile bool user_tx_aborted = true;
   TX_BEGIN(state) {
-    rpc->sz = execute_rpc((const unsigned char *)(rpc->rpc + 1),
-			  rpc->len - sizeof(rpc_t),
-			  &rpc->ret_value);
+    if(rpc->rpc->code == RPC_REQ_NODEADD) {
+      rpc->sz= 0;
+    }
+    else if(rpc->rpc->code == RPC_REQ_NODEDEL) {
+      rpc->sz = 0;
+    }
+    else {
+      rpc->sz = execute_rpc((const unsigned char *)(rpc->rpc + 1),
+			    rpc->len - sizeof(rpc_t),
+			    &rpc->ret_value);
+    }
     while(!rpc->rep_success && !rpc->rep_failed);
     user_tx_aborted = false;
     if(rpc->rep_success) {
@@ -607,6 +615,8 @@ struct dispatcher_loop {
 	rpc_rep->last_client_txid = get_max_client_txid(rpc_req->client_id);
       }
       break;
+    case RPC_REQ_NODEADD:
+    case RPC_REQ_NODEDEL:
     case RPC_REQ_FN:
       if(get_max_client_txid(rpc_req->client_id) >= rpc_req->client_txid) {
 	rpc_rep->client_txid = rpc_req->client_txid;
@@ -623,7 +633,21 @@ struct dispatcher_loop {
       else {
 	rpc_rep->client_txid = rpc_req->client_txid;
 	// Initiate replication
-	cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
+	if(rpc_req->code == RPC_REQ_FN) {
+	  cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
+	}
+	else if(rpc_req->code == RPC_REQ_NODEADD) {
+	  cookie = cyclone_add_entry_cfg(cyclone_handle,
+					 RAFT_LOGTYPE_ADD_NONVOTING_NODE,
+					 rpc_req,
+					 sz);
+	}
+	else {
+	  cookie = cyclone_add_entry_cfg(cyclone_handle,
+					 RAFT_LOGTYPE_REMOVE_NODE,
+					 rpc_req,
+					 sz);
+	}
 	if(cookie != NULL) {
 	  rep_sz = sizeof(rpc_t);
 	  rpc_rep->code = RPC_REP_PENDING;
@@ -741,6 +765,16 @@ struct dispatcher_loop {
 
 static dispatcher_loop * dispatcher_loop_obj;
 
+
+//Callback to extract nodeif for cfg change messages
+typedef int cyclone_nodeid_cb(void *user_arg,
+			      const unsigned char *data,
+			      const int len)
+{
+  const rpc_t * rpc = (rpc_t *)data;
+  return rpc->master;
+}
+
 void dispatcher_start(const char* config_server_path,
 		      const char* config_client_path,
 		      rpc_callback_t rpc_callback,
@@ -832,6 +866,7 @@ void dispatcher_start(const char* config_server_path,
 				&cyclone_rep_cb,
 				&cyclone_pop_cb,
 				&cyclone_commit_cb,
+				&cyclone_nodeid_cb,
 				me,
 				replicas,
 				NULL);

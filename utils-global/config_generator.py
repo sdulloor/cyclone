@@ -63,7 +63,12 @@ for q in range(0, quorums):
     for mc in range(0, replicas):
         mc_id=config.getint(qstring, 'mc' + str(mc))
         f.write('addr'+ str(mc) + '=' + mc_config.get('machines', 'addr' + str(mc_id)) + '\n')
-        f.write('iface'+ str(mc) + '=' + mc_config.get('machines', 'iface' + str(mc_id)) + '\n')
+        f.write('iface'+ str(mc) + '=' + mc_config.get('machines', 'iface' +
+                                                       str(mc_id)) + '\n')
+    f.write('[active]\n')
+    f.write('replicas=' + str(replicas)+'\n')
+    for mc in range(0, replicas):
+        f.write('entry'+ mc +'=' + mc +'\n')
     f.write('[dispatch]\n')
     f.write('server_baseport=' + str(server_baseports[str(q)]) + '\n')
     f.write('client_baseport=' + str(client_baseports[str(q)]) + '\n')
