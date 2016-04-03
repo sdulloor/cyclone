@@ -68,7 +68,7 @@ for q in range(0, quorums):
     f.write('[active]\n')
     f.write('replicas=' + str(replicas)+'\n')
     for mc in range(0, replicas):
-        f.write('entry'+ mc +'=' + mc +'\n')
+        f.write('entry'+ str(mc) +'=' + str(mc) +'\n')
     f.write('[dispatch]\n')
     f.write('server_baseport=' + str(server_baseports[str(q)]) + '\n')
     f.write('client_baseport=' + str(client_baseports[str(q)]) + '\n')
