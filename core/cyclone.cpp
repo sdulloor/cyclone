@@ -162,7 +162,7 @@ static int __applylog(raft_server_t* raft,
 {
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   unsigned char *chunk = (unsigned char *)malloc(ety->data.len);
-  if(ety->type != RAFT_ADD_NODE) {
+  if(ety->type != RAFT_LOGTYPE_ADD_NODE) {
     TX_BEGIN(cyclone_handle->pop_raft_state) {
       (void)cyclone_handle->read_from_log(chunk, (unsigned long)ety->data.buf);
     } TX_END
@@ -223,7 +223,7 @@ static int __raft_logentry_offer(raft_server_t* raft,
   if(ety->type == RAFT_LOGTYPE_ADD_NONVOTING_NODE) {
     int delta_node_id = 
       cyclone_handle->cyclone_nodeid_cb(cyclone_handle->user_arg,
-					chunk,
+					(const unsigned char *)chunk,
 					ety->data.len);
     // call raft add non-voting node
     raft_add_non_voting_node(cyclone_handle->raft_handle,
@@ -242,14 +242,14 @@ static int __raft_logentry_offer(raft_server_t* raft,
   else if(ety->type == RAFT_LOGTYPE_REMOVE_NODE) {
     int delta_node_id = 
       cyclone_handle->cyclone_nodeid_cb(cyclone_handle->user_arg,
-					chunk,
+					(const unsigned char *)chunk,
 					ety->data.len);
     // call raft remove node
     raft_remove_node(cyclone_handle->raft_handle,
 		     raft_get_node(cyclone_handle->raft_handle,
 				   delta_node_id));
   }
-  if(cyclone_handle->cyclone_rep_cb != NULL && ety->type != RAFT_ADD_NODE) {    
+  if(cyclone_handle->cyclone_rep_cb != NULL && ety->type != RAFT_LOGTYPE_ADD_NODE) {    
     cyclone_handle->cyclone_rep_cb(cyclone_handle->user_arg,
 				   (const unsigned char *)chunk,
 				   ety->data.len,
@@ -297,7 +297,7 @@ static int __raft_logentry_pop(raft_server_t* raft,
   if(raft_entry_is_cfg_change(entry)) {
     // Reverse configuration change -- TBD
   }
-  if(cyclone_handle->cyclone_pop_cb != NULL && entry->type != RAFT_ADD_NODE) {
+  if(cyclone_handle->cyclone_pop_cb != NULL && entry->type != RAFT_LOGTYPE_ADD_NODE) {
     unsigned char *chunk = (unsigned char *)malloc(entry->data.len);
     TX_BEGIN(cyclone_handle->pop_raft_state) {
       (void)cyclone_handle->read_from_log(chunk, 
@@ -330,6 +330,7 @@ void __raft_has_sufficient_logs(raft_server_t *raft,
 {
   msg_entry_t client_req;
   msg_entry_response_t *client_rep;
+  cyclone_t* cyclone_handle = (cyclone_t *)user_data;
   client_req.id = rand();
   client_req.data.buf = malloc(sizeof(int));
   *(int *)client_req.data.buf = raft_node_get_id(node);
@@ -337,7 +338,7 @@ void __raft_has_sufficient_logs(raft_server_t *raft,
   client_req.type = RAFT_LOGTYPE_ADD_NODE;
   // TBD: Handle error
   client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
-  (void)raft_recv_entry(raft_handle, 
+  (void)raft_recv_entry(cyclone_handle->raft_handle, 
 			&client_req, 
 			client_rep);
   free(client_rep);
@@ -624,7 +625,7 @@ void* cyclone_boot(const char *config_path,
   for(int i=0;i<cyclone_handle->pt.get<int>("active.replicas");i++) {
     char nodeidxkey[100];
     sprintf(nodeidxkey, "active.entry%d",i);
-    int nodeidx = pt.get<int>(nodeidxkey);
+    int nodeidx = cyclone_handle->pt.get<int>(nodeidxkey);
     raft_add_peer(cyclone_handle->raft_handle,
 		  cyclone_handle->router->output_socket(nodeidx),
 		  nodeidx,

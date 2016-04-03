@@ -28,7 +28,7 @@ const int  MSG_APPENDENTRIES_RESPONSE   = 4;
 const int  MSG_CLIENT_REQ               = 5;
 const int  MSG_CLIENT_REQ_TERM          = 6;
 const int  MSG_CLIENT_STATUS            = 7;
-
+const int  MSG_CLIENT_REQ_CFG           = 8;
 
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 4194304;

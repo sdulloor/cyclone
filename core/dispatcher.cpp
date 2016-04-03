@@ -4,6 +4,7 @@
 #include<string.h>
 #include<errno.h>
 #include<unistd.h>
+#include<raft.h>
 #include "cyclone.hpp"
 #include "libcyclone.hpp"
 #include "dispatcher_layout.hpp"
@@ -767,9 +768,9 @@ static dispatcher_loop * dispatcher_loop_obj;
 
 
 //Callback to extract nodeif for cfg change messages
-typedef int cyclone_nodeid_cb(void *user_arg,
-			      const unsigned char *data,
-			      const int len)
+int cyclone_nodeid_cb(void *user_arg,
+		      const unsigned char *data,
+		      const int len)
 {
   const rpc_t * rpc = (rpc_t *)data;
   return rpc->master;
