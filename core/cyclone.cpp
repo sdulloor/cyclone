@@ -350,7 +350,7 @@ void __raft_has_sufficient_logs(raft_server_t *raft,
   client_req.id = rand();
   client_req.data.buf = malloc(sizeof(int));
   *(int *)client_req.data.buf = raft_node_get_id(node);
-  BOOST_LOG_TRIVIAL(info) << "NODE HAS SUFFICIENT LOGS " << *(int *)cleint_req.data.buf;
+  BOOST_LOG_TRIVIAL(info) << "NODE HAS SUFFICIENT LOGS " << *(int *)client_req.data.buf;
   client_req.data.len = sizeof(int);
   client_req.type = RAFT_LOGTYPE_ADD_NODE;
   // TBD: Handle error

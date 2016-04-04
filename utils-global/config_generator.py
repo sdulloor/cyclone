@@ -28,7 +28,7 @@ clients=config.getint('meta','clients')
 #read inactive list
 inactive_list    = {}
 if config.has_section('inactive'):
-    inactive_cnt=config.getint('inactive.count')
+    inactive_cnt=config.getint('inactive','count')
     for i in range(0, inactive_cnt):
         mc=config.get('inactive','mc'+str(i))
         inactive_list[str(mc)]='yes'
@@ -77,10 +77,12 @@ for q in range(0, quorums):
             active_count = active_count + 1
     f.write('[active]\n')
     f.write('replicas=' + str(active_count)+'\n')
+    index=0
     for mc in range(0, replicas):
         mc_id=config.getint(qstring, 'mc' + str(mc))
         if not str(mc_id) in inactive_list:
-            f.write('entry'+ str(mc) +'=' + str(mc) +'\n')
+            f.write('entry'+ str(index) +'=' + str(mc) +'\n')
+            index=index+1
     f.write('[dispatch]\n')
     f.write('server_baseport=' + str(server_baseports[str(q)]) + '\n')
     f.write('client_baseport=' + str(client_baseports[str(q)]) + '\n')
@@ -92,6 +94,7 @@ for q in range(0, quorums):
         dname=output + '/' + m
         cond_abs_dir(dname)
         cond_abs_rm(output + '/' + 'launch_servers.sh')
+        cond_abs_rm(output + '/' + 'launch_inactive_servers.sh')
         shutil.copy(config_name,  dname + '/' + 'config_server.ini')
 
 # Generate coordinator config
@@ -112,6 +115,10 @@ for mc in range(0, co_replicas):
     mc_id=config.getint(qstring, 'mc' + str(mc))
     f.write('addr'+ str(mc) + '=' + mc_config.get('machines', 'addr' + str(mc_id)) + '\n')
     f.write('iface'+ str(mc) + '=' + mc_config.get('machines', 'iface' + str(mc_id)) + '\n')
+f.write('[active]\n')
+f.write('replicas=' + str(co_replicas)+'\n')
+for mc in range(0, co_replicas):
+    f.write('entry'+ str(mc) +'=' + str(mc) +'\n')
 f.write('[dispatch]\n')
 f.write('server_baseport='+ str(coord_baseport) + '\n')
 f.write('client_baseport='+ str(coord_client_baseport) + '\n')
@@ -131,9 +138,13 @@ for q in range(0, quorums):
     for r in range(0, replicas):
         qstring='quorum' + str(q)
         rstring='mc' + str(r)
-        m=mc_config.get('machines','addr' + config.get(qstring, rstring))
+        mc_id = config.get(qstring, rstring)
+        m=mc_config.get('machines','addr' + str(mc_id))
         dname=output + '/' + m
-        f=open(dname + '/' + 'launch_servers','w')
+        if not str(mc_id) in inactive_list:
+            f=open(dname + '/' + 'launch_servers','w')
+        else:
+            f=open(dname + '/' + 'launch_inactive_servers','w')
         cmd='./rbtree_map_server '
         cmd=cmd + str(r) + ' '
         cmd=cmd + str(replicas) + ' '
@@ -141,7 +152,6 @@ for q in range(0, quorums):
         cmd=cmd + 'config_server.ini config_client.ini &> server_log &\n'
         f.write(cmd)
         f.close()
-
 
 # Generate coord launch cmd
 for r in range(0, co_replicas):
