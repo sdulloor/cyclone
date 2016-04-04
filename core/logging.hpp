@@ -41,7 +41,7 @@ public:
     final << boost::posix_time::to_simple_string(boost::posix_time::microsec_clock::local_time()) << " ";
     final << boost::this_thread::get_id() << "> ";
     final << state.str() << std::endl;
-    std::cerr << final.str();
+    std::cerr << final.str() << std::flush;
   }
 };
 

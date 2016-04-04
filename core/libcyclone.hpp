@@ -71,6 +71,9 @@ int get_response(void *handle,
 		 void **response,
 		 int txid);
 
+int delete_node(void *handle, int txid, int node);
+
+
 // Possible flags 
 static const int RPC_FLAG_SYNCHRONOUS   = 1; // Synchronous execution across replicas
 static const int RPC_FLAG_RO            = 2; // Read-only RPC

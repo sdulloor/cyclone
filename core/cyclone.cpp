@@ -162,6 +162,7 @@ static int __applylog(raft_server_t* raft,
 {
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   unsigned char *chunk = (unsigned char *)malloc(ety->data.len);
+  int delta_node_id;
   if(ety->type != RAFT_LOGTYPE_ADD_NODE) {
     TX_BEGIN(cyclone_handle->pop_raft_state) {
       (void)cyclone_handle->read_from_log(chunk, (unsigned long)ety->data.buf);
@@ -169,13 +170,15 @@ static int __applylog(raft_server_t* raft,
     if(cyclone_handle->cyclone_commit_cb != NULL) {    
       cyclone_handle->cyclone_commit_cb(cyclone_handle->user_arg, chunk, ety->data.len);
     }
-  }
-  if(raft_entry_is_cfg_change(ety)) {
-    int delta_node_id = *(int *)chunk;
-    if(ety->type == RAFT_LOGTYPE_REMOVE_NODE && delta_node_id ==
-       cyclone_handle->me) {
-      BOOST_LOG_TRIVIAL(info) << "SHUTDOWN.";
-      exit(-1);
+    if(ety->type == RAFT_LOGTYPE_REMOVE_NODE) {
+      delta_node_id =
+	cyclone_handle->cyclone_nodeid_cb(cyclone_handle->user_arg,
+					  (const unsigned char *)chunk,
+					  ety->data.len);
+      BOOST_LOG_TRIVIAL(info) << "SHUTDOWN node " << delta_node_id;
+      if(delta_node_id == cyclone_handle->me) {
+	exit(-1);
+      }
     }
   }
   free(chunk);
