@@ -163,23 +163,36 @@ static int __applylog(raft_server_t* raft,
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   unsigned char *chunk = (unsigned char *)malloc(ety->data.len);
   int delta_node_id;
-  if(ety->type != RAFT_LOGTYPE_ADD_NODE) {
+  TX_BEGIN(cyclone_handle->pop_raft_state) {
+    (void)cyclone_handle->read_from_log(chunk, (unsigned long)ety->data.buf);
+  } TX_END
+  if(ety->type != RAFT_LOGTYPE_ADD_NODE &&
+     cyclone_handle->cyclone_commit_cb != NULL) {    
+    cyclone_handle->cyclone_commit_cb(cyclone_handle->user_arg, chunk, ety->data.len);
+  }
+  if(ety->type == RAFT_LOGTYPE_REMOVE_NODE) {
+    delta_node_id =
+      cyclone_handle->cyclone_nodeid_cb(cyclone_handle->user_arg,
+					(const unsigned char *)chunk,
+					ety->data.len);
+    BOOST_LOG_TRIVIAL(info) << "SHUTDOWN node " << delta_node_id;
+    if(delta_node_id == cyclone_handle->me) {
+      exit(-1);
+    }
+  }
+  else if(ety->type == RAFT_LOGTYPE_ADD_NONVOTING_NODE) {
+    delta_node_id =
+      cyclone_handle->cyclone_nodeid_cb(cyclone_handle->user_arg,
+					(const unsigned char *)chunk,
+					ety->data.len);
+    BOOST_LOG_TRIVIAL(info) << "INIT nonvoting node " << delta_node_id;
+  }
+  else if(ety->type == RAFT_LOGTYPE_ADD_NODE) {
     TX_BEGIN(cyclone_handle->pop_raft_state) {
       (void)cyclone_handle->read_from_log(chunk, (unsigned long)ety->data.buf);
     } TX_END
-    if(cyclone_handle->cyclone_commit_cb != NULL) {    
-      cyclone_handle->cyclone_commit_cb(cyclone_handle->user_arg, chunk, ety->data.len);
-    }
-    if(ety->type == RAFT_LOGTYPE_REMOVE_NODE) {
-      delta_node_id =
-	cyclone_handle->cyclone_nodeid_cb(cyclone_handle->user_arg,
-					  (const unsigned char *)chunk,
-					  ety->data.len);
-      BOOST_LOG_TRIVIAL(info) << "SHUTDOWN node " << delta_node_id;
-      if(delta_node_id == cyclone_handle->me) {
-	exit(-1);
-      }
-    }
+    int *delta_node_idp = (int *)chunk;
+    BOOST_LOG_TRIVIAL(info) << "STARTUP node " << *delta_node_idp;
   }
   free(chunk);
   return 0;
@@ -337,6 +350,7 @@ void __raft_has_sufficient_logs(raft_server_t *raft,
   client_req.id = rand();
   client_req.data.buf = malloc(sizeof(int));
   *(int *)client_req.data.buf = raft_node_get_id(node);
+  BOOST_LOG_TRIVIAL(info) << "NODE HAS SUFFICIENT LOGS " << *(int *)cleint_req.data.buf;
   client_req.data.len = sizeof(int);
   client_req.type = RAFT_LOGTYPE_ADD_NODE;
   // TBD: Handle error
@@ -625,16 +639,28 @@ void* cyclone_boot(const char *config_path,
 					   cyclone_handle->me,
 					   cyclone_handle->replicas,
 					   false);
+  bool i_am_active = false;
   for(int i=0;i<cyclone_handle->pt.get<int>("active.replicas");i++) {
     char nodeidxkey[100];
     sprintf(nodeidxkey, "active.entry%d",i);
     int nodeidx = cyclone_handle->pt.get<int>(nodeidxkey);
+    if(nodeidx == cyclone_handle->me) {
+      i_am_active = true;
+    }
     raft_add_peer(cyclone_handle->raft_handle,
 		  cyclone_handle->router->output_socket(nodeidx),
 		  nodeidx,
 		  nodeidx == cyclone_handle->me ? 1:0);
   }
 
+  // Must activate myself
+  if(!i_am_active) {
+    raft_add_peer(cyclone_handle->raft_handle,
+		  cyclone_handle->router->output_socket(cyclone_handle->me),
+		  cyclone_handle->me,
+		  1);
+  }
+  
   cyclone_handle->cyclone_buffer_in  = new unsigned char[MSG_MAXSIZE];
   cyclone_handle->cyclone_buffer_out = new unsigned char[MSG_MAXSIZE];
   /* Launch cyclone service */

@@ -25,6 +25,14 @@ replicas=config.getint('meta','replicas')
 co_replicas=config.getint('meta','co_replicas')
 clients=config.getint('meta','clients')
 
+#read inactive list
+inactive_list    = {}
+if config.has_section('inactive'):
+    inactive_cnt=config.getint('inactive.count')
+    for i in range(0, inactive_cnt):
+        mc=config.get('inactive','mc'+str(i))
+        inactive_list[str(mc)]='yes'
+
 raftpath=config.get('meta','raftpath') + ".cyclone"
 filepath=config.get('meta','filepath') + ".cyclone"
 coord_raftpath=config.get('meta','coord_raftpath') + ".cyclone"
@@ -60,15 +68,19 @@ for q in range(0, quorums):
     f.write('baseport=5000\n')
     f.write('[machines]\n')
     f.write('machines='+str(replicas)+'\n')
+    active_count=0
     for mc in range(0, replicas):
         mc_id=config.getint(qstring, 'mc' + str(mc))
         f.write('addr'+ str(mc) + '=' + mc_config.get('machines', 'addr' + str(mc_id)) + '\n')
-        f.write('iface'+ str(mc) + '=' + mc_config.get('machines', 'iface' +
-                                                       str(mc_id)) + '\n')
+        f.write('iface'+ str(mc) + '=' + mc_config.get('machines', 'iface' + str(mc_id)) + '\n')
+        if not str(mc_id) in inactive_list:
+            active_count = active_count + 1
     f.write('[active]\n')
-    f.write('replicas=' + str(replicas)+'\n')
+    f.write('replicas=' + str(active_count)+'\n')
     for mc in range(0, replicas):
-        f.write('entry'+ str(mc) +'=' + str(mc) +'\n')
+        mc_id=config.getint(qstring, 'mc' + str(mc))
+        if not str(mc_id) in inactive_list:
+            f.write('entry'+ str(mc) +'=' + str(mc) +'\n')
     f.write('[dispatch]\n')
     f.write('server_baseport=' + str(server_baseports[str(q)]) + '\n')
     f.write('client_baseport=' + str(client_baseports[str(q)]) + '\n')
