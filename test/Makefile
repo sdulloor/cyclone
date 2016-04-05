@@ -1,7 +1,8 @@
 all: cyclone_test dispatch_test_server dispatch_test_client rbtree_map_server \
 rbtree_map_client rbtree_map_driver rbtree_map_synchronous_driver \
 rbtree_map_ro_driver rbtree_map_partitioned_driver rbtree_map_coordinator\
-rbtree_map_coordinator_driver rbtree_map_coordinator_load rbtree_map_delete_node
+rbtree_map_coordinator_driver rbtree_map_coordinator_load rbtree_map_delete_node\
+rbtree_map_add_node
 
 CXXFLAGS = -O3 -DBOOST_LOG_DYN_LINK
 #CXXFLAGS = -O1 -g -fno-omit-frame-pointer -DBOOST_LOG_DYN_LINK
@@ -39,6 +40,9 @@ rbtree_map_partitioned_driver:rbtree_map_partitioned_driver.cpp
 rbtree_map_delete_node:rbtree_map_delete_node.cpp 
 	$(CXX) $(CXXFLAGS) rbtree_map_delete_node.cpp -lc -lcyclone  $(BOOST_THREAD_LIB)  -lboost_system -lboost_date_time -lpthread -o $@
 
+rbtree_map_add_node:rbtree_map_add_node.cpp 
+	$(CXX) $(CXXFLAGS) rbtree_map_add_node.cpp -lc -lcyclone  $(BOOST_THREAD_LIB)  -lboost_system -lboost_date_time -lpthread -o $@
+
 rbtree_map_coordinator_driver:rbtree_map_coordinator_driver.cpp 
 	$(CXX) $(CXXFLAGS) rbtree_map_coordinator_driver.cpp -lc -lcyclone  $(BOOST_THREAD_LIB)  -lboost_system -lboost_date_time -lpthread -o $@
 
@@ -57,6 +61,7 @@ clean:
 	rbtree_map_server rbtree_map_client rbtree_map_driver\
 	rbtree_map_synchronous_driver rbtree_map_ro_driver\
 	rbtree_map_partitioned_driver rbtree_map_coordinator\
-	rbtree_map_coordinator_driver rbtree_map_coordinator_load rbtree_map_delete_node
+	rbtree_map_coordinator_driver rbtree_map_coordinator_load\
+	rbtree_map_delete_node rbtree_map_add_node
 
 

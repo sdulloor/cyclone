@@ -73,6 +73,8 @@ int get_response(void *handle,
 
 int delete_node(void *handle, int txid, int node);
 
+int add_node(void *handle, int txid, int node);
+
 
 // Possible flags 
 static const int RPC_FLAG_SYNCHRONOUS   = 1; // Synchronous execution across replicas

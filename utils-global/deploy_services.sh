@@ -31,6 +31,7 @@ do
 	echo "deploying to $mc"
 	scp ${i}/* ${mc}:${deploy_dir}
 	scp exec_servers.sh ${mc}:
+	scp exec_inactive_servers.sh ${mc}:
 	scp exec_coord.sh ${mc}:
 	scp ${output_dir}/*.ini ${mc}:${deploy_dir}
 	

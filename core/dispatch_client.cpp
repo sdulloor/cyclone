@@ -139,6 +139,59 @@ typedef struct rpc_client_st {
     return packet_in->last_client_txid;
   }
 
+  int add_node(int txid, int nodeid)
+  {
+    int retcode;
+    int resp_sz;
+    rtc_clock clock;
+    while(true) {
+      packet_out->code        = RPC_REQ_NODEADD;
+      packet_out->client_id   = me;
+      packet_out->timestamp   = clock.current_time();
+      packet_out->client_txid = txid;
+      packet_out->master      = nodeid;
+      retcode = cyclone_tx_timeout(router->output_socket(server), 
+				   (unsigned char *)packet_out, 
+				   sizeof(rpc_t), 
+				   timeout_msec*1000,
+				   "PROPOSE");
+      if(retcode == -1) {
+	update_server("tx timeout");
+	continue;
+      }
+      while(true) {
+	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
+				     (unsigned char *)packet_in, 
+				     DISP_MAX_MSGSIZE, 
+				     timeout_msec*1000,
+				     "RESULT");
+	if(resp_sz != -1 &&
+	   packet_in->code != RPC_REP_INVSRV &&
+	   packet_in->client_txid != packet_out->client_txid) {
+	  continue;
+	}
+	break;
+      }
+      if(resp_sz == -1) {
+	update_server("rx timeout");
+	continue;
+      }
+      if(packet_in->code == RPC_REP_INVSRV) {
+	if(packet_in->master == -1) {
+	  BOOST_LOG_TRIVIAL(info) << "Unknown master !";
+	  update_server("unknown master");
+	}
+	else {
+	  server = packet_in->master;
+	  set_server();
+	}
+	continue;
+      }
+      break;
+    }
+    return packet_in->last_client_txid;
+  }
+
   int retrieve_response(void **response, int txid)
   {
     rtc_clock clock;
@@ -370,4 +423,10 @@ int delete_node(void *handle, int txid, int node)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
   return client->delete_node(txid, node);
+}
+
+int add_node(void *handle, int txid, int node)
+{
+  rpc_client_t *client = (rpc_client_t *)handle;
+  return client->add_node(txid, node);
 }
