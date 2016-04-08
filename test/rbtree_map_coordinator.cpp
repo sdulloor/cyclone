@@ -20,10 +20,10 @@ TOID(char) nvheap_setup(TOID(char) recovered,
     txnum = TX_ALLOC(uint64_t, sizeof(uint64_t));
     *D_RW(txnum) = 1;
     store = TX_ALLOC(char, sizeof(TOID(uint64_t)));
-    TX_MEMCPY(D_RW(store), &txnum, sizeof(TOID(uint64_t)));
+    memcpy(D_RW(store), &txnum, sizeof(TOID(uint64_t)));
   }
   else {
-    TX_MEMCPY(&txnum, D_RO(store), sizeof(TOID(uint64_t)));
+    memcpy(&txnum, D_RO(store), sizeof(TOID(uint64_t)));
   }
   return store; 
 }

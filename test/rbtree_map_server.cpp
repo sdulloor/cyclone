@@ -262,21 +262,22 @@ TOID(char) nvheap_setup(TOID(char) recovered,
 {
   
   TOID(char) store;
-  heap_root_t heap_root;
+  heap_root_t *heap_root;
   pop = state;
   if(TOID_IS_NULL(recovered)) {
-    rbtree_map_new(state, &the_tree, NULL);
     version_table = TX_ZALLOC(uint64_t, version_table_size);
     store = TX_ALLOC(char, sizeof(heap_root_t));
-    heap_root.version_table = version_table;
-    heap_root.the_tree = the_tree;
-    TX_MEMCPY(D_RW(store), &heap_root, sizeof(heap_root_t));
+    heap_root = (heap_root_t *)D_RW(store);
+    pmemobj_tx_add_range_direct(heap_root, sizeof(heap_root_t));
+    heap_root->version_table = version_table;
+    rbtree_map_new(state, &heap_root->the_tree, NULL);
+    the_tree = heap_root->the_tree;
     return store;
   }
   else {
-    memcpy(&heap_root, D_RO(recovered), sizeof(heap_root_t));
-    the_tree = heap_root.the_tree;
-    version_table = heap_root.version_table;
+    heap_root = (heap_root_t *)D_RW(recovered);
+    the_tree = heap_root->the_tree;
+    version_table = heap_root->version_table;
     return recovered;
   }
 }
