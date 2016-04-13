@@ -10,7 +10,7 @@ BOOST_THREAD_LIB=-lboost_thread
 
 libcyclone.so: libcyclone.o dispatcher.o dispatcher_exec.o dispatch_client.o
 	$(CXX) -shared -Wl,-soname,libcyclone.so -o libcyclone.so libcyclone.o\
-	 dispatcher.o dispatcher_exec.o dispatch_client.o \
+	 dispatcher.o dispatcher_exec.o dispatch_client.o checkpoint.o \
 	-lc -lcraft -lpmemobj -lpmemlog -lpmem -lzmq -lboost_system -lboost_date_time \
 	$(BOOST_THREAD_LIB)
 
@@ -19,6 +19,9 @@ libcyclone.o: cyclone.cpp libcyclone.hpp
 
 dispatcher.o: dispatcher.cpp dispatcher_exec.hpp libcyclone.hpp
 	$(CXX) $(CXXFLAGS) dispatcher.cpp -c -o $@
+
+checkpoint.o: checkpoint.cpp checkpoint.hpp
+	$(CXX) $(CXXFLAGS) checkpoint.cpp -c -o $@
 
 dispatcher_exec.o: dispatcher_exec.cpp dispatcher_exec.hpp libcyclone.hpp
 	$(CXX) $(CXXFLAGS) dispatcher_exec.cpp -c -o $@
