@@ -1,8 +1,7 @@
 #ifndef _CHECKPOINT_
 #define _CHECKPOINT_
 void init_checkpoint(const char *fname);
-int take_checkpoint(void ** checkpoint,
-		    int leader_term,
+int take_checkpoint(int leader_term,
 		    int raft_idx,
 		    int raft_term);
 void send_checkpoint(void *socket);
