@@ -348,6 +348,9 @@ void __raft_has_sufficient_logs(raft_server_t *raft,
   msg_entry_response_t *client_rep;
   cyclone_t* cyclone_handle = (cyclone_t *)user_data;
   client_req.id = rand();
+  if(client_req.id == 0) {
+    client_req.id = 1;
+  }
   client_req.data.buf = malloc(sizeof(int));
   *(int *)client_req.data.buf = raft_node_get_id(node);
   BOOST_LOG_TRIVIAL(info) << "NODE HAS SUFFICIENT LOGS " << *(int *)client_req.data.buf;
