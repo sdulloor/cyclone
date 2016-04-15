@@ -7,6 +7,10 @@
 int cyclone_is_leader(void *cyclone_handle); // returns 1 if true
 int cyclone_get_leader(void *cyclone_handle); // returns leader id
 int cyclone_get_term(void *cyclone_handle); // Get current term
+void *cyclone_control_socket_out(void *cyclone_handle, 
+				 int replica); // Get control out socket
+void *cyclone_control_socket_in(void *cyclone_handle); // Get control in socket
+
 // Returns a non-null cookie if accepted for replication
 extern void *cyclone_add_entry(void * cyclone_handle, void *data, int size); 
 extern void *cyclone_add_entry_cfg(void * cyclone_handle,
@@ -34,15 +38,21 @@ typedef void (*cyclone_commit_t)(void *user_arg,
 typedef int (*cyclone_nodeid_t)(void *user_arg,
 				const unsigned char *data,
 				const int len);
+
+// Callback to receive and load a checkpoint
+typedef void (*cyclone_checkpoint_t)(void *socket);
+					    
 // Returns a cyclone handle
 extern void* cyclone_boot(const char *config_path,
 			  cyclone_callback_t cyclone_rep_callback,
 			  cyclone_callback_t cyclone_pop_callback,
 			  cyclone_commit_t cyclone_commit_callback,
 			  cyclone_nodeid_t cyclone_nodeid_callback,
+			  cyclone_checkpoint_t cyclone_checkpoint_callback,
 			  int me,
 			  int replicas,
 			  void *user_arg);
+
 extern void cyclone_shutdown(void *cyclone_handle);
 
 //////// RPC interface

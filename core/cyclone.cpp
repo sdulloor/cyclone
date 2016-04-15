@@ -10,6 +10,17 @@ extern void trace_post_append(void *data, const int size);
 extern void trace_send_entry(void *data, const int size);
 #endif
 
+
+void *cyclone_control_socket_out(void *cyclone_handle, 
+				 int replica)
+{
+  return ((cyclone_t *)cyclone_handle)->router->control_output_socket(replica);
+}
+void *cyclone_control_socket_in(void *cyclone_handle)
+{
+  return ((cyclone_t *)cyclone_handle)->router->control_input_socket();
+}
+
 /** Raft callback for sending request vote message */
 static int __send_requestvote(raft_server_t* raft,
 			      void *user_data,
@@ -514,6 +525,7 @@ void* cyclone_boot(const char *config_path,
 		   cyclone_callback_t cyclone_pop_callback,
 		   cyclone_commit_t cyclone_commit_callback,
 		   cyclone_nodeid_t cyclone_nodeid_callback,
+		   cyclone_checkpoint_t cyclone_checkpoint_callback,
 		   int me,
 		   int replicas,
 		   void *user_arg)
@@ -662,6 +674,9 @@ void* cyclone_boot(const char *config_path,
 		  cyclone_handle->router->output_socket(cyclone_handle->me),
 		  cyclone_handle->me,
 		  1);
+
+    // Obtain and load checkpoint
+    cyclone_checkpoint_callback(cyclone_handle->router->control_input_socket());
   }
   
   cyclone_handle->cyclone_buffer_in  = new unsigned char[MSG_MAXSIZE];

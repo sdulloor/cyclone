@@ -20,9 +20,14 @@ void init_checkpoint(const char *fname_in)
   buffer = malloc(bufbytes);
 }
 
-int take_checkpoint(int leader_term,
-		    int raft_idx,
-		    int raft_term)
+const char* get_checkpoint_fname()
+{
+  return fname;
+}
+
+void take_checkpoint(int leader_term,
+		     int raft_idx,
+		     int raft_term)
 {
   checkpoint_hdr.term = leader_term;
   checkpoint_hdr.last_included_index = raft_idx;
@@ -34,7 +39,7 @@ int take_checkpoint(int leader_term,
     BOOST_LOG_TRIVIAL(fatal) << "Failed to open input file for checkpoint";
     exit(-1);
   }
-  int fd_out = open("/tmp/chkpoint", O_WRONLY|O_TRUNC|O_CREAT, S_IRWXU);
+  int fd_out = open("/tmp/chkpoint", O_RDWR|O_TRUNC|O_CREAT, S_IRWXU);
   if(fd_out == -1) {
     BOOST_LOG_TRIVIAL(fatal) << "Failed to open output file for checkpoint";
     exit(-1);
@@ -42,13 +47,15 @@ int take_checkpoint(int leader_term,
   int bytes_read, bytes_written;
   while(bytes_read = read(fd_in, buffer, bufbytes)) {
     checkpoint_size += bytes_read;
+    char *buf = (char *)buffer;
     while(bytes_read) {
-      bytes_written = write(fd_out, buffer, bytes_read);
+      bytes_written = write(fd_out, buf, bytes_read);
       if(bytes_written == 0) {
 	BOOST_LOG_TRIVIAL(fatal) << "Unable to write to checkpoint file";
 	exit(-1);
       }
       bytes_read -= bytes_written;
+      buf += bytes_written;
     }
   }
   close(fd_in);
@@ -106,7 +113,7 @@ void build_image(void *socket)
   uint64_t reply;
   checkpoint_hdr.term   = 0;
   checkpoint_hdr.offset = 0;
-  int fd_out = open(fname, O_WRONLY|O_TRUNC|O_CREAT, S_IRWXU);
+  int fd_out = open(fname, O_WRONLY|O_TRUNC|O_CREAT, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH);
   if(fd_out == -1) {
     BOOST_LOG_TRIVIAL(fatal) << "Failed to open output file for checkpoint";
     exit(-1);
@@ -124,17 +131,19 @@ void build_image(void *socket)
 	 lseek(fd_out, 0, SEEK_SET);
 	 ftruncate(fd_out, 0);
 	 checkpoint_hdr.offset = 0;
+	 checkpoint_hdr.term = fptr->term;
        }
-       void * buf = (char *)buffer + sizeof(fragment_t);
+       char * buf = (char *)buffer + sizeof(fragment_t);
        int bytes_left = bytes - sizeof(fragment_t);
        while(bytes_left) {
-	 int bytes_written = write(fd_out, buffer, bytes_left);
+	 int bytes_written = write(fd_out, buf, bytes_left);
 	 if(bytes_written == 0) {
 	   BOOST_LOG_TRIVIAL(fatal)
 	     << "Unable to write to checkpoint file";
 	   exit(-1);
 	 }
 	 bytes_left            -= bytes_written;
+	 buf                   += bytes_written;
 	 checkpoint_hdr.offset += bytes_written;
        }
     }

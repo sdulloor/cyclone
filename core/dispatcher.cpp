@@ -19,6 +19,7 @@
 #include<libpmemobj.h>
 #include "dispatcher_exec.hpp"
 #include "timeouts.hpp"
+#include "checkpoint.hpp"
 
 static void *cyclone_handle;
 static boost::property_tree::ptree pt_server;
@@ -638,7 +639,15 @@ struct dispatcher_loop {
 	  cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
 	}
 	else if(rpc_req->code == RPC_REQ_NODEADD) {
-	  cookie = cyclone_add_entry_cfg(cyclone_handle,
+	  // Wait for pipeline to drain
+	  // XXX
+	  take_checkpoint(cyclone_get_term(cyclone_handle),
+			  D_RO(root)->applied_raft_idx,
+			  D_RO(root)->applied_raft_term);
+	  // Send checkpoint 
+	  send_checkpoint(cyclone_control_socket_out(cyclone_handle, 
+						     rpc_req->master));
+  	  cookie = cyclone_add_entry_cfg(cyclone_handle,
 					 RAFT_LOGTYPE_ADD_NONVOTING_NODE,
 					 rpc_req,
 					 sz);
@@ -765,7 +774,7 @@ struct dispatcher_loop {
 };
 
 static dispatcher_loop * dispatcher_loop_obj;
-
+static rpc_nvheap_setup_callback_t nvheap_setup_callback_saved;
 
 //Callback to extract nodeif for cfg change messages
 int cyclone_nodeid_cb(void *user_arg,
@@ -774,6 +783,31 @@ int cyclone_nodeid_cb(void *user_arg,
 {
   const rpc_t * rpc = (rpc_t *)data;
   return rpc->master;
+}
+
+void checkpoint_callback(void *socket)
+{
+  build_image(socket);
+  state = pmemobj_open(get_checkpoint_fname(), "disp_state");
+  if(state == NULL) {
+    BOOST_LOG_TRIVIAL(fatal)
+      << "Unable to open pmemobj pool "
+      << get_checkpoint_fname()
+      << " for dispatcher state:"
+      << strerror(errno);
+    exit(-1);
+  }
+  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+  TX_BEGIN(state) {
+    D_RW(root)->nvheap_root = 
+      nvheap_setup_callback_saved(D_RO(root)->nvheap_root, state);
+  } TX_ONABORT {
+    BOOST_LOG_TRIVIAL(fatal)
+      << "Application unable to recover state:"
+      << strerror(errno);
+    exit(-1);
+  } TX_END
+  BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered from checkpoint";
 }
 
 void dispatcher_start(const char* config_server_path,
@@ -794,57 +828,74 @@ void dispatcher_start(const char* config_server_path,
   char me_str[100];
   sprintf(me_str,"%d", me);
   file_path.append(me_str);
+  init_checkpoint(file_path.c_str());
+  nvheap_setup_callback_saved = nvheap_setup_callback;
   dispatcher_exec_startup();
-  if(access(file_path.c_str(), F_OK)) {
-    state = pmemobj_create(file_path.c_str(),
-			   POBJ_LAYOUT_NAME(disp_state),
-			   sizeof(disp_state_t) + PMEMOBJ_MIN_POOL,
-			   0666);
-    if(state == NULL) {
-      BOOST_LOG_TRIVIAL(fatal)
-	<< "Unable to creat pmemobj pool for dispatcher:"
-	<< strerror(errno);
-      exit(-1);
+
+  bool i_am_active = false;
+  for(int i=0;i<pt_server.get<int>("active.replicas");i++) {
+    char nodeidxkey[100];
+    sprintf(nodeidxkey, "active.entry%d",i);
+    int nodeidx = pt_server.get<int>(nodeidxkey);
+    if(nodeidx == me) {
+      i_am_active = true;
     }
-  
-    TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-    TX_BEGIN(state) {
-      TX_ADD(root); // Add everything
-      for(int i = 0;i < MAX_CLIENTS;i++) {
-	D_RW(root)->client_state[i].committed_txid    = 0UL;
-	D_RW(root)->client_state[i].last_return_size  = 0;
-	TOID_ASSIGN(D_RW(root)->client_state[i].last_return_value, OID_NULL);
-      }
-      D_RW(root)->nvheap_root = nvheap_setup_callback(TOID_NULL(char), state);
-      D_RW(root)->applied_raft_idx = -1;
-      D_RW(root)->applied_raft_term  = -1;
-    } TX_ONABORT {
-      BOOST_LOG_TRIVIAL(fatal) 
-	<< "Unable to setup dispatcher state:"
-	<< strerror(errno);
-      exit(-1);
-    } TX_END
-  }
-  else {
-    state = pmemobj_open(file_path.c_str(), "disp_state");
-    if(state == NULL) {
-      BOOST_LOG_TRIVIAL(fatal)
-	<< "Unable to open pmemobj pool for dispatcher state:"
-	<< strerror(errno);
-      exit(-1);
-    }
-    TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-    TX_BEGIN(state) {
-      D_RW(root)->nvheap_root = nvheap_setup_callback(D_RO(root)->nvheap_root, state);
-    } TX_ONABORT {
-      BOOST_LOG_TRIVIAL(fatal)
-	<< "Application unable to recover state:"
-	<< strerror(errno);
-      exit(-1);
-    } TX_END
-    BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered state";
   }
 
+  if(!i_am_active) {
+    BOOST_LOG_TRIVIAL(info) << "Starting inactive server";
+  }
+  else {
+    if(access(file_path.c_str(), F_OK)) {
+      state = pmemobj_create(file_path.c_str(),
+			     POBJ_LAYOUT_NAME(disp_state),
+			     sizeof(disp_state_t) + PMEMOBJ_MIN_POOL,
+			     0666);
+      if(state == NULL) {
+	BOOST_LOG_TRIVIAL(fatal)
+	  << "Unable to creat pmemobj pool for dispatcher:"
+	  << strerror(errno);
+	exit(-1);
+      }
+  
+      TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+      TX_BEGIN(state) {
+	TX_ADD(root); // Add everything
+	for(int i = 0;i < MAX_CLIENTS;i++) {
+	  D_RW(root)->client_state[i].committed_txid    = 0UL;
+	  D_RW(root)->client_state[i].last_return_size  = 0;
+	  TOID_ASSIGN(D_RW(root)->client_state[i].last_return_value, OID_NULL);
+	}
+	D_RW(root)->nvheap_root = nvheap_setup_callback(TOID_NULL(char), state);
+	D_RW(root)->applied_raft_idx = -1;
+	D_RW(root)->applied_raft_term  = -1;
+      } TX_ONABORT {
+	BOOST_LOG_TRIVIAL(fatal) 
+	  << "Unable to setup dispatcher state:"
+	  << strerror(errno);
+	exit(-1);
+      } TX_END
+    }
+    else {
+      state = pmemobj_open(file_path.c_str(), "disp_state");
+      if(state == NULL) {
+	BOOST_LOG_TRIVIAL(fatal)
+	  << "Unable to open pmemobj pool for dispatcher state:"
+	  << strerror(errno);
+	exit(-1);
+      }
+      TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+      TX_BEGIN(state) {
+	D_RW(root)->nvheap_root = nvheap_setup_callback(D_RO(root)->nvheap_root, state);
+      } TX_ONABORT {
+	BOOST_LOG_TRIVIAL(fatal)
+	  << "Application unable to recover state:"
+	  << strerror(errno);
+	exit(-1);
+      } TX_END
+      BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered state";
+    }
+  }
   // Setup RO state
   for(int i = 0;i < MAX_CLIENTS;i++) {
     client_ro_state[i].committed_txid    = 0UL;
@@ -852,10 +903,10 @@ void dispatcher_start(const char* config_server_path,
     client_ro_state[i].last_return_value = NULL;
   }
   
-  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   for(int i=0;i<MAX_CLIENTS;i++) {
     client_blocked[i] = -1;
   }
+
   execute_rpc = rpc_callback;
   execute_rpc_follower = rpc_follower_callback;
   execute_rpc_leader = rpc_leader_callback;
@@ -868,6 +919,7 @@ void dispatcher_start(const char* config_server_path,
 				&cyclone_pop_cb,
 				&cyclone_commit_cb,
 				&cyclone_nodeid_cb,
+				&checkpoint_callback,
 				me,
 				replicas,
 				NULL);

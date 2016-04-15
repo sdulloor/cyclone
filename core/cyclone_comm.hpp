@@ -244,7 +244,9 @@ static void cyclone_bind_endpoint(void *socket, const char *endpoint)
 
 class raft_switch {
   void **sockets_out;
+  void **control_sockets_out;
   void **sockets_in;
+  void *control_socket_in;
   int replicas;
 public:
   raft_switch(void *context,
@@ -258,6 +260,7 @@ public:
     std::stringstream addr;
     sockets_in  = new void *[replicas];
     sockets_out = new void *[replicas];
+    control_sockets_out = new void*[replicas];
     key.str("");key.clear();
     key << "quorum.baseport";
     int baseport =  pt->get<int>(key.str().c_str());
@@ -295,6 +298,26 @@ public:
       addr << ":" << port;
       cyclone_connect_endpoint(sockets_out[i], addr.str().c_str());
     }
+    control_socket_in = cyclone_socket_in_loopback(context);
+    key.str("");key.clear();
+    addr.str("");addr.clear();
+    key << "machines.iface" << me;
+    addr << "tcp://";
+    addr << pt->get<std::string>(key.str().c_str());
+    int port = baseport + replicas*replicas + me;
+    addr << ":" << port;
+    cyclone_bind_endpoint(control_socket_in, addr.str().c_str());
+    for(int i=0;i<replicas;i++) {
+      control_sockets_out[i] = cyclone_socket_out_loopback(context);
+      key.str("");key.clear();
+      addr.str("");addr.clear();
+      key << "machines.addr" << i;
+      addr << "tcp://";
+      addr << pt->get<std::string>(key.str().c_str());
+      port = baseport + replicas*replicas + i ;
+      addr << ":" << port;
+      cyclone_connect_endpoint(control_sockets_out[i], addr.str().c_str());
+    }
   }
 
   void * output_socket(int machine)
@@ -302,9 +325,19 @@ public:
     return sockets_out[machine];
   }
 
-  void *input_socket(int machine)
+  void* input_socket(int machine)
   {
     return sockets_in[machine];
+  }
+
+  void* control_input_socket()
+  {
+    return control_socket_in;
+  }
+
+  void * control_output_socket(int machine)
+  {
+    return control_sockets_out[machine];
   }
 
   void **input_socket_array()
@@ -316,8 +349,10 @@ public:
   {
     for(int i=0;i<=replicas;i++) {
       zmq_close(sockets_out[i]);
+      zmq_close(control_sockets_out[i]);
       zmq_close(sockets_in[i]);
     }
+    zmq_close(control_socket_in);
     delete[] sockets_out;
     delete[] sockets_in;
   }
