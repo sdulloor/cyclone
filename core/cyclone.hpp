@@ -40,7 +40,7 @@ typedef int (*cyclone_nodeid_t)(void *user_arg,
 				const int len);
 
 // Callback to receive and load a checkpoint
-typedef void (*cyclone_checkpoint_t)(void *socket);
+typedef void (*cyclone_checkpoint_t)(void *socket, int *term, int *idx);
 					    
 // Returns a cyclone handle
 extern void* cyclone_boot(const char *config_path,

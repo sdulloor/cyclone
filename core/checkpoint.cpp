@@ -78,7 +78,7 @@ void send_checkpoint(void *socket)
   int bytes_to_send;
   memcpy(buffer, &checkpoint_hdr, sizeof(fragment_t));
   checkpoint_hdr.offset = 0;
-  
+  fflush(stderr);
   while(checkpoint_hdr.offset != checkpoint_size) {
     bytes_to_send = checkpoint_size - checkpoint_hdr.offset;
     if((bytes_to_send + sizeof(fragment_t)) > bufbytes) {
@@ -132,6 +132,8 @@ void build_image(void *socket)
 	 ftruncate(fd_out, 0);
 	 checkpoint_hdr.offset = 0;
 	 checkpoint_hdr.term = fptr->term;
+	 checkpoint_hdr.last_included_term = fptr->last_included_term;
+	 checkpoint_hdr.last_included_index = fptr->last_included_index;
        }
        char * buf = (char *)buffer + sizeof(fragment_t);
        int bytes_left = bytes - sizeof(fragment_t);
@@ -153,6 +155,16 @@ void build_image(void *socket)
     }
   }
   close(fd_out);
+}
+
+int image_get_term()
+{
+  return checkpoint_hdr.last_included_term;
+}
+
+int image_get_idx()
+{
+  return checkpoint_hdr.last_included_index;
 }
 
 void delete_checkpoint(void *checkpoint)

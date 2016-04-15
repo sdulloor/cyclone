@@ -10,8 +10,8 @@ struct client_state_st {
 POBJ_LAYOUT_BEGIN(disp_state);
 typedef struct disp_state_st {
   TOID(char) nvheap_root;
-  int applied_raft_idx;
-  int applied_raft_term;
+  volatile int applied_raft_idx;
+  volatile int applied_raft_term;
   struct client_state_st client_state[MAX_CLIENTS];
 } disp_state_t;
 TOID_DECLARE_ROOT(disp_state_t);

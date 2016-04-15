@@ -7,6 +7,8 @@ void take_checkpoint(int leader_term,
 		     int raft_term);
 void send_checkpoint(void *socket);
 void build_image(void *socket);
+int image_get_term();
+int image_get_idx();
 void delete_checkpoint(void *checkpoint);
 
 typedef struct fragment_st {

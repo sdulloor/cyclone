@@ -166,10 +166,10 @@ static void mark_done(const rpc_t *rpc,
 {
   int client_id = rpc->client_id;
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  int *c_raft_idx_p  = &D_RW(root)->applied_raft_idx;
-  int *c_raft_term_p = &D_RW(root)->applied_raft_term;
-  pmemobj_tx_add_range_direct(c_raft_idx_p, sizeof(int));
-  pmemobj_tx_add_range_direct(c_raft_term_p, sizeof(int));
+  volatile int *c_raft_idx_p  = &D_RW(root)->applied_raft_idx;
+  volatile int *c_raft_term_p = &D_RW(root)->applied_raft_term;
+  pmemobj_tx_add_range_direct((const void *)c_raft_idx_p, sizeof(int));
+  pmemobj_tx_add_range_direct((const void *)c_raft_term_p, sizeof(int));
   *c_raft_idx_p  = raft_idx;
   *c_raft_term_p = raft_term;
   struct client_state_st *cstate = &D_RW(root)->client_state[client_id];
@@ -350,6 +350,19 @@ void exec_rpc_internal_ro(rpc_info_t *rpc)
 static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
 static unsigned char rx_buffer[DISP_MAX_MSGSIZE];
 static server_switch *router;
+
+static bool is_pending_rpc_list()
+{
+  rpc_info_t *tmp;
+  tmp = pending_rpc_head;
+  while(tmp) {
+    if(!tmp->complete) {
+      return true;
+    }
+    tmp = tmp->next;
+  }
+  return false;
+}
 
 static void gc_pending_rpc_list(bool is_master)
 {
@@ -640,14 +653,21 @@ struct dispatcher_loop {
 	}
 	else if(rpc_req->code == RPC_REQ_NODEADD) {
 	  // Wait for pipeline to drain
-	  // XXX
+	  while(is_pending_rpc_list());
+	  int chosen_raft_idx, chosen_raft_term;
+	  do {
+	    chosen_raft_term = D_RO(root)->applied_raft_term; 
+	    __sync_synchronize();
+	    chosen_raft_idx  = D_RO(root)->applied_raft_idx;
+	  } while(chosen_raft_term != D_RO(root)->applied_raft_term);
+
 	  take_checkpoint(cyclone_get_term(cyclone_handle),
-			  D_RO(root)->applied_raft_idx,
-			  D_RO(root)->applied_raft_term);
+			  chosen_raft_idx,
+			  chosen_raft_term);
 	  // Send checkpoint 
 	  send_checkpoint(cyclone_control_socket_out(cyclone_handle, 
 						     rpc_req->master));
-  	  cookie = cyclone_add_entry_cfg(cyclone_handle,
+	  cookie = cyclone_add_entry_cfg(cyclone_handle,
 					 RAFT_LOGTYPE_ADD_NONVOTING_NODE,
 					 rpc_req,
 					 sz);
@@ -785,9 +805,11 @@ int cyclone_nodeid_cb(void *user_arg,
   return rpc->master;
 }
 
-void checkpoint_callback(void *socket)
+void checkpoint_callback(void *socket, int *termp, int* idxp)
 {
   build_image(socket);
+  *termp = image_get_term();
+  *idxp  = image_get_idx();
   state = pmemobj_open(get_checkpoint_fname(), "disp_state");
   if(state == NULL) {
     BOOST_LOG_TRIVIAL(fatal)
@@ -808,6 +830,7 @@ void checkpoint_callback(void *socket)
     exit(-1);
   } TX_END
   BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered from checkpoint";
+  
 }
 
 void dispatcher_start(const char* config_server_path,

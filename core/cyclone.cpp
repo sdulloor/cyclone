@@ -676,7 +676,13 @@ void* cyclone_boot(const char *config_path,
 		  1);
 
     // Obtain and load checkpoint
-    cyclone_checkpoint_callback(cyclone_handle->router->control_input_socket());
+    int loaded_term, loaded_idx;
+    cyclone_checkpoint_callback(cyclone_handle->router->control_input_socket(),
+				&loaded_term,
+				&loaded_idx);
+    raft_loaded_checkpoint(cyclone_handle->raft_handle,
+			   loaded_term, 
+			   loaded_idx);
   }
   
   cyclone_handle->cyclone_buffer_in  = new unsigned char[MSG_MAXSIZE];
