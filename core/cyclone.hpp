@@ -21,6 +21,9 @@ extern void *cyclone_add_entry_term(void * cyclone_handle,
 				    void *data, 
 				    int size,
 				    int term);
+extern void *cyclone_set_img_build(void *cyclone_handle);
+extern void *cyclone_unset_img_build(void *cyclone_handle);
+
 // Returns 0:pending 1:success -1:failed
 extern int cyclone_check_status(void *cyclone_handle, void *cookie);
 // Callback to add or remove a log entry
@@ -39,8 +42,8 @@ typedef int (*cyclone_nodeid_t)(void *user_arg,
 				const unsigned char *data,
 				const int len);
 
-// Callback to receive and load a checkpoint
-typedef void (*cyclone_checkpoint_t)(void *socket, int *term, int *idx);
+// Callback to build image
+typedef void (*cyclone_build_image_t)(void *socket);
 					    
 // Returns a cyclone handle
 extern void* cyclone_boot(const char *config_path,
@@ -48,7 +51,7 @@ extern void* cyclone_boot(const char *config_path,
 			  cyclone_callback_t cyclone_pop_callback,
 			  cyclone_commit_t cyclone_commit_callback,
 			  cyclone_nodeid_t cyclone_nodeid_callback,
-			  cyclone_checkpoint_t cyclone_checkpoint_callback,
+			  cyclone_build_image_t cyclone_build_image_callback,
 			  int me,
 			  int replicas,
 			  void *user_arg);

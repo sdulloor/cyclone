@@ -805,11 +805,9 @@ int cyclone_nodeid_cb(void *user_arg,
   return rpc->master;
 }
 
-void checkpoint_callback(void *socket, int *termp, int* idxp)
+void checkpoint_callback(void *socket)
 {
   build_image(socket);
-  *termp = image_get_term();
-  *idxp  = image_get_idx();
   state = pmemobj_open(get_checkpoint_fname(), "disp_state");
   if(state == NULL) {
     BOOST_LOG_TRIVIAL(fatal)

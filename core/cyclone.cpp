@@ -2,6 +2,7 @@
 #include "cyclone.hpp"
 #include "cyclone_context.hpp"
 #include "timeouts.hpp"
+#include "checkpoint.hpp"
 
 #ifdef TRACING
 extern void trace_send_cmd(void *data, const int size);
@@ -494,6 +495,44 @@ void* cyclone_add_entry_term(void *cyclone_handle,
   return cookie;
 }
 
+void* cyclone_set_img_build(void *cyclone_handle)
+			    
+{
+  cyclone_t* handle = (cyclone_t *)cyclone_handle;
+  msg_t msg;
+  void *cookie = NULL;
+  msg.source      = handle->me;
+  msg.msg_type    = MSG_CLIENT_REQ_SET_IMGBUILD;
+  cyclone_tx(handle->router->output_socket(handle->me), 
+	     (const unsigned char *)&msg, 
+	     sizeof(msg_t), 
+	     "client req");
+  cyclone_rx(handle->router->output_socket(handle->me),
+	     (unsigned char *)&cookie,
+	     sizeof(void *),
+	     "CLIENT REQ recv");
+  return cookie;
+}
+
+void* cyclone_unset_img_build(void *cyclone_handle)
+			    
+{
+  cyclone_t* handle = (cyclone_t *)cyclone_handle;
+  msg_t msg;
+  void *cookie = NULL;
+  msg.source      = handle->me;
+  msg.msg_type    = MSG_CLIENT_REQ_UNSET_IMGBUILD;
+  cyclone_tx(handle->router->output_socket(handle->me), 
+	     (const unsigned char *)&msg, 
+	     sizeof(msg_t), 
+	     "client req");
+  cyclone_rx(handle->router->output_socket(handle->me),
+	     (unsigned char *)&cookie,
+	     sizeof(void *),
+	     "CLIENT REQ recv");
+  return cookie;
+}
+
 int cyclone_check_status(void *cyclone_handle, void *cookie)
 {
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
@@ -520,12 +559,13 @@ static void init_log(PMEMobjpool *pop, void *ptr, void *arg)
   log->log_tail  = 0;
 }
 
+
 void* cyclone_boot(const char *config_path,
 		   cyclone_callback_t cyclone_rep_callback,
 		   cyclone_callback_t cyclone_pop_callback,
 		   cyclone_commit_t cyclone_commit_callback,
 		   cyclone_nodeid_t cyclone_nodeid_callback,
-		   cyclone_checkpoint_t cyclone_checkpoint_callback,
+		   cyclone_build_image_t cyclone_build_image_callback,
 		   int me,
 		   int replicas,
 		   void *user_arg)
@@ -668,8 +708,14 @@ void* cyclone_boot(const char *config_path,
 		  nodeidx == cyclone_handle->me ? 1:0);
   }
 
+  cyclone_handle->cyclone_buffer_in  = new unsigned char[MSG_MAXSIZE];
+  cyclone_handle->cyclone_buffer_out = new unsigned char[MSG_MAXSIZE];
+  cyclone_handle->monitor_obj    = new cyclone_monitor();
+  cyclone_handle->monitor_obj->cyclone_handle    = cyclone_handle;
+
   // Must activate myself
   if(!i_am_active) {
+    raft_set_img_build(cyclone_handle->raft_handle);
     raft_add_peer(cyclone_handle->raft_handle,
 		  cyclone_handle->router->output_socket(cyclone_handle->me),
 		  cyclone_handle->me,
@@ -677,20 +723,19 @@ void* cyclone_boot(const char *config_path,
 
     // Obtain and load checkpoint
     int loaded_term, loaded_idx;
-    cyclone_checkpoint_callback(cyclone_handle->router->control_input_socket(),
-				&loaded_term,
-				&loaded_idx);
+    init_build_image(cyclone_handle->router->control_input_socket(),
+		     &loaded_term,
+		     &loaded_idx);
     raft_loaded_checkpoint(cyclone_handle->raft_handle,
 			   loaded_term, 
 			   loaded_idx);
+    cyclone_build_image_callback(cyclone_handle->router->control_input_socket());
+    raft_unset_img_build(cyclone_handle->raft_handle);
   }
-  
-  cyclone_handle->cyclone_buffer_in  = new unsigned char[MSG_MAXSIZE];
-  cyclone_handle->cyclone_buffer_out = new unsigned char[MSG_MAXSIZE];
-  /* Launch cyclone service */
-  cyclone_handle->monitor_obj    = new cyclone_monitor();
-  cyclone_handle->monitor_obj->cyclone_handle    = cyclone_handle;
-  cyclone_handle->monitor_thread = new boost::thread(boost::ref(*cyclone_handle->monitor_obj));
+  else {
+    /* Launch cyclone service */
+    cyclone_handle->monitor_thread = new boost::thread(boost::ref(*cyclone_handle->monitor_obj));
+  }
   return cyclone_handle;
 }
 

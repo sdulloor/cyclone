@@ -76,9 +76,14 @@ void send_checkpoint(void *socket)
 {
   uint64_t reply;
   int bytes_to_send;
-  memcpy(buffer, &checkpoint_hdr, sizeof(fragment_t));
   checkpoint_hdr.offset = 0;
-  fflush(stderr);
+  memcpy(buffer, &checkpoint_hdr, sizeof(fragment_t));
+  // tx and await reply;
+  cyclone_tx(socket, (const unsigned char *)buffer, 
+	     sizeof(fragment_t), "Checkpoint header send");
+  cyclone_rx(socket, (unsigned char *)&reply, sizeof(uint64_t),
+	     "Checkpoint rcv");
+
   while(checkpoint_hdr.offset != checkpoint_size) {
     bytes_to_send = checkpoint_size - checkpoint_hdr.offset;
     if((bytes_to_send + sizeof(fragment_t)) > bufbytes) {
@@ -93,9 +98,6 @@ void send_checkpoint(void *socket)
 	       sizeof(fragment_t) + bytes_to_send, "Checkpoint send");
     cyclone_rx(socket, (unsigned char *)&reply, sizeof(uint64_t),
 	       "Checkpoint rcv");
-    if(reply == REPLY_STALE) { // no longer leader
-      break;
-    }
     checkpoint_hdr.offset += bytes_to_send;
   }
   // tx EOF and throw away reply;
@@ -106,12 +108,21 @@ void send_checkpoint(void *socket)
 	     "Checkpoint rcv");
 }
 
+void init_build_image(void *socket, int *termp, int *indexp)
+{
+  uint64_t reply = REPLY_OK;
+  cyclone_rx(socket, (unsigned char *)&checkpoint_hdr, 
+	     sizeof(fragment_t), "Checkpoint rcv");
+  *termp  = checkpoint_hdr.last_included_term;
+  *indexp = checkpoint_hdr.last_included_index;
+  cyclone_tx(socket, (const unsigned char *)&reply, sizeof(uint64_t), "Checkpoint send");
+}
+
 void build_image(void *socket)
 {
   fragment_t * fptr;
   int bytes;
   uint64_t reply;
-  checkpoint_hdr.term   = 0;
   checkpoint_hdr.offset = 0;
   int fd_out = open(fname, O_WRONLY|O_TRUNC|O_CREAT, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH);
   if(fd_out == -1) {
@@ -121,33 +132,30 @@ void build_image(void *socket)
   while(true) {
     bytes = cyclone_rx(socket, (unsigned char *)buffer, bufbytes, "Checkpoint rcv");
     fptr = (fragment_t *)buffer;
-    if(fptr->term < checkpoint_hdr.term) {
-      reply = REPLY_STALE;
+    if(fptr->term != checkpoint_hdr.term) {
+      BOOST_LOG_TRIVIAL(fatal) << "Failed to get checkpoint";
+      exit(-1);
     }
     else {
       reply = REPLY_OK;
-       if(fptr->term > checkpoint_hdr.term) {
-	 // prep file
-	 lseek(fd_out, 0, SEEK_SET);
-	 ftruncate(fd_out, 0);
-	 checkpoint_hdr.offset = 0;
-	 checkpoint_hdr.term = fptr->term;
-	 checkpoint_hdr.last_included_term = fptr->last_included_term;
-	 checkpoint_hdr.last_included_index = fptr->last_included_index;
-       }
-       char * buf = (char *)buffer + sizeof(fragment_t);
-       int bytes_left = bytes - sizeof(fragment_t);
-       while(bytes_left) {
-	 int bytes_written = write(fd_out, buf, bytes_left);
-	 if(bytes_written == 0) {
-	   BOOST_LOG_TRIVIAL(fatal)
-	     << "Unable to write to checkpoint file";
-	   exit(-1);
-	 }
-	 bytes_left            -= bytes_written;
-	 buf                   += bytes_written;
-	 checkpoint_hdr.offset += bytes_written;
-       }
+      if(checkpoint_hdr.offset == 0) {
+	// prep file
+	lseek(fd_out, 0, SEEK_SET);
+	ftruncate(fd_out, 0);
+      }
+      char * buf = (char *)buffer + sizeof(fragment_t);
+      int bytes_left = bytes - sizeof(fragment_t);
+      while(bytes_left) {
+	int bytes_written = write(fd_out, buf, bytes_left);
+	if(bytes_written == 0) {
+	  BOOST_LOG_TRIVIAL(fatal)
+	    << "Unable to write to checkpoint file";
+	  exit(-1);
+	}
+	bytes_left            -= bytes_written;
+	buf                   += bytes_written;
+	checkpoint_hdr.offset += bytes_written;
+      }
     }
     cyclone_tx(socket, (const unsigned char *)&reply, sizeof(uint64_t), "Checkpoint send");
     if(bytes == sizeof(fragment_t)) {

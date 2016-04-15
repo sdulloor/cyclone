@@ -29,6 +29,9 @@ const int  MSG_CLIENT_REQ               = 5;
 const int  MSG_CLIENT_REQ_TERM          = 6;
 const int  MSG_CLIENT_STATUS            = 7;
 const int  MSG_CLIENT_REQ_CFG           = 8;
+const int  MSG_CLIENT_REQ_SET_IMGBUILD  = 9;
+const int  MSG_CLIENT_REQ_UNSET_IMGBUILD= 10;
+
 
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 4194304;
@@ -370,6 +373,23 @@ typedef struct cyclone_st {
     case MSG_CLIENT_STATUS:
       e = raft_msg_entry_response_committed
 	(raft_handle, (const msg_entry_response_t *)msg->client.ptr);
+      cyclone_tx(router->input_socket(me),
+		  (unsigned char *)&e,
+		  sizeof(int),
+		  "CLIENT COOKIE SEND");
+      break;
+
+    case MSG_CLIENT_REQ_SET_IMGBUILD:
+      raft_set_img_build(raft_handle);
+      client_rep = NULL;
+      cyclone_tx(router->input_socket(me),
+		  (unsigned char *)&e,
+		  sizeof(int),
+		  "CLIENT COOKIE SEND");
+      break;
+    case MSG_CLIENT_REQ_UNSET_IMGBUILD:
+      raft_unset_img_build(raft_handle);
+      client_rep = NULL;
       cyclone_tx(router->input_socket(me),
 		  (unsigned char *)&e,
 		  sizeof(int),
