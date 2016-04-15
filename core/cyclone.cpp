@@ -560,6 +560,15 @@ static void init_log(PMEMobjpool *pop, void *ptr, void *arg)
 }
 
 
+static struct cyclone_img_load_st {
+  void operator ()()
+  {
+    cyclone_build_image_callback(cyclone_handle->router->control_input_socket());
+    raft_unset_img_build(cyclone_handle->raft_handle);
+  }
+  
+} cyclone_image_loader;
+
 void* cyclone_boot(const char *config_path,
 		   cyclone_callback_t cyclone_rep_callback,
 		   cyclone_callback_t cyclone_pop_callback,
@@ -729,13 +738,10 @@ void* cyclone_boot(const char *config_path,
     raft_loaded_checkpoint(cyclone_handle->raft_handle,
 			   loaded_term, 
 			   loaded_idx);
-    cyclone_build_image_callback(cyclone_handle->router->control_input_socket());
-    raft_unset_img_build(cyclone_handle->raft_handle);
+    cyclone_handle->checkpoint_thread = new boost::thread(boost::ref(cyclone_image_loader));
   }
-  else {
-    /* Launch cyclone service */
-    cyclone_handle->monitor_thread = new boost::thread(boost::ref(*cyclone_handle->monitor_obj));
-  }
+  /* Launch cyclone service */
+  cyclone_handle->monitor_thread = new boost::thread(boost::ref(*cyclone_handle->monitor_obj));
   return cyclone_handle;
 }
 
@@ -744,6 +750,7 @@ void cyclone_shutdown(void *cyclone_handle)
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
   handle->monitor_obj->terminate = true;
   handle->monitor_thread->join();
+  handle->checkpoint_thread->join();
   delete handle->monitor_obj;
   delete handle->router;
   zmq_ctx_destroy(handle->zmq_context);

@@ -81,6 +81,7 @@ typedef struct cyclone_st {
   int replicas;
   int me;
   boost::thread *monitor_thread;
+  boost::thread *checkpoint_thread;
   unsigned long RAFT_LOGSIZE;
   PMEMobjpool *pop_raft_state;
   raft_server_t *raft_handle;
