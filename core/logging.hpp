@@ -10,7 +10,8 @@ enum log_state {
   error = 1,
   warning = 2,
   info = 3,
-  total = 4
+  debug=4,
+  total = 5
 };
 
 static const char *log_headers[total] = 

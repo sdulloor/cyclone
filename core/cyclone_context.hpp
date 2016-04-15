@@ -88,7 +88,6 @@ typedef struct cyclone_st {
   cyclone_callback_t cyclone_rep_cb;
   cyclone_callback_t cyclone_pop_cb;
   cyclone_commit_t cyclone_commit_cb;
-  cyclone_nodeid_t cyclone_nodeid_cb;
   void *user_arg;
   unsigned char* cyclone_buffer_out;
   unsigned char* cyclone_buffer_in;

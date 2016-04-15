@@ -1,18 +1,19 @@
 #ifndef _CHECKPOINT_
 #define _CHECKPOINT_
-void init_checkpoint(const char *fname);
+void init_checkpoint(const char *fname, int master);
 const char* get_checkpoint_fname();
 void take_checkpoint(int leader_term,
 		     int raft_idx,
 		     int raft_term);
 void send_checkpoint(void *socket);
-void init_build_image(void *socket, int *termp, int* indexp);
+void init_build_image(void *socket, int *termp, int* indexp, int *masterp);
 void build_image(void *socket);
 int image_get_term();
 int image_get_idx();
 void delete_checkpoint(void *checkpoint);
 
 typedef struct fragment_st {
+  int master;
   int term;
   int last_included_index;
   int last_included_term;

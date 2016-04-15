@@ -14,10 +14,11 @@ const int bufbytes = 4*1024*1024;
 static void *buffer;
 static unsigned long checkpoint_size;
 
-void init_checkpoint(const char *fname_in)
+void init_checkpoint(const char *fname_in, int master)
 {
   strncpy(fname, fname_in, 50);
   buffer = malloc(bufbytes);
+  checkpoint_hdr.master = master;
 }
 
 const char* get_checkpoint_fname()
@@ -108,13 +109,14 @@ void send_checkpoint(void *socket)
 	     "Checkpoint rcv");
 }
 
-void init_build_image(void *socket, int *termp, int *indexp)
+void init_build_image(void *socket, int *termp, int *indexp, int *masterp)
 {
   uint64_t reply = REPLY_OK;
   cyclone_rx(socket, (unsigned char *)&checkpoint_hdr, 
 	     sizeof(fragment_t), "Checkpoint rcv");
   *termp  = checkpoint_hdr.last_included_term;
   *indexp = checkpoint_hdr.last_included_index;
+  *masterp = checkpoint_hdr.master;
   cyclone_tx(socket, (const unsigned char *)&reply, sizeof(uint64_t), "Checkpoint send");
 }
 

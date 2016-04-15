@@ -74,6 +74,21 @@ int callback(const unsigned char *data,
 	     const int len,
 	     void **return_value)
 {
+  // Heartbeat
+  rtc_clock clock;
+  static unsigned long tx_block_cnt   = 0;
+  static unsigned long tx_block_begin = clock.current_time();
+  
+  if(clock.current_time() - tx_block_begin >= 5000000) {
+    BOOST_LOG_TRIVIAL(info) << "LOAD = "
+			    << ((double)1000000*tx_block_cnt)/(clock.current_time() - tx_block_begin)
+			    << " tx/sec ";
+    tx_block_begin = clock.current_time();
+    tx_block_cnt   = 0;
+  }
+  tx_block_cnt++;
+  //////////////
+
   struct proposal *req = (struct proposal *)data;
   int code = req->fn;
   *return_value  = malloc(sizeof(struct proposal));

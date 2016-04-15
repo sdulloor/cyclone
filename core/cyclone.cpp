@@ -183,20 +183,16 @@ static int __applylog(raft_server_t* raft,
     cyclone_handle->cyclone_commit_cb(cyclone_handle->user_arg, chunk, ety->data.len);
   }
   if(ety->type == RAFT_LOGTYPE_REMOVE_NODE) {
-    delta_node_id =
-      cyclone_handle->cyclone_nodeid_cb(cyclone_handle->user_arg,
-					(const unsigned char *)chunk,
-					ety->data.len);
+    cfg_change_t *cfg = (cfg_change_t *)(chunk + sizeof(rpc_t));
+    delta_node_id = cfg->node;
     BOOST_LOG_TRIVIAL(info) << "SHUTDOWN node " << delta_node_id;
     if(delta_node_id == cyclone_handle->me) {
       exit(-1);
     }
   }
   else if(ety->type == RAFT_LOGTYPE_ADD_NONVOTING_NODE) {
-    delta_node_id =
-      cyclone_handle->cyclone_nodeid_cb(cyclone_handle->user_arg,
-					(const unsigned char *)chunk,
-					ety->data.len);
+    cfg_change_t *cfg = (cfg_change_t *)(chunk + sizeof(rpc_t));
+    delta_node_id = cfg->node;
     BOOST_LOG_TRIVIAL(info) << "INIT nonvoting node " << delta_node_id;
   }
   else if(ety->type == RAFT_LOGTYPE_ADD_NODE) {
@@ -249,15 +245,15 @@ static int __raft_logentry_offer(raft_server_t* raft,
     trace_post_append(chunk, ety->data.len);
 #endif
   if(ety->type == RAFT_LOGTYPE_ADD_NONVOTING_NODE) {
-    int delta_node_id = 
-      cyclone_handle->cyclone_nodeid_cb(cyclone_handle->user_arg,
-					(const unsigned char *)chunk,
-					ety->data.len);
+    cfg_change_t *cfg = (cfg_change_t *)((char *)chunk + sizeof(rpc_t));
+    int delta_node_id = cfg->node;
     // call raft add non-voting node
     raft_add_non_voting_node(cyclone_handle->raft_handle,
+			     cfg->last_included_idx,
 			     cyclone_handle->router->output_socket(delta_node_id),
 			     delta_node_id,
 			     delta_node_id == cyclone_handle->me ? 1:0);
+    
   }
   else if(ety->type == RAFT_LOGTYPE_ADD_NODE) {
     int delta_node_id = *(int *)chunk;
@@ -268,10 +264,8 @@ static int __raft_logentry_offer(raft_server_t* raft,
 		  delta_node_id == cyclone_handle->me ? 1:0);
   }
   else if(ety->type == RAFT_LOGTYPE_REMOVE_NODE) {
-    int delta_node_id = 
-      cyclone_handle->cyclone_nodeid_cb(cyclone_handle->user_arg,
-					(const unsigned char *)chunk,
-					ety->data.len);
+    cfg_change_t *cfg = (cfg_change_t *)((char *)chunk + sizeof(rpc_t));
+    int delta_node_id = cfg->node;
     // call raft remove node
     raft_remove_node(cyclone_handle->raft_handle,
 		     raft_get_node(cyclone_handle->raft_handle,
@@ -561,6 +555,8 @@ static void init_log(PMEMobjpool *pop, void *ptr, void *arg)
 
 
 static struct cyclone_img_load_st {
+  cyclone_t * cyclone_handle;
+  cyclone_build_image_t cyclone_build_image_callback;
   void operator ()()
   {
     cyclone_build_image_callback(cyclone_handle->router->control_input_socket());
@@ -573,7 +569,6 @@ void* cyclone_boot(const char *config_path,
 		   cyclone_callback_t cyclone_rep_callback,
 		   cyclone_callback_t cyclone_pop_callback,
 		   cyclone_commit_t cyclone_commit_callback,
-		   cyclone_nodeid_t cyclone_nodeid_callback,
 		   cyclone_build_image_t cyclone_build_image_callback,
 		   int me,
 		   int replicas,
@@ -587,7 +582,6 @@ void* cyclone_boot(const char *config_path,
   cyclone_handle->cyclone_rep_cb = cyclone_rep_callback;
   cyclone_handle->cyclone_pop_cb = cyclone_pop_callback;
   cyclone_handle->cyclone_commit_cb = cyclone_commit_callback;
-  cyclone_handle->cyclone_nodeid_cb = cyclone_nodeid_callback,
   cyclone_handle->user_arg   = user_arg;
   
   boost::property_tree::read_ini(config_path, cyclone_handle->pt);
@@ -731,13 +725,17 @@ void* cyclone_boot(const char *config_path,
 		  1);
 
     // Obtain and load checkpoint
-    int loaded_term, loaded_idx;
+    int loaded_term, loaded_idx, master;
     init_build_image(cyclone_handle->router->control_input_socket(),
 		     &loaded_term,
-		     &loaded_idx);
+		     &loaded_idx,
+		     &master);
     raft_loaded_checkpoint(cyclone_handle->raft_handle,
 			   loaded_term, 
-			   loaded_idx);
+			   loaded_idx,
+			   master);
+    cyclone_image_loader.cyclone_handle = cyclone_handle;
+    cyclone_image_loader.cyclone_build_image_callback = cyclone_build_image_callback;
     cyclone_handle->checkpoint_thread = new boost::thread(boost::ref(cyclone_image_loader));
   }
   /* Launch cyclone service */

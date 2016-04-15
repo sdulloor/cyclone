@@ -37,11 +37,6 @@ typedef void (*cyclone_commit_t)(void *user_arg,
 				 const unsigned char *data,
 				 const int len);
 
-//Callback to extract nodeif for cfg change messages
-typedef int (*cyclone_nodeid_t)(void *user_arg,
-				const unsigned char *data,
-				const int len);
-
 // Callback to build image
 typedef void (*cyclone_build_image_t)(void *socket);
 					    
@@ -50,13 +45,19 @@ extern void* cyclone_boot(const char *config_path,
 			  cyclone_callback_t cyclone_rep_callback,
 			  cyclone_callback_t cyclone_pop_callback,
 			  cyclone_commit_t cyclone_commit_callback,
-			  cyclone_nodeid_t cyclone_nodeid_callback,
 			  cyclone_build_image_t cyclone_build_image_callback,
 			  int me,
 			  int replicas,
 			  void *user_arg);
 
 extern void cyclone_shutdown(void *cyclone_handle);
+
+//////// Cfg changes
+typedef struct cfg_change_st {
+  int node; // Client fills in
+  int last_included_term; // server fills in
+  int last_included_idx; // server fills in
+} cfg_change_t;
 
 //////// RPC interface
 typedef struct rpc_st {

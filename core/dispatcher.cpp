@@ -660,6 +660,9 @@ struct dispatcher_loop {
 	    __sync_synchronize();
 	    chosen_raft_idx  = D_RO(root)->applied_raft_idx;
 	  } while(chosen_raft_term != D_RO(root)->applied_raft_term);
+	  cfg_change_t *cfg = (cfg_change_t *)(rpc_req + 1);
+	  cfg->last_included_term = chosen_raft_term;
+	  cfg->last_included_idx = chosen_raft_idx;
 
 	  take_checkpoint(cyclone_get_term(cyclone_handle),
 			  chosen_raft_idx,
@@ -796,14 +799,6 @@ struct dispatcher_loop {
 static dispatcher_loop * dispatcher_loop_obj;
 static rpc_nvheap_setup_callback_t nvheap_setup_callback_saved;
 
-//Callback to extract nodeif for cfg change messages
-int cyclone_nodeid_cb(void *user_arg,
-		      const unsigned char *data,
-		      const int len)
-{
-  const rpc_t * rpc = (rpc_t *)data;
-  return rpc->master;
-}
 
 void checkpoint_callback(void *socket)
 {
@@ -849,7 +844,7 @@ void dispatcher_start(const char* config_server_path,
   char me_str[100];
   sprintf(me_str,"%d", me);
   file_path.append(me_str);
-  init_checkpoint(file_path.c_str());
+  init_checkpoint(file_path.c_str(), me);
   nvheap_setup_callback_saved = nvheap_setup_callback;
   dispatcher_exec_startup();
 
@@ -939,7 +934,6 @@ void dispatcher_start(const char* config_server_path,
 				&cyclone_rep_cb,
 				&cyclone_pop_cb,
 				&cyclone_commit_cb,
-				&cyclone_nodeid_cb,
 				&checkpoint_callback,
 				me,
 				replicas,

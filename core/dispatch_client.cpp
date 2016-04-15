@@ -96,10 +96,11 @@ typedef struct rpc_client_st {
       packet_out->client_id   = me;
       packet_out->timestamp   = clock.current_time();
       packet_out->client_txid = txid;
-      packet_out->master      = nodeid;
+      cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
+      cfg->node = nodeid;
       retcode = cyclone_tx_timeout(router->output_socket(server), 
 				   (unsigned char *)packet_out, 
-				   sizeof(rpc_t), 
+				   sizeof(rpc_t) + sizeof(cfg_change_t), 
 				   timeout_msec*1000,
 				   "PROPOSE");
       if(retcode == -1) {
@@ -149,10 +150,12 @@ typedef struct rpc_client_st {
       packet_out->client_id   = me;
       packet_out->timestamp   = clock.current_time();
       packet_out->client_txid = txid;
-      packet_out->master      = nodeid;
+      cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
+      cfg->node      = nodeid;
+
       retcode = cyclone_tx_timeout(router->output_socket(server), 
 				   (unsigned char *)packet_out, 
-				   sizeof(rpc_t), 
+				   sizeof(rpc_t) + sizeof(cfg_change_t), 
 				   timeout_msec*1000,
 				   "PROPOSE");
       if(retcode == -1) {
