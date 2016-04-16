@@ -5,7 +5,7 @@ const char* get_checkpoint_fname();
 void take_checkpoint(int leader_term,
 		     int raft_idx,
 		     int raft_term);
-void send_checkpoint(void *socket);
+void send_checkpoint(void *socket, void *cyclone_handle);
 void init_build_image(void *socket,
 		      int *termp,
 		      int* indexp,

@@ -43,29 +43,33 @@ static int __send_requestvote(raft_server_t* raft,
 
 int cyclone_serialize_last_applied(void *cyclone_handle, void *buf)
 {
+  char *buffer = (char *)buf;
+  cyclone_t* handle = (cyclone_t *)cyclone_handle;
   int size = 0;
-  raft_entry_t *ety = raft_last_applied_ety(cyclone_handle->raft_handle);
+  raft_entry_t *ety = raft_last_applied_ety(handle->raft_handle);
   if(ety != NULL) {
-    memcpy(buf, ety, sizeof(raft_entry_t));
+    memcpy(buffer, ety, sizeof(raft_entry_t));
     size += sizeof(raft_entry_t);
-    buf  += sizeof(raft_entry_t);
-    (void)cyclone_handle->read_from_log(buf, ety->data.buf);
-    buf  += ety->data.len;
-    size += ety->data.len;
+    buffer  += sizeof(raft_entry_t);
+    (void)handle->read_from_log((unsigned char *)buffer, 
+				(unsigned long)ety->data.buf);
+    buffer  += ety->data.len;
+    size    += ety->data.len;
   }
   return size;
 }
 
 void cyclone_deserialize_last_applied(void *cyclone_handle, raft_entry_t *ety)
 {
-  TX_BEGIN(cyclone_handle->pop_raft_state) {
-    if(cyclone_handle->append_to_raft_log((unsigned char *)ety,
-					  sizeof(raft_entry_t)) != 0) {
+  cyclone_t* handle = (cyclone_t *)cyclone_handle;
+  TX_BEGIN(handle->pop_raft_state) {
+    if(handle->append_to_raft_log((unsigned char *)ety,
+				  sizeof(raft_entry_t)) != 0) {
       pmemobj_tx_abort(-1);
     }
-    void * saved_ptr = (void *)cyclone_handle->get_log_offset();
-    if(cyclone_handle->append_to_raft_log((unsigned char *)ety->data.buf,
-					  ety->data.len) != 0) {
+    void * saved_ptr = (void *)handle->get_log_offset();
+    if(handle->append_to_raft_log((unsigned char *)ety->data.buf,
+				  ety->data.len) != 0) {
       pmemobj_tx_abort(-1);
     }
     ety->data.buf = saved_ptr;
