@@ -18,7 +18,8 @@ static const char *log_headers[total] =
   {"FATAL", 
    "ERROR",
    "WARNING",
-   "INFO"};
+   "INFO",
+  "DEBUG"};
 
 class BOOST_LOG_TRIVIAL {
   enum log_state level;
