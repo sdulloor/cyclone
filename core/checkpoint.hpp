@@ -6,7 +6,11 @@ void take_checkpoint(int leader_term,
 		     int raft_idx,
 		     int raft_term);
 void send_checkpoint(void *socket);
-void init_build_image(void *socket, int *termp, int* indexp, int *masterp);
+void init_build_image(void *socket,
+		      int *termp,
+		      int* indexp,
+		      int *masterp,
+		      void **init_ety_ptr);
 void build_image(void *socket);
 int image_get_term();
 int image_get_idx();

@@ -41,6 +41,40 @@ static int __send_requestvote(raft_server_t* raft,
   return 0;
 }
 
+int cyclone_serialize_last_applied(void *cyclone_handle, void *buf)
+{
+  int size = 0;
+  raft_entry_t *ety = raft_last_applied_ety(cyclone_handle->raft_handle);
+  if(ety != NULL) {
+    memcpy(buf, ety, sizeof(raft_entry_t));
+    size += sizeof(raft_entry_t);
+    buf  += sizeof(raft_entry_t);
+    (void)cyclone_handle->read_from_log(buf, ety->data.buf);
+    buf  += ety->data.len;
+    size += ety->data.len;
+  }
+  return size;
+}
+
+void cyclone_deserialize_last_applied(void *cyclone_handle, raft_entry_t *ety)
+{
+  TX_BEGIN(cyclone_handle->pop_raft_state) {
+    if(cyclone_handle->append_to_raft_log((unsigned char *)ety,
+					  sizeof(raft_entry_t)) != 0) {
+      pmemobj_tx_abort(-1);
+    }
+    void * saved_ptr = (void *)cyclone_handle->get_log_offset();
+    if(cyclone_handle->append_to_raft_log((unsigned char *)ety->data.buf,
+					  ety->data.len) != 0) {
+      pmemobj_tx_abort(-1);
+    }
+    ety->data.buf = saved_ptr;
+  } TX_ONABORT {
+    BOOST_LOG_TRIVIAL(fatal) << "Failed to write init log entry for img build";
+    exit(-1);
+  } TX_END
+}
+
 /** Raft callback for sending appendentries message */
 static int __send_appendentries(raft_server_t* raft,
 				void *udata,
@@ -726,13 +760,19 @@ void* cyclone_boot(const char *config_path,
 
     // Obtain and load checkpoint
     int loaded_term, loaded_idx, master;
+    raft_entry_t *init_ety;
     init_build_image(cyclone_handle->router->control_input_socket(),
 		     &loaded_term,
 		     &loaded_idx,
-		     &master);
+		     &master,
+		     (void **)&init_ety);
+    if(init_ety != NULL) {
+      cyclone_deserialize_last_applied(cyclone_handle, init_ety);
+    }
     raft_loaded_checkpoint(cyclone_handle->raft_handle,
 			   loaded_term, 
 			   loaded_idx,
+			   init_ety,
 			   master);
     cyclone_image_loader.cyclone_handle = cyclone_handle;
     cyclone_image_loader.cyclone_build_image_callback = cyclone_build_image_callback;

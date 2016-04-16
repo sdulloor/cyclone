@@ -11,6 +11,8 @@ void *cyclone_control_socket_out(void *cyclone_handle,
 				 int replica); // Get control out socket
 void *cyclone_control_socket_in(void *cyclone_handle); // Get control in socket
 
+int cyclone_serialize_last_applied(void *cyclone_handle, void *buf);
+
 // Returns a non-null cookie if accepted for replication
 extern void *cyclone_add_entry(void * cyclone_handle, void *data, int size); 
 extern void *cyclone_add_entry_cfg(void * cyclone_handle,

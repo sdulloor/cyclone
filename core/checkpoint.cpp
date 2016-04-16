@@ -109,14 +109,27 @@ void send_checkpoint(void *socket)
 	     "Checkpoint rcv");
 }
 
-void init_build_image(void *socket, int *termp, int *indexp, int *masterp)
+void init_build_image(void *socket,
+		      int *termp,
+		      int *indexp,
+		      int *masterp,
+		      void **init_ety_ptr)
 {
   uint64_t reply = REPLY_OK;
-  cyclone_rx(socket, (unsigned char *)&checkpoint_hdr, 
-	     sizeof(fragment_t), "Checkpoint rcv");
+  int bytes = cyclone_rx(socket,
+			 buffer,
+			 bufbytes,
+			 "Checkpoint rcv");
+  memcpy(&checkpoint_hdr, buffer, sizeof(fragment_t));
   *termp  = checkpoint_hdr.last_included_term;
   *indexp = checkpoint_hdr.last_included_index;
   *masterp = checkpoint_hdr.master;
+  if(bytes > sizeof(fragment_t)) {
+    *init_ety_ptr = (void *)((char *)buffer + sizeof(fragment_t));
+  }
+  else {
+    *init_ety_ptr = NULL;
+  }
   cyclone_tx(socket, (const unsigned char *)&reply, sizeof(uint64_t), "Checkpoint send");
 }
 
