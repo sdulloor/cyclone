@@ -7,6 +7,7 @@
 #include "checkpoint.hpp"
 #include "logging.hpp"
 #include "cyclone_comm.hpp"
+#include "cyclone.hpp"
 static char fname[500];
 static fragment_t checkpoint_hdr;
 static void *checkpoint;
@@ -73,15 +74,18 @@ void take_checkpoint(int leader_term,
   close(fd_out);
 }
 
-void send_checkpoint(void *socket)
+void send_checkpoint(void *socket, void *cyclone_handle)
 {
   uint64_t reply;
-  int bytes_to_send;
+  int bytes_to_send = sizeof(fragment_t);
   checkpoint_hdr.offset = 0;
   memcpy(buffer, &checkpoint_hdr, sizeof(fragment_t));
+  bytes_to_send += 
+    cyclone_serialize_last_applied(cyclone_handle, 
+				   (char *)buffer + sizeof(fragment_t));
   // tx and await reply;
   cyclone_tx(socket, (const unsigned char *)buffer, 
-	     sizeof(fragment_t), "Checkpoint header send");
+	     bytes_to_send, "Checkpoint header send");
   cyclone_rx(socket, (unsigned char *)&reply, sizeof(uint64_t),
 	     "Checkpoint rcv");
 
@@ -117,7 +121,7 @@ void init_build_image(void *socket,
 {
   uint64_t reply = REPLY_OK;
   int bytes = cyclone_rx(socket,
-			 buffer,
+			 (unsigned char *)buffer,
 			 bufbytes,
 			 "Checkpoint rcv");
   memcpy(&checkpoint_hdr, buffer, sizeof(fragment_t));

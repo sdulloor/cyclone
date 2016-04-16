@@ -68,8 +68,7 @@ void cyclone_deserialize_last_applied(void *cyclone_handle, raft_entry_t *ety)
       pmemobj_tx_abort(-1);
     }
     void * saved_ptr = (void *)handle->get_log_offset();
-    if(handle->append_to_raft_log((unsigned char *)ety->data.buf,
-				  ety->data.len) != 0) {
+    if(handle->append_to_raft_log((unsigned char *)(ety + 1), ety->data.len) != 0) {
       pmemobj_tx_abort(-1);
     }
     ety->data.buf = saved_ptr;
