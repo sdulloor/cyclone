@@ -44,7 +44,7 @@ static rpc_info_t * volatile pending_rpc_head;
 static rpc_info_t * volatile pending_rpc_tail;
 
 static volatile unsigned long list_lock = 0;
-
+static volatile bool building_image = false;
 
 static void lock(volatile unsigned long *lockp)
 {
@@ -191,6 +191,7 @@ static void mark_done(const rpc_t *rpc,
 
 void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 {
+  while(building_image);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   volatile bool user_tx_aborted = false;
   volatile bool repeat = true;
@@ -278,6 +279,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 
 void exec_rpc_internal(rpc_info_t *rpc)
 {
+  while(building_image);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   volatile bool user_tx_aborted = true;
   TX_BEGIN(state) {
@@ -324,6 +326,7 @@ void exec_rpc_internal(rpc_info_t *rpc)
 
 void exec_rpc_internal_ro(rpc_info_t *rpc)
 {
+  while(building_image);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   rpc->sz = execute_rpc((const unsigned char *)(rpc->rpc + 1),
 			rpc->len - sizeof(rpc_t),
@@ -517,14 +520,19 @@ void cyclone_rep_cb(void *user_arg,
 {
   const rpc_t *rpc = (const rpc_t *)data;
   rpc_info_t *match;
-  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  int applied_raft_idx = D_RO(root)->applied_raft_idx;
+  TOID(disp_state_t) root;
+  int applied_raft_idx;
+
+  if(!building_image) {
+    root = POBJ_ROOT(state, disp_state_t);
+    applied_raft_idx = D_RO(root)->applied_raft_idx;
+  }
 
   if(rpc->code == RPC_REQ_MARKER) {
     return;
   }
   else if(rpc->code== RPC_REQ_DATA) {
-    if(rpc->parent_raft_idx  <= applied_raft_idx) {
+    if(!building_image && rpc->parent_raft_idx  <= applied_raft_idx) {
       return;
     }
     match = locate_rpc_internal(rpc->parent_raft_idx,
@@ -547,7 +555,7 @@ void cyclone_rep_cb(void *user_arg,
     match->have_follower_data = true;
     return;
   }
-  if(raft_idx  <= applied_raft_idx) {
+  if(!building_image && raft_idx  <= applied_raft_idx) {
     return;
   }
   issue_rpc(rpc, len, raft_idx, raft_term);
@@ -823,7 +831,7 @@ void checkpoint_callback(void *socket)
     exit(-1);
   } TX_END
   BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered from checkpoint";
-  
+  building_image = false;
 }
 
 void dispatcher_start(const char* config_server_path,
@@ -860,6 +868,7 @@ void dispatcher_start(const char* config_server_path,
 
   if(!i_am_active) {
     BOOST_LOG_TRIVIAL(info) << "Starting inactive server";
+    building_image = true;
   }
   else {
     if(access(file_path.c_str(), F_OK)) {
