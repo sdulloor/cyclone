@@ -667,13 +667,14 @@ struct dispatcher_loop {
 	  take_checkpoint(cyclone_get_term(cyclone_handle),
 			  chosen_raft_idx,
 			  chosen_raft_term);
-	  // Send checkpoint 
-	  send_checkpoint(cyclone_control_socket_out(cyclone_handle, 
-						     rpc_req->master));
 	  cookie = cyclone_add_entry_cfg(cyclone_handle,
 					 RAFT_LOGTYPE_ADD_NONVOTING_NODE,
 					 rpc_req,
 					 sz);
+	  // Send checkpoint 
+	  send_checkpoint(cyclone_control_socket_out(cyclone_handle, 
+						     rpc_req->master));
+
 	}
 	else {
 	  cookie = cyclone_add_entry_cfg(cyclone_handle,
