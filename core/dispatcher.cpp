@@ -663,7 +663,6 @@ struct dispatcher_loop {
 	  cfg_change_t *cfg = (cfg_change_t *)(rpc_req + 1);
 	  cfg->last_included_term = chosen_raft_term;
 	  cfg->last_included_idx = chosen_raft_idx;
-
 	  take_checkpoint(cyclone_get_term(cyclone_handle),
 			  chosen_raft_idx,
 			  chosen_raft_term);
@@ -673,8 +672,7 @@ struct dispatcher_loop {
 					 sz);
 	  // Send checkpoint 
 	  send_checkpoint(cyclone_control_socket_out(cyclone_handle, 
-						     rpc_req->master));
-
+						     cfg->node));
 	}
 	else {
 	  cookie = cyclone_add_entry_cfg(cyclone_handle,
