@@ -8,11 +8,12 @@ CXXFLAGS = -O3 -fPIC -DBOOST_LOG_DYN_LINK
 #BOOST_THREAD_LIB=-lboost_thread-mt
 BOOST_THREAD_LIB=-lboost_thread
 
-libcyclone.so: libcyclone.o dispatcher.o dispatcher_exec.o dispatch_client.o checkpoint.o
+libcyclone.so: libcyclone.o dispatcher.o dispatcher_exec.o dispatch_client.o \
+	checkpoint.o checkpoint_savepage.o
 	$(CXX) -shared -Wl,-soname,libcyclone.so -o libcyclone.so libcyclone.o\
 	 dispatcher.o dispatcher_exec.o dispatch_client.o checkpoint.o \
-	-lc -lcraft -lpmemobj -lpmemlog -lpmem -lzmq -lboost_system -lboost_date_time \
-	$(BOOST_THREAD_LIB)
+	checkpoint_savepage.o -lc -lcraft -lpmemobj -lpmemlog -lpmem -lzmq \
+	-lboost_system -lboost_date_time $(BOOST_THREAD_LIB)
 
 libcyclone.o: cyclone.cpp libcyclone.hpp
 	$(CXX) $(CXXFLAGS) cyclone.cpp -c -o $@
@@ -22,6 +23,9 @@ dispatcher.o: dispatcher.cpp dispatcher_exec.hpp libcyclone.hpp
 
 checkpoint.o: checkpoint.cpp checkpoint.hpp
 	$(CXX) $(CXXFLAGS) checkpoint.cpp -c -o $@
+
+checkpoint_savepage.o: checkpoint_savepage.cpp checkpoint.hpp
+	$(CXX) $(CXXFLAGS) checkpoint_savepage.cpp -c -o $@
 
 dispatcher_exec.o: dispatcher_exec.cpp dispatcher_exec.hpp libcyclone.hpp
 	$(CXX) $(CXXFLAGS) dispatcher_exec.cpp -c -o $@
@@ -37,5 +41,5 @@ install:libcyclone.so
 
 clean:
 	rm -f libcyclone.o dispatcher.o dispatcher_exec.o dispatch_client.o \
-	libcyclone.so
+	checkpoint.o checkpoint_savepage.o libcyclone.so
 

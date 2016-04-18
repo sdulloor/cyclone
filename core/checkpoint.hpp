@@ -27,4 +27,16 @@ typedef struct fragment_st {
 #define REPLY_OK 0UL
 #define REPLY_STALE -1UL
 
+typedef struct savepage_st{
+  void *page_address;
+  void *saved_version;
+  struct savepage_st *next;
+} save_page_t;
+
+extern save_page_t *saved_pages;
+
+void init_sigsegv_handler(void *mapping_in,
+			  unsigned long mapping_size_in);
+void restore_sigsegv_handler();
+
 #endif
