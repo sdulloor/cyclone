@@ -2,14 +2,19 @@
 #include <boost/bind.hpp>
 #include <boost/thread.hpp>
 #include "dispatcher_exec.hpp"
+#include "checkpoint.hpp"
 
 boost::asio::io_service ioService;
 boost::asio::io_service::work work(ioService);
+boost::asio::io_service ioService2;
+boost::asio::io_service::work work2(ioService2);
 boost::thread_group threadpool;
 void dispatcher_exec_startup()
 {
   threadpool.create_thread
     (boost::bind(&boost::asio::io_service::run, &ioService));
+  threadpool.create_thread
+    (boost::bind(&boost::asio::io_service::run, &ioService2));
 }
 
 void exec_rpc(rpc_info_t *rpc)
@@ -23,6 +28,12 @@ void exec_rpc(rpc_info_t *rpc)
   else {
     ioService.post(boost::bind(exec_rpc_internal, rpc));
   }
+}
+
+
+void exec_send_checkpoint(void *socket, void *handle)
+{
+  ioService.post(boost::bind(send_checkpoint, socket, handle));
 }
 
 static void print(const char *prefix,

@@ -678,10 +678,10 @@ struct dispatcher_loop {
 					 RAFT_LOGTYPE_ADD_NONVOTING_NODE,
 					 rpc_req,
 					 sz);
-	  // Send checkpoint 
-	  send_checkpoint(cyclone_control_socket_out(cyclone_handle, 
-						     cfg->node),
-			  cyclone_handle);
+	  // Async send checkpoint 
+	  exec_send_checkpoint(cyclone_control_socket_out(cyclone_handle, 
+							  cfg->node),
+			       cyclone_handle);
 	}
 	else {
 	  cookie = cyclone_add_entry_cfg(cyclone_handle,
