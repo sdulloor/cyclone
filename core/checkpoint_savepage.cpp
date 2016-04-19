@@ -89,13 +89,20 @@ void init_sigsegv_handler(const char *fname)
   sigsegv.sa_sigaction = sigsegv_handler;
   sigemptyset(&sigsegv.sa_mask);
   sigsegv.sa_flags = SA_SIGINFO;
-  sigaction(SIGSEGV, &sigsegv, &orig_sigsegv_handler);
+  int e = sigaction(SIGSEGV, &sigsegv, &orig_sigsegv_handler);
+  if(e < 0) {
+    BOOST_LOG_TRIVIAL(fatal)
+      << "Failed to install sigsegv handler"
+      << strerror(errno);
+    exit(-1);
+  }
   // write protect heap here with the handler in place
-  int e = mprotect(mapping, mapping_size, PROT_READ);
+  e = mprotect(mapping, mapping_size, PROT_READ);
   if(e < 0) {
     BOOST_LOG_TRIVIAL(fatal)
       << "Failed to write-protect heap"
       << strerror(errno);
+    exit(-1);
   }
 }
 
@@ -109,7 +116,13 @@ void restore_sigsegv_handler()
       << strerror(errno);
   }
   // Re-install the original signal handler
-  sigaction(SIGSEGV, &orig_sigsegv_handler, NULL);
+  e = sigaction(SIGSEGV, &orig_sigsegv_handler, NULL);
+  if(e < 0) {
+    BOOST_LOG_TRIVIAL(fatal)
+      << "Failed to restore sigsegv handler"
+      << strerror(errno);
+    exit(-1);
+  }
 }
 
 void delete_saved_pages()
