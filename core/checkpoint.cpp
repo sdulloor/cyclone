@@ -121,12 +121,12 @@ void build_image(void *socket)
   fragment_t * fptr;
   int bytes;
   uint64_t reply;
-  checkpoint_hdr.offset = 0;
   int fd_out = open(fname, O_WRONLY|O_TRUNC|O_CREAT, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH);
   if(fd_out == -1) {
     BOOST_LOG_TRIVIAL(fatal) << "Failed to open output file for checkpoint";
     exit(-1);
   }
+  unsigned long foffset = 0;
   while(true) {
     bytes = cyclone_rx(socket, (unsigned char *)buffer, bufbytes, "Checkpoint rcv");
     fptr = (fragment_t *)buffer;
@@ -136,10 +136,13 @@ void build_image(void *socket)
     }
     else {
       reply = REPLY_OK;
-      if(checkpoint_hdr.offset == 0) {
+      if(fptr->offset == 0) {
 	// prep file
 	lseek(fd_out, 0, SEEK_SET);
 	ftruncate(fd_out, 0);
+      }
+      if(fptr->offset != foffset) {
+	foffset = lseek(fd_out, fptr->offset, SEEK_SET);
       }
       char * buf = (char *)buffer + sizeof(fragment_t);
       int bytes_left = bytes - sizeof(fragment_t);
@@ -152,7 +155,7 @@ void build_image(void *socket)
 	}
 	bytes_left            -= bytes_written;
 	buf                   += bytes_written;
-	checkpoint_hdr.offset += bytes_written;
+	foffset               += bytes_written;
       }
     }
     cyclone_tx(socket, (const unsigned char *)&reply, sizeof(uint64_t), "Checkpoint send");
