@@ -10,7 +10,6 @@
 #include "cyclone.hpp"
 static char fname[500];
 static fragment_t checkpoint_hdr;
-static void *checkpoint;
 const int bufbytes = 4*1024*1024;
 static void *buffer;
 static unsigned long checkpoint_size;
@@ -35,48 +34,15 @@ void take_checkpoint(int leader_term,
   checkpoint_hdr.last_included_index = raft_idx;
   checkpoint_hdr.last_included_term = raft_term;
   checkpoint_size = 0;
-  // Dumb synchronous file copy for now.
-  int fd_in = open(fname, O_RDONLY);
-  if(fd_in == -1) {
-    BOOST_LOG_TRIVIAL(fatal) << "Failed to open input file for checkpoint";
-    exit(-1);
-  }
-  int fd_out = open("/tmp/chkpoint", O_RDWR|O_TRUNC|O_CREAT, S_IRWXU);
-  if(fd_out == -1) {
-    BOOST_LOG_TRIVIAL(fatal) << "Failed to open output file for checkpoint";
-    exit(-1);
-  }
-  int bytes_read, bytes_written;
-  while(bytes_read = read(fd_in, buffer, bufbytes)) {
-    checkpoint_size += bytes_read;
-    char *buf = (char *)buffer;
-    while(bytes_read) {
-      bytes_written = write(fd_out, buf, bytes_read);
-      if(bytes_written == 0) {
-	BOOST_LOG_TRIVIAL(fatal) << "Unable to write to checkpoint file";
-	exit(-1);
-      }
-      bytes_read -= bytes_written;
-      buf += bytes_written;
-    }
-  }
-  close(fd_in);
-  checkpoint = mmap(NULL, 
-		    checkpoint_size, 
-		    PROT_READ|PROT_WRITE, 
-		    MAP_SHARED,
-		    fd_out, 
-		    0);
-  if(checkpoint == MAP_FAILED) {
-    BOOST_LOG_TRIVIAL(fatal) << "Unable to mmap checkpoint file";
-    exit(-1);
-  }
-  close(fd_out);
+  // Prep save pages handler
+  init_sigsegv_handler(fname);
+  // Return immediately
 }
 
 void send_checkpoint(void *socket, void *cyclone_handle)
 {
   uint64_t reply;
+  /* First send the header to start up the other side */
   int bytes_to_send = sizeof(fragment_t);
   checkpoint_hdr.offset = 0;
   memcpy(buffer, &checkpoint_hdr, sizeof(fragment_t));
@@ -89,15 +55,11 @@ void send_checkpoint(void *socket, void *cyclone_handle)
   cyclone_rx(socket, (unsigned char *)&reply, sizeof(uint64_t),
 	     "Checkpoint rcv");
 
-  while(checkpoint_hdr.offset != checkpoint_size) {
-    bytes_to_send = checkpoint_size - checkpoint_hdr.offset;
-    if((bytes_to_send + sizeof(fragment_t)) > bufbytes) {
-      bytes_to_send = bufbytes - sizeof(fragment_t);
-    }
+  int fd = open(fname, O_RDONLY);
+  while(bytes_to_send = read(fd, 
+			     (char *)buffer + sizeof(fragment_t), 
+			     bufbytes - sizeof(fragment_t))) {
     ((fragment_t *)buffer)->offset = checkpoint_hdr.offset;
-    memcpy((char *)buffer + sizeof(fragment_t),
-	   (char *)checkpoint + checkpoint_hdr.offset,
-	   bytes_to_send);
     // tx and await reply;
     cyclone_tx(socket, (const unsigned char *)buffer, 
 	       sizeof(fragment_t) + bytes_to_send, "Checkpoint send");
@@ -105,12 +67,29 @@ void send_checkpoint(void *socket, void *cyclone_handle)
 	       "Checkpoint rcv");
     checkpoint_hdr.offset += bytes_to_send;
   }
-  // tx EOF and throw away reply;
+  close(fd);
+  restore_sigsegv_handler();
+  // Transmit pages
+  save_page_t *cursor = saved_pages;
+  while(cursor != NULL) {
+    ((fragment_t *)buffer)->offset = cursor->offset;
+    memcpy((char *)buffer + sizeof(fragment_t),
+	   cursor->saved_version,
+	   pagesize);
+    // tx and await reply;
+    cyclone_tx(socket, (const unsigned char *)buffer, 
+	       sizeof(fragment_t) + pagesize, "Checkpoint send");
+    cyclone_rx(socket, (unsigned char *)&reply, sizeof(uint64_t),
+	       "Checkpoint rcv");
+    cursor = cursor->next;
+  }
+  //tx EOF and throw away reply;
   ((fragment_t *)buffer)->offset = checkpoint_hdr.offset;
   cyclone_tx(socket, (const unsigned char *)buffer, sizeof(fragment_t),
 	     "Checkpoint send");
   cyclone_rx(socket, (unsigned char *)&reply, sizeof(uint64_t),
 	     "Checkpoint rcv");
+  delete_saved_pages();
 }
 
 void init_build_image(void *socket,

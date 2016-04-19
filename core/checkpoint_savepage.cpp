@@ -1,20 +1,23 @@
 #include<signal.h>
 #include<sys/mman.h>
 #include<string.h>
-#include "logging.h"
+#include<stdio.h>
+#include "checkpoint.hpp"
+#include "logging.hpp"
 
 static struct sigaction orig_sigsegv_handler;
 static void *mapping;
 static unsigned long mapping_size;
-static save_page_t *saved_pages = NULL;
-static const int pagesize = 4096;
+static unsigned long map_offset;
+save_page_t *saved_pages = NULL;
 
 static void sigsegv_handler(int sig, siginfo_t *siginfo, void *context)
 {
   save_page_t * check = saved_pages;
   void *page = siginfo->si_addr;
+  unsigned long offset = map_offset + ((char *)page - (char *)mapping);
   while(check != NULL) {
-    if(check->page_address == page)
+    if(check->offset == offset)
       return;
     check = check->next;
   }
@@ -23,13 +26,15 @@ static void sigsegv_handler(int sig, siginfo_t *siginfo, void *context)
     BOOST_LOG_TRIVIAL(fatal) << "Savepage out of memory";
     exit(-1);
   }
-  check->page_address  = page;
+  check->offset  = offset;
   check->saved_version = malloc(pagesize);
   if(check->saved_version == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Savepage out of memory";
     exit(-1);
   }
-  memcpy(check->saved_version, check->page_address, pagesize);
+  memcpy(check->saved_version, 
+	 page, 
+	 pagesize);
   check->next = saved_pages;
   saved_pages = check;
   // Unprotect the page
@@ -41,12 +46,41 @@ static void sigsegv_handler(int sig, siginfo_t *siginfo, void *context)
   }
 }
  
-void init_sigsegv_handler(void *mapping_in,
-			  unsigned long mapping_size_in)
+void init_sigsegv_handler(const char *fname)
 {
   struct sigaction sigsegv;
-  mapping      = mapping_in;
-  mapping_size = mapping_size_in; 
+  /* Parse /proc/self/maps to detect mapping */
+  FILE *fp = fopen("/proc/self/maps", "r");
+  if(fp == NULL) {
+    BOOST_LOG_TRIVIAL(fatal) << "Unable to open proc/self/maps for reading:"
+			     << strerror(errno);
+    exit(-1);
+  }
+  char *buffer = (char *)malloc(1000);
+  while(fscanf(fp, "%s", buffer)) {
+    int ptr = strlen(buffer);
+    unsigned long map_begin, map_end, offset, ino;
+    int major, minor;
+    char p1,p2,p3,p4;
+    int t = sscanf(buffer, "%08lx-%08lx %c%c%c%c %08llx %02x:%02x %lu",
+		   &map_begin, &map_end, &p1, &p2, &p3, &p4, &offset, 
+		   &major, &minor, &ino);
+    if(t != 10) {
+      BOOST_LOG_TRIVIAL(fatal) 
+	<< "Failed to parse maps line:"
+	<< (const char *)buffer;
+    }
+    while(buffer[--ptr] != ' ');
+    char *name = &buffer[++ptr];
+    if(strcmp(buffer, fname) == 0 && p2 == 'w') {
+      mapping = (void *)map_begin;
+      mapping_size = (map_end - map_begin);
+      map_offset = offset;
+      break;
+    }
+  }
+  free(buffer);
+  fclose(fp);
   sigsegv.sa_sigaction = sigsegv_handler;
   sigemptyset(&sigsegv.sa_mask);
   sigsegv.sa_flags = SA_SIGINFO;

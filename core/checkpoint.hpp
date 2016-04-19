@@ -28,15 +28,18 @@ typedef struct fragment_st {
 #define REPLY_STALE -1UL
 
 typedef struct savepage_st{
-  void *page_address;
+  unsigned long offset; // in backing file
   void *saved_version;
   struct savepage_st *next;
 } save_page_t;
 
 extern save_page_t *saved_pages;
 
-void init_sigsegv_handler(void *mapping_in,
-			  unsigned long mapping_size_in);
-void restore_sigsegv_handler();
+extern void init_sigsegv_handler(const char *fname);
+extern void restore_sigsegv_handler();
+extern void delete_saved_pages();
+
+static const int pagesize = 4096;
+
 
 #endif
