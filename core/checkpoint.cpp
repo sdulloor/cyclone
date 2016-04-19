@@ -58,6 +58,7 @@ void send_checkpoint(void *socket, void *cyclone_handle)
 	     "Checkpoint rcv");
 
   int fd = open(fname, O_RDONLY);
+  BOOST_LOG_TRIVIAL(info) << "Checkpoint: Begin send image ...";
   while(bytes_to_send = read(fd, 
 			     (char *)buffer + sizeof(fragment_t), 
 			     bufbytes - sizeof(fragment_t))) {
@@ -69,6 +70,7 @@ void send_checkpoint(void *socket, void *cyclone_handle)
 	       "Checkpoint rcv");
     checkpoint_hdr.offset += bytes_to_send;
   }
+  BOOST_LOG_TRIVIAL(info) << "Checkpoint: Done. Send saved pages ...";
   close(fd);
   restore_sigsegv_handler();
   // Transmit pages
@@ -85,6 +87,7 @@ void send_checkpoint(void *socket, void *cyclone_handle)
 	       "Checkpoint rcv");
     cursor = cursor->next;
   }
+  BOOST_LOG_TRIVIAL(info) << "Checkpoint: Done.";
   //tx EOF and throw away reply;
   ((fragment_t *)buffer)->offset = checkpoint_hdr.offset;
   cyclone_tx(socket, (const unsigned char *)buffer, sizeof(fragment_t),

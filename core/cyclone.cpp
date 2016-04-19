@@ -596,6 +596,7 @@ static struct cyclone_img_load_st {
   cyclone_build_image_t cyclone_build_image_callback;
   void operator ()()
   {
+    __sync_synchronize(); // Taking over socket
     cyclone_build_image_callback(cyclone_handle->router->control_input_socket());
     raft_unset_img_build(cyclone_handle->raft_handle);
   }
@@ -782,6 +783,7 @@ void* cyclone_boot(const char *config_path,
     cyclone_handle->checkpoint_thread = new boost::thread(boost::ref(cyclone_image_loader));
   }
   /* Launch cyclone service */
+  __sync_synchronize(); // Going to give the thread control over the socket
   cyclone_handle->monitor_thread = new boost::thread(boost::ref(*cyclone_handle->monitor_obj));
   return cyclone_handle;
 }
