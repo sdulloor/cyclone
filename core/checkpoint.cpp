@@ -8,6 +8,7 @@
 #include "logging.hpp"
 #include "cyclone_comm.hpp"
 #include "cyclone.hpp"
+#include "clock.hpp"
 static char fname[500];
 static fragment_t checkpoint_hdr;
 const int bufbytes = 4*1024*1024;
@@ -42,6 +43,7 @@ void take_checkpoint(int leader_term,
 void send_checkpoint(void *socket, void *cyclone_handle)
 {
   uint64_t reply;
+
   /* First send the header to start up the other side */
   int bytes_to_send = sizeof(fragment_t);
   checkpoint_hdr.offset = 0;

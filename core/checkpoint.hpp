@@ -39,7 +39,7 @@ extern void init_sigsegv_handler(const char *fname);
 extern void restore_sigsegv_handler();
 extern void delete_saved_pages();
 
-static const int pagesize = 4096;
+static const unsigned long pagesize = 4096;
 
 
 #endif

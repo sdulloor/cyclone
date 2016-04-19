@@ -15,7 +15,8 @@ static void sigsegv_handler(int sig, siginfo_t *siginfo, void *context)
 {
   save_page_t * check = saved_pages;
   void *page = siginfo->si_addr;
-  unsigned long offset = map_offset + ((char *)page - (char *)mapping);
+  void *page_aligned = (void *)((unsigned long)page & ~ (pagesize - 1));
+  unsigned long offset = map_offset + ((char *)page_aligned - (char *)mapping);
   while(check != NULL) {
     if(check->offset == offset)
       return;
@@ -33,16 +34,17 @@ static void sigsegv_handler(int sig, siginfo_t *siginfo, void *context)
     exit(-1);
   }
   memcpy(check->saved_version, 
-	 page, 
+	 page_aligned, 
 	 pagesize);
   check->next = saved_pages;
   saved_pages = check;
   // Unprotect the page
-  int e = mprotect(page, pagesize, PROT_READ|PROT_WRITE);
+  int e = mprotect(page_aligned, pagesize, PROT_READ|PROT_WRITE);
   if(e < 0) {
     BOOST_LOG_TRIVIAL(fatal)
       << "Failed to un write-protect heap page in sighandler"
       << strerror(errno);
+    exit(-1);
   }
 }
  
@@ -75,9 +77,13 @@ void init_sigsegv_handler(const char *fname)
 	<< "Failed to parse maps line:"
 	<< (const char *)buffer;
     }
-    while(buffer[--ptr] != ' ');
+    while(buffer[--ptr] != ' ') {
+      if(buffer[ptr] == '\n') {
+	buffer[ptr] = 0;
+      }
+    }
     char *name = &buffer[++ptr];
-    if(strcmp(buffer, fname) == 0 && p2 == 'w') {
+    if(strcmp(name, fname) == 0 && p2 == 'w') {
       mapping = (void *)map_begin;
       mapping_size = (map_end - map_begin);
       map_offset = offset;
