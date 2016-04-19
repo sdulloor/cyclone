@@ -57,12 +57,17 @@ void init_sigsegv_handler(const char *fname)
     exit(-1);
   }
   char *buffer = (char *)malloc(1000);
-  while(fscanf(fp, "%s", buffer)) {
+  while(true) {
+    size_t size = 1000;
+    int readbytes = getline(&buffer, &size, fp);
+    if(readbytes == -1) {
+      break;
+    }
     int ptr = strlen(buffer);
     unsigned long map_begin, map_end, offset, ino;
     int major, minor;
     char p1,p2,p3,p4;
-    int t = sscanf(buffer, "%08lx-%08lx %c%c%c%c %08llx %02x:%02x %lu",
+    int t = sscanf(buffer, "%lx-%lx %c%c%c%c %llx %x:%x %lu",
 		   &map_begin, &map_end, &p1, &p2, &p3, &p4, &offset, 
 		   &major, &minor, &ino);
     if(t != 10) {
