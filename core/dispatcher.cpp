@@ -206,7 +206,8 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
       have_data = rpc->have_follower_data;
       user_tx_aborted = false;
       __sync_synchronize();
-      if(cyclone_get_term(cyclone_handle) != execution_term) {
+      if(cyclone_get_term(cyclone_handle) != execution_term ||
+	 cyclone_get_leader(cyclone_handle) == -1) {
 	continue;
       }
       repeat = false;

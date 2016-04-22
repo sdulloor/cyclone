@@ -53,14 +53,15 @@ int leader_callback_recovery(const unsigned char *data,
   int locks_taken   = 0;
   int index         = 0; 
   client_resp->tx_status = 1;
-  
+
   for(int i=0;i<quorums;i++) {
     struct proposal *response;
     int txid = get_last_txid(quorum_handles[i]);
-    if(txid != ctr[i]) {
-      ctr[i] = txid++;
+    if(ctr[i] != (txid + 1)) {
+      ctr[i] = txid + 1;
       int sz = get_response(quorum_handles[i], (void **)&response, txid);
       if(sz == RPC_EOLD) {
+	free(rep);
 	free(client_resp);
 	return -1;
       }
@@ -136,6 +137,7 @@ int leader_callback_recovery(const unsigned char *data,
 		      ctr[partition],
 		      0);
     if(sz == RPC_EOLD) {
+      free(rep),
       free(client_resp);
       return -1;
     }
@@ -172,6 +174,7 @@ int leader_callback_recovery(const unsigned char *data,
 		      ctr[partition],
 		      0);
     if(sz == RPC_EOLD) {
+      free(rep);
       free(client_resp);
       return -1;
     }
@@ -206,6 +209,7 @@ int leader_callback_recovery(const unsigned char *data,
 		      ctr[partition],
 		      0);
     if(sz == RPC_EOLD) {
+      free(rep);
       free(client_resp);
       return -1;
     }
@@ -230,6 +234,7 @@ int leader_callback_recovery(const unsigned char *data,
 		      ctr[partition],
 		      0);
     if(sz == RPC_EOLD) {
+      free(rep);
       free(client_resp);
       return -1;
     }
@@ -257,6 +262,7 @@ int leader_callback_recovery(const unsigned char *data,
 			ctr[partition],
 			0);
       if(sz == RPC_EOLD) {
+	free(rep);
 	free(client_resp);
 	return -1;
       }
