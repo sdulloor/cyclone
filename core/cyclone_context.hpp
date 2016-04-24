@@ -108,7 +108,6 @@ typedef struct cyclone_st {
     int status = 0;
     TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
     log_t log = D_RO(root)->log;
-    TX_ADD(log);
     unsigned long space_needed = size + 2*sizeof(int);
     unsigned long space_available;
     if(D_RO(log)->log_head <= D_RO(log)->log_tail) {
@@ -142,7 +141,14 @@ typedef struct cyclone_st {
 			 (unsigned char *)&size,
 			 sizeof(int));
     new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
+    persist_to_circular_log(pop_raft_state, log,
+			    RAFT_LOGSIZE,
+			    D_RO(log)->log_tail,
+			    newtail - D_RO(log)->log_tail);
     D_RW(log)->log_tail = new_tail;
+    pmemobj_persist(pop_raft_state,
+		    D_RW(log)->log_tail,
+		    sizeof(unsigned long));
     return status;
   }
 
@@ -151,7 +157,6 @@ typedef struct cyclone_st {
     int result = 0;
     TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
     log_t log = D_RO(root)->log;
-    TX_ADD(log);
     if(D_RO(log)->log_head != D_RO(log)->log_tail) {
       int size;
       copy_from_circular_log(log,
@@ -161,6 +166,9 @@ typedef struct cyclone_st {
 			     sizeof(int)); 
       D_RW(log)->log_head = circular_log_advance_ptr
 	(D_RO(log)->log_head, 2*sizeof(int) + size, RAFT_LOGSIZE);
+      pmemobj_persist(pop_raft_state,
+		      D_RW(log)->log_head,
+		      sizeof(unsigned long));
     }
     return result;
   }
@@ -170,7 +178,6 @@ typedef struct cyclone_st {
     int result = 0;
     TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
     log_t log = D_RO(root)->log;
-    TX_ADD(log);
     if(D_RO(log)->log_head != D_RO(log)->log_tail) {
       int size;
       unsigned long new_tail = D_RO(log)->log_tail;
@@ -179,6 +186,9 @@ typedef struct cyclone_st {
 			     (unsigned char *)&size, new_tail, sizeof(int)); 
       new_tail = circular_log_recede_ptr(new_tail, size + sizeof(int), RAFT_LOGSIZE);
       D_RW(log)->log_tail = new_tail;
+      pmemobj_persist(pop_raft_state,
+		      D_RW(log)->log_tail,
+		      sizeof(unsigned long));
     }
     return result;
   }

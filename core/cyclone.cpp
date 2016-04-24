@@ -62,20 +62,17 @@ int cyclone_serialize_last_applied(void *cyclone_handle, void *buf)
 void cyclone_deserialize_last_applied(void *cyclone_handle, raft_entry_t *ety)
 {
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
-  TX_BEGIN(handle->pop_raft_state) {
-    if(handle->append_to_raft_log((unsigned char *)ety,
-				  sizeof(raft_entry_t)) != 0) {
-      pmemobj_tx_abort(-1);
-    }
-    void * saved_ptr = (void *)handle->get_log_offset();
-    if(handle->append_to_raft_log((unsigned char *)(ety + 1), ety->data.len) != 0) {
-      pmemobj_tx_abort(-1);
-    }
-    ety->data.buf = saved_ptr;
-  } TX_ONABORT {
-    BOOST_LOG_TRIVIAL(fatal) << "Failed to write init log entry for img build";
+  if(handle->append_to_raft_log((unsigned char *)ety,
+				sizeof(raft_entry_t)) != 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "unable to append to log";
     exit(-1);
-  } TX_END
+  }
+  void * saved_ptr = (void *)handle->get_log_offset();
+  if(handle->append_to_raft_log((unsigned char *)(ety + 1), ety->data.len) != 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "unable to append to log";
+    exit(-1);
+  }
+  ety->data.buf = saved_ptr;
 }
 
 /** Raft callback for sending appendentries message */
@@ -212,9 +209,7 @@ static int __applylog(raft_server_t* raft,
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   unsigned char *chunk = (unsigned char *)malloc(ety->data.len);
   int delta_node_id;
-  TX_BEGIN(cyclone_handle->pop_raft_state) {
-    (void)cyclone_handle->read_from_log(chunk, (unsigned long)ety->data.buf);
-  } TX_END
+  (void)cyclone_handle->read_from_log(chunk, (unsigned long)ety->data.buf);
   if(ety->type != RAFT_LOGTYPE_ADD_NODE &&
      cyclone_handle->cyclone_commit_cb != NULL) {    
     cyclone_handle->cyclone_commit_cb(cyclone_handle->user_arg, chunk, ety->data.len);
@@ -233,9 +228,7 @@ static int __applylog(raft_server_t* raft,
     BOOST_LOG_TRIVIAL(info) << "INIT nonvoting node " << delta_node_id;
   }
   else if(ety->type == RAFT_LOGTYPE_ADD_NODE) {
-    TX_BEGIN(cyclone_handle->pop_raft_state) {
-      (void)cyclone_handle->read_from_log(chunk, (unsigned long)ety->data.buf);
-    } TX_END
+    (void)cyclone_handle->read_from_log(chunk, (unsigned long)ety->data.buf);
     int *delta_node_idp = (int *)chunk;
     BOOST_LOG_TRIVIAL(info) << "STARTUP node " << *delta_node_idp;
   }
@@ -256,32 +249,22 @@ static int __raft_logentry_offer(raft_server_t* raft,
 #ifdef TRACING
     trace_pre_append((unsigned char *)chunk, ety->data.len);
 #endif
-  TX_BEGIN(cyclone_handle->pop_raft_state) {
-#ifdef TRACING
-    trace_pre_append((unsigned char *)chunk, ety->data.len);
-#endif
-
     if(cyclone_handle->append_to_raft_log((unsigned char *)ety,
 					  sizeof(raft_entry_t)) != 0) {
-      pmemobj_tx_abort(-1);
+      BOOST_LOG_TRIVIAL(fatal) << "Unable to append to raft log";
+      exit(-1);
     }
     void * saved_ptr = (void *)cyclone_handle->get_log_offset();
     if(cyclone_handle->append_to_raft_log((unsigned char *)ety->data.buf,
 					  ety->data.len) != 0) {
-      pmemobj_tx_abort(-1);
+      BOOST_LOG_TRIVIAL(fatal) << "Unable to append to raft log";
+      exit(-1);
     }
     ety->data.buf = saved_ptr;
 #ifdef TRACING
     trace_post_append(chunk, ety->data.len);
 #endif
-
-  } TX_ONABORT {
-    result = -1;
-  } TX_END
-#ifdef TRACING
-    trace_post_append(chunk, ety->data.len);
-#endif
-  if(ety->type == RAFT_LOGTYPE_ADD_NONVOTING_NODE) {
+    if(ety->type == RAFT_LOGTYPE_ADD_NONVOTING_NODE) {
     cfg_change_t *cfg = (cfg_change_t *)((char *)chunk + sizeof(rpc_t));
     int delta_node_id = cfg->node;
     // call raft add non-voting node
@@ -330,16 +313,14 @@ static int __raft_logentry_poll(raft_server_t* raft,
 {
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  TX_BEGIN(cyclone_handle->pop_raft_state) {
-    if(cyclone_handle->remove_head_raft_log() != 0) {
-      pmemobj_tx_abort(-1);
-    }
-    if(cyclone_handle->remove_head_raft_log() != 0) {
-      pmemobj_tx_abort(-1);
-    }
-  } TX_ONABORT {
-    result = -1;
-  } TX_END
+  if(cyclone_handle->remove_head_raft_log() != 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "Unable to remove log head";
+    exit(-1);
+  }
+  if(cyclone_handle->remove_head_raft_log() != 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "Unable to remove log head";
+    exit(-1);
+  }
   return result;
 }
 
@@ -358,10 +339,8 @@ static int __raft_logentry_pop(raft_server_t* raft,
   }
   if(cyclone_handle->cyclone_pop_cb != NULL && entry->type != RAFT_LOGTYPE_ADD_NODE) {
     unsigned char *chunk = (unsigned char *)malloc(entry->data.len);
-    TX_BEGIN(cyclone_handle->pop_raft_state) {
-      (void)cyclone_handle->read_from_log(chunk, 
-					  (unsigned long)entry->data.buf);
-    } TX_END
+    (void)cyclone_handle->read_from_log(chunk, 
+					(unsigned long)entry->data.buf);
     cyclone_handle->cyclone_pop_cb(cyclone_handle->user_arg,
 				   chunk,
 				   entry->data.len,
@@ -369,16 +348,14 @@ static int __raft_logentry_pop(raft_server_t* raft,
 				   entry->term);
     free(chunk);
   }
-  TX_BEGIN(cyclone_handle->pop_raft_state) {
-    if(cyclone_handle->remove_tail_raft_log() != 0) {
-      pmemobj_tx_abort(-1);
-    }
-    if(cyclone_handle->remove_tail_raft_log() != 0) {
-      pmemobj_tx_abort(-1);
-    }
-  } TX_ONABORT {
-    result = -1;
-  } TX_END
+  if(cyclone_handle->remove_tail_raft_log() != 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "Unable to delete log tail";
+    exit(-1);
+  }
+  if(cyclone_handle->remove_tail_raft_log() != 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "Unable to delete log tail";
+    exit(-1);
+  }
   return result;
 }
 
@@ -688,20 +665,14 @@ void* cyclone_boot(const char *config_path,
     int raft_idx = 0; // TBD fix this on log compaction
     while(ptr != D_RO(log)->log_tail) {
       // Optimize later by removing transaction
-      TX_BEGIN(cyclone_handle->pop_raft_state) {
-	ptr = cyclone_handle->read_from_log((unsigned char *)&ety, ptr);
-      } TX_END
+      ptr = cyclone_handle->read_from_log((unsigned char *)&ety, ptr);
       ety.data.buf = (void *)ptr;
-      TX_BEGIN(cyclone_handle->pop_raft_state) {
-	ptr = cyclone_handle->skip_log_entry(ptr);
-      } TX_END
+      ptr = cyclone_handle->skip_log_entry(ptr);
       raft_append_entry(cyclone_handle->raft_handle, &ety);
       if(cyclone_rep_callback != NULL) {
 	unsigned char *chunk = (unsigned char *)malloc(ety.data.len);
-	TX_BEGIN(cyclone_handle->pop_raft_state) {
-	  (void)cyclone_handle->read_from_log(chunk, 
-					      (unsigned long)ety.data.buf);
-	} TX_END
+	(void)cyclone_handle->read_from_log(chunk, 
+					    (unsigned long)ety.data.buf);
 	cyclone_rep_callback(user_arg,
 			     (const unsigned char *)chunk,
 			     ety.data.len,
