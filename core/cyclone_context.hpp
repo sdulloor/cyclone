@@ -103,9 +103,8 @@ typedef struct cyclone_st {
     return D_RO(log)->log_tail;
   }
   
-  int append_to_raft_log(unsigned char *data, int size)
+  void append_to_raft_log(unsigned char *data, int size)
   {
-    int status = 0;
     TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
     log_t log = D_RO(root)->log;
     unsigned long space_needed = size + 2*sizeof(int);
@@ -149,12 +148,86 @@ typedef struct cyclone_st {
     pmemobj_persist(pop_raft_state,
 		    &D_RW(log)->log_tail,
 		    sizeof(unsigned long));
-    return status;
   }
 
-  int remove_head_raft_log()
+  unsigned long double_append_to_raft_log(unsigned char *data1, 
+					  int size1,
+					  unsigned char *data2,
+					  int size2)
   {
-    int result = 0;
+    unsigned long ptr;
+    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
+    log_t log = D_RO(root)->log;
+    unsigned long space_needed = (size1 + size2) + 4*sizeof(int);
+    unsigned long space_available;
+    if(D_RO(log)->log_head <= D_RO(log)->log_tail) {
+      space_available = RAFT_LOGSIZE -
+	(D_RO(log)->log_tail - D_RO(log)->log_head);
+    }
+    else {
+      space_available =	D_RO(log)->log_head - D_RO(log)->log_tail;
+    }
+    if(space_available < space_needed) {
+      // Overflow !
+      BOOST_LOG_TRIVIAL(fatal) << "Out of RAFT logspace !";
+      exit(-1);
+    }
+    unsigned long new_tail = D_RO(log)->log_tail;
+    ///////
+    copy_to_circular_log(pop_raft_state, log,
+			 RAFT_LOGSIZE,
+			 D_RO(log)->log_tail,
+			 (unsigned char *)&size1,
+			 sizeof(int));
+    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
+    copy_to_circular_log(pop_raft_state, log,
+			 RAFT_LOGSIZE,
+			 new_tail,
+			 data1,
+			 size1);
+    new_tail = circular_log_advance_ptr(new_tail, size1, RAFT_LOGSIZE);
+    copy_to_circular_log(pop_raft_state, log,
+			 RAFT_LOGSIZE,
+			 new_tail,
+			 (unsigned char *)&size1,
+			 sizeof(int));
+    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
+    ////////
+    ptr = new_tail;
+    copy_to_circular_log(pop_raft_state, log,
+			 RAFT_LOGSIZE,
+			 new_tail,
+			 (unsigned char *)&size2,
+			 sizeof(int));
+    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
+    copy_to_circular_log(pop_raft_state, log,
+			 RAFT_LOGSIZE,
+			 new_tail,
+			 data2,
+			 size2);
+    new_tail = circular_log_advance_ptr(new_tail, size2, RAFT_LOGSIZE);
+    copy_to_circular_log(pop_raft_state, log,
+			 RAFT_LOGSIZE,
+			 new_tail,
+			 (unsigned char *)&size2,
+			 sizeof(int));
+    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
+
+
+
+    persist_to_circular_log(pop_raft_state, log,
+			    RAFT_LOGSIZE,
+			    D_RO(log)->log_tail,
+			    new_tail - D_RO(log)->log_tail);
+    D_RW(log)->log_tail = new_tail;
+    pmemobj_persist(pop_raft_state,
+		    &D_RW(log)->log_tail,
+		    sizeof(unsigned long));
+    return ptr;
+  }
+
+  void remove_head_raft_log()
+  {
     TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
     log_t log = D_RO(root)->log;
     if(D_RO(log)->log_head != D_RO(log)->log_tail) {
@@ -170,10 +243,41 @@ typedef struct cyclone_st {
 		      &D_RW(log)->log_head,
 		      sizeof(unsigned long));
     }
-    return result;
   }
 
-  int remove_tail_raft_log()
+  void double_remove_head_raft_log()
+  {
+    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
+    log_t log = D_RO(root)->log;
+    unsigned long newhead = D_RO(log)->log_head;
+    if(newhead != D_RO(log)->log_tail) {
+      int size;
+      copy_from_circular_log(log,
+			     RAFT_LOGSIZE,
+			     (unsigned char *)&size,
+			     newhead,
+			     sizeof(int)); 
+      newhead = circular_log_advance_ptr
+	(newhead, 2*sizeof(int) + size, RAFT_LOGSIZE);
+    }
+    
+    if(newhead != D_RO(log)->log_tail) {
+      int size;
+      copy_from_circular_log(log,
+			     RAFT_LOGSIZE,
+			     (unsigned char *)&size,
+			     newhead,
+			     sizeof(int)); 
+      newhead = circular_log_advance_ptr
+	(newhead, 2*sizeof(int) + size, RAFT_LOGSIZE);
+    }
+    D_RW(log)->log_head = newhead;
+    pmemobj_persist(pop_raft_state,
+		    &D_RW(log)->log_head,
+		    sizeof(unsigned long));
+  }
+
+  void remove_tail_raft_log()
   {
     int result = 0;
     TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
@@ -190,7 +294,34 @@ typedef struct cyclone_st {
 		      &D_RW(log)->log_tail,
 		      sizeof(unsigned long));
     }
-    return result;
+  }
+
+  void double_remove_tail_raft_log()
+  {
+    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
+    log_t log = D_RO(root)->log;
+    unsigned long new_tail = D_RO(log)->log_tail;
+
+    if(D_RO(log)->log_head != new_tail) {
+      int size;
+        new_tail = circular_log_recede_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
+      copy_from_circular_log(log, RAFT_LOGSIZE,
+			     (unsigned char *)&size, new_tail, sizeof(int)); 
+      new_tail = circular_log_recede_ptr(new_tail, size + sizeof(int), RAFT_LOGSIZE);
+    }
+
+    if(D_RO(log)->log_head != new_tail) {
+      int size;
+        new_tail = circular_log_recede_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
+      copy_from_circular_log(log, RAFT_LOGSIZE,
+			     (unsigned char *)&size, new_tail, sizeof(int)); 
+      new_tail = circular_log_recede_ptr(new_tail, size + sizeof(int), RAFT_LOGSIZE);
+    }
+
+    D_RW(log)->log_tail = new_tail;
+    pmemobj_persist(pop_raft_state,
+		    &D_RW(log)->log_tail,
+		    sizeof(unsigned long));
   }
 
   unsigned long read_from_log(unsigned char *dst,
