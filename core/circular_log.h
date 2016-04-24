@@ -44,7 +44,6 @@ void persist_to_circular_log(PMEMobjpool *pop, log_t log,
   unsigned long chunk2 = size - chunk1;
   pmemobj_persist(pop, D_RW(log)->data + offset, chunk1);
   if(chunk2 > 0) {
-    src += chunk1;
     pmemobj_persist(pop, D_RW(log)->data, chunk2);
   }
 }

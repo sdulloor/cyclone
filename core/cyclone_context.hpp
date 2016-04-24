@@ -144,10 +144,10 @@ typedef struct cyclone_st {
     persist_to_circular_log(pop_raft_state, log,
 			    RAFT_LOGSIZE,
 			    D_RO(log)->log_tail,
-			    newtail - D_RO(log)->log_tail);
+			    new_tail - D_RO(log)->log_tail);
     D_RW(log)->log_tail = new_tail;
     pmemobj_persist(pop_raft_state,
-		    D_RW(log)->log_tail,
+		    &D_RW(log)->log_tail,
 		    sizeof(unsigned long));
     return status;
   }
@@ -167,7 +167,7 @@ typedef struct cyclone_st {
       D_RW(log)->log_head = circular_log_advance_ptr
 	(D_RO(log)->log_head, 2*sizeof(int) + size, RAFT_LOGSIZE);
       pmemobj_persist(pop_raft_state,
-		      D_RW(log)->log_head,
+		      &D_RW(log)->log_head,
 		      sizeof(unsigned long));
     }
     return result;
@@ -187,7 +187,7 @@ typedef struct cyclone_st {
       new_tail = circular_log_recede_ptr(new_tail, size + sizeof(int), RAFT_LOGSIZE);
       D_RW(log)->log_tail = new_tail;
       pmemobj_persist(pop_raft_state,
-		      D_RW(log)->log_tail,
+		      &D_RW(log)->log_tail,
 		      sizeof(unsigned long));
     }
     return result;
