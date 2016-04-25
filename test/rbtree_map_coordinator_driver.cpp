@@ -79,7 +79,9 @@ int main(int argc, const char *argv[]) {
 					    clients,
 					    fname_server,
 					    fname_client);
+    BOOST_LOG_TRIVIAL(info) << "Connecting to quorum " << i;    
     ctr_array[i] = get_last_txid(quorum_handles[i]) + 1;
+    BOOST_LOG_TRIVIAL(info) << "Done";
   }
   char *buffer = new char[CLIENT_MAXPAYLOAD];
   rbtree_tx_t *tx = (rbtree_tx_t *)buffer;
@@ -89,8 +91,10 @@ int main(int argc, const char *argv[]) {
   unsigned long tx_block_cnt   = 0;
   unsigned long tx_block_begin = clock.current_time();
   unsigned long total_latency  = 0;
+  BOOST_LOG_TRIVIAL(info) << "Connecting to coordinator";
   int ctr = get_last_txid(handle) + 1;
-  
+  BOOST_LOG_TRIVIAL(info) << "Done";
+
   srand(me);
   while(true) {
     init_tx(tx, 1, 0, 1, 0);
