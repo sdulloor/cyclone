@@ -33,7 +33,7 @@ void exec_rpc(rpc_info_t *rpc)
 
 void exec_send_checkpoint(void *socket, void *handle)
 {
-  ioService.post(boost::bind(send_checkpoint, socket, handle));
+  ioService2.post(boost::bind(send_checkpoint, socket, handle));
 }
 
 static void print(const char *prefix,
