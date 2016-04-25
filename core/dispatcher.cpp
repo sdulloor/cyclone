@@ -26,10 +26,16 @@ static boost::property_tree::ptree pt_server;
 static boost::property_tree::ptree pt_client;
 
 struct client_ro_state_st {
-  unsigned long committed_txid;
+  volatile unsigned long committed_txid;
   char * last_return_value;
   int last_return_size;
 } client_ro_state [MAX_CLIENTS];
+
+
+static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
+static unsigned char rx_buffer[DISP_MAX_MSGSIZE];
+static unsigned char tx_async_buffer[DISP_MAX_MSGSIZE];
+static server_switch *router;
 
 
 static PMEMobjpool *state;
@@ -37,7 +43,6 @@ static rpc_callback_t execute_rpc;
 static rpc_leader_callback_t execute_rpc_leader;
 static rpc_follower_callback_t execute_rpc_follower;
 static rpc_gc_callback_t gc_rpc;
-static int client_blocked[MAX_CLIENTS];
 static int me;
 // Linked list of RPCs yet to be completed
 static rpc_info_t * volatile pending_rpc_head;
@@ -72,6 +77,31 @@ static void unlock_rpc_list()
   unlock(&list_lock);
 }
 
+
+static void client_response(rpc_info_t *rpc, rpc_t *rpc_rep)
+{
+  rpc_rep->client_id   = rpc->rpc->client_id;
+  rpc_rep->client_txid = rpc->rpc->client_txid;
+  int rep_sz = sizeof(rpc_t);
+  if(rpc->rep_failed) {
+    rpc_rep->code = RPC_REP_UNKNOWN;
+  }
+  else {
+    rpc_rep->code = RPC_REP_COMPLETE;
+    if(rpc->sz > 0) {
+      memcpy(&rpc_rep->payload,
+	     (void *)rpc->ret_value,
+	     rpc->sz);
+      rep_sz += rpc->sz;
+    }
+  }
+  cyclone_tx(router->output_socket(rpc->client_blocked,
+				   rpc->rpc->client_id), 
+	     (unsigned char *)rpc_rep, 
+	     rep_sz, 
+	     "Dispatch reply");
+  __sync_synchronize();
+}
 
 static rpc_info_t * locate_rpc_internal(int raft_idx,
 					int raft_term,
@@ -155,6 +185,26 @@ static int get_max_client_txid(int client_id)
     max_client_txid = last_ro_txid;
   }
   return max_client_txid;
+}
+
+
+static void mark_client_pending(int client_txid, 
+				int client_id,
+				int mc)
+{
+  int max_client_txid = 0;
+  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+  lock_rpc_list();
+  rpc_info_t *rpc_info = pending_rpc_head;
+  while(rpc_info != NULL) {
+    if(rpc_info->rpc->client_id == client_id &&
+       rpc_info->rpc->client_txid == client_txid) {
+      rpc_info->client_blocked = mc;
+      __sync_synchronize();
+    }
+    rpc_info = rpc_info->next;
+  }
+  unlock_rpc_list();
 }
 
 // This function must be executed in the context of a tx
@@ -274,6 +324,10 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
       exit(-1);
     } TX_END
   }
+  if(rpc->client_blocked != -1) {
+    client_response(rpc, (rpc_t *)tx_async_buffer);
+    rpc->client_blocked = -1;
+  }
   __sync_synchronize();
   rpc->complete = true; // note: rpc will be freed after this
 }
@@ -283,6 +337,7 @@ void exec_rpc_internal(rpc_info_t *rpc)
   while(building_image);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   volatile bool user_tx_aborted = true;
+  
   TX_BEGIN(state) {
     if(rpc->rpc->code == RPC_REQ_NODEADD) {
       rpc->sz= 0;
@@ -310,7 +365,6 @@ void exec_rpc_internal(rpc_info_t *rpc)
       user_tx_aborted= false;
     }
   } TX_END
-      
   if(user_tx_aborted) { // cleanup
     rpc->sz = 0;
     TX_BEGIN(state) {
@@ -319,6 +373,10 @@ void exec_rpc_internal(rpc_info_t *rpc)
       BOOST_LOG_TRIVIAL(fatal) << "Dispatcher tx abort !\n";
       exit(-1);
     } TX_END
+  }
+  if(rpc->client_blocked != -1) {
+    client_response(rpc, (rpc_t *)tx_async_buffer);
+    rpc->client_blocked = -1;
   }
   __sync_synchronize();
   rpc->complete = true; // note: rpc will be freed after this
@@ -347,13 +405,14 @@ void exec_rpc_internal_ro(rpc_info_t *rpc)
     __sync_synchronize();
     cstate->committed_txid = rpc->rpc->client_txid;
   }
+  if(rpc->client_blocked != -1) {
+    client_response(rpc, (rpc_t *)tx_async_buffer);
+    rpc->client_blocked = -1;
+  }
   __sync_synchronize();
   rpc->complete = true; // note: rpc will be freed after this
 }
 
-static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
-static unsigned char rx_buffer[DISP_MAX_MSGSIZE];
-static server_switch *router;
 
 static bool is_pending_rpc_list()
 {
@@ -400,32 +459,11 @@ static void gc_pending_rpc_list(bool is_master)
   }
   unlock_rpc_list();
   rpc_t *rpc_rep = (rpc_t *)tx_buffer;
-  unsigned long rep_sz;
   while(deleted) {
     tmp = deleted;
     deleted = deleted->next;    
-    if(client_blocked[tmp->rpc->client_id] != -1) {
-      rpc_rep->client_id   = tmp->rpc->client_id;
-      rpc_rep->client_txid = tmp->rpc->client_txid;
-      rep_sz = sizeof(rpc_t);
-      if(tmp->rep_failed) {
-	rpc_rep->code = RPC_REP_UNKNOWN;
-      }
-      else {
-	rpc_rep->code = RPC_REP_COMPLETE;
-	if(tmp->sz > 0) {
-	  memcpy(&rpc_rep->payload,
-		 (void *)tmp->ret_value,
-		 tmp->sz);
-	  rep_sz += tmp->sz;
-	}
-      }
-      cyclone_tx(router->output_socket(client_blocked[tmp->rpc->client_id],
-				       tmp->rpc->client_id), 
-		 tx_buffer, 
-		 rep_sz, 
-		 "Dispatch reply");
-      client_blocked[tmp->rpc->client_id] = -1;
+    if(tmp->client_blocked != -1) {
+      client_response(tmp, rpc_rep);
     }
     if(tmp->sz != 0) {
       gc_rpc(tmp->ret_value);
@@ -457,6 +495,7 @@ static void issue_rpc(const rpc_t *rpc,
   rpc_info->follower_data_size = 0;
   rpc_info->have_follower_data = false;
   rpc_info->req_follower_data_active = false;
+  rpc_info->client_blocked = -1;
   rpc_info->next = NULL;
   lock_rpc_list();
   if(pending_rpc_head == NULL) {
@@ -732,7 +771,15 @@ struct dispatcher_loop {
 		     s->last_return_size);
 	      rep_sz += s->last_return_size;
 	    }
-	    rpc_rep->code = RPC_REP_COMPLETE;
+	    __sync_synchronize();
+	    last_rw_txid = D_RO(root)->client_state[rpc_req->client_id].committed_txid;
+	    if(last_rw_txid == rpc_req->client_txid) {
+	      rpc_rep->code = RPC_REP_COMPLETE;
+	    }
+	    else {
+	      rpc_rep->code = RPC_REP_OLD;
+	      rep_sz = sizeof(rpc_t);
+	    }
 	  }
 	  else if(last_ro_txid == rpc_req->client_txid) {
 	    if(client_ro_state[rpc_req->client_id].last_return_size > 0) {
@@ -741,7 +788,15 @@ struct dispatcher_loop {
 		     client_ro_state[rpc_req->client_id].last_return_size);
 	      rep_sz += client_ro_state[rpc_req->client_id].last_return_size;
 	    }
-	    rpc_rep->code = RPC_REP_COMPLETE;
+	    __sync_synchronize();
+	    last_ro_txid = client_ro_state[rpc_req->client_id].committed_txid;
+	    if(last_ro_txid == rpc_req->client_txid) {
+	      rpc_rep->code = RPC_REP_COMPLETE;
+	    }
+	    else {
+	      rpc_rep->code = RPC_REP_OLD;
+	      rep_sz = sizeof(rpc_t);
+	    }
 	  }
 	  else { // Don't remember old results
 	    rpc_rep->code = RPC_REP_OLD;
@@ -750,7 +805,9 @@ struct dispatcher_loop {
       }
       if(rpc_rep->code == RPC_REP_PENDING &&
 	 rpc_req->code == RPC_REQ_STATUS_BLOCK) {
-	client_blocked[rpc_req->client_id] = requestor;
+	mark_client_pending(rpc_req->client_txid,
+			    rpc_req->client_id,
+			    requestor);
 	rep_sz = 0;
       }
       break;
@@ -929,10 +986,6 @@ void dispatcher_start(const char* config_server_path,
     client_ro_state[i].last_return_value = NULL;
   }
   
-  for(int i=0;i<MAX_CLIENTS;i++) {
-    client_blocked[i] = -1;
-  }
-
   execute_rpc = rpc_callback;
   execute_rpc_follower = rpc_follower_callback;
   execute_rpc_leader = rpc_leader_callback;

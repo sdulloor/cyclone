@@ -3,7 +3,7 @@
 #include<libpmemobj.h>
 #include "libcyclone.hpp"
 struct client_state_st {
-  unsigned long committed_txid;
+  volatile unsigned long committed_txid;
   TOID(char) last_return_value;
   int last_return_size;
 };
