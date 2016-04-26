@@ -60,12 +60,14 @@ typedef struct rpc_client_st {
 				     DISP_MAX_MSGSIZE, 
 				     timeout_msec*1000,
 				     "RESULT");
-	if(resp_sz != -1 &&
-	   packet_in->code != RPC_REP_INVSRV &&
-	   (packet_in->client_txid != packet_out->client_txid ||
-	    packet_in->channel_seq != (channel_seq - 1))) {
+	if(resp_sz == -1) {
+	  break;
+	}
+	
+	if(packet_in->channel_seq != (channel_seq - 1)) {
 	  continue;
 	}
+
 	break;
       }
       if(resp_sz == -1) {
@@ -119,10 +121,11 @@ typedef struct rpc_client_st {
 				     DISP_MAX_MSGSIZE, 
 				     timeout_msec*1000,
 				     "RESULT");
-	if(resp_sz != -1 &&
-	   packet_in->code != RPC_REP_INVSRV &&
-	   (packet_in->client_txid != packet_out->client_txid ||
-	    packet_in->channel_seq != (channel_seq - 1))) {
+	if(resp_sz == -1) {
+	  break;
+	}
+	
+	if(packet_in->channel_seq != (channel_seq - 1)) {
 	  continue;
 	}
 	break;
@@ -176,10 +179,11 @@ typedef struct rpc_client_st {
 				     DISP_MAX_MSGSIZE, 
 				     timeout_msec*1000,
 				     "RESULT");
-	if(resp_sz != -1 &&
-	   packet_in->code != RPC_REP_INVSRV &&
-	   (packet_in->client_txid != packet_out->client_txid ||
-	    packet_in->channel_seq != (channel_seq - 1))) {
+	if(resp_sz == -1) {
+	  break;
+	}
+	
+	if(packet_in->channel_seq != (channel_seq - 1)) {
 	  continue;
 	}
 	break;
@@ -231,11 +235,12 @@ typedef struct rpc_client_st {
 				     DISP_MAX_MSGSIZE, 
 				     timeout_msec*1000,
 				     "RESULT");
-	if(resp_sz != -1 && 
-	   (packet_in->client_txid != txid ||
-	    packet_in->channel_seq != (channel_seq - 1)) &&
-	   packet_in->code != RPC_REP_INVSRV) {
-	  continue; // Ignore response
+	if(resp_sz == -1) {
+	  break;
+	}
+	
+	if(packet_in->channel_seq != (channel_seq - 1)) {
+	  continue;
 	}
 	break;
       }
@@ -298,11 +303,12 @@ typedef struct rpc_client_st {
 				     DISP_MAX_MSGSIZE, 
 				     timeout_msec*1000,
 				     "RESULT");
-	if(resp_sz != -1 && 
-	   packet_in->code != RPC_REP_INVSRV &&
-	   (packet_in->client_txid != txid ||
-	    packet_in->channel_seq != (channel_seq -1))) {
-	  continue; // Ignore response
+	if(resp_sz == -1) {
+	  break;
+	}
+	
+	if(packet_in->channel_seq != (channel_seq - 1)) {
+	  continue;
 	}
 	break;
       }
