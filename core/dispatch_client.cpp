@@ -278,84 +278,34 @@ typedef struct rpc_client_st {
 	  update_server("tx timeout");
 	  continue;
 	}
-	while(true) {
-	  resp_sz = cyclone_rx_timeout(router->input_socket(server), 
-				       (unsigned char *)packet_in, 
-				       DISP_MAX_MSGSIZE, 
-				       timeout_msec*1000,
-				       "RESULT");
-	  if(resp_sz != -1 && 
-	     packet_in->code != RPC_REP_INVSRV &&
-	     packet_in->client_txid != txid) {
-	    continue; // Ignore response
-	  }
-	  break;
-	}
-	if(resp_sz == -1) {
-	  update_server("rx timeout");
-	  continue;
-	}
-	if(packet_in->code == RPC_REP_INVSRV) {
-	  if(packet_in->master == -1) {
-	    BOOST_LOG_TRIVIAL(info) << "Unknown master !";
-	    update_server("unknown master");
-	  }
-	  else {
-	    server = packet_in->master;
-	    set_server();
-	  }
-	  continue;
-	}
 	break;
       }
-
       while(true) {
-	packet_out->code        = RPC_REQ_STATUS_BLOCK;
-	retcode = cyclone_tx_timeout(router->output_socket(server), 
-				     (unsigned char *)packet_out, 
-				     sizeof(rpc_t), 
+	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
+				     (unsigned char *)packet_in, 
+				     DISP_MAX_MSGSIZE, 
 				     timeout_msec*1000,
-				     "PROPOSE");
-	if(retcode == -1) {
-	  update_server("tx timeout");
-	  continue;
-	}
-
-	while(true) {
-	  resp_sz = cyclone_rx_timeout(router->input_socket(server), 
-				       (unsigned char *)packet_in, 
-				       DISP_MAX_MSGSIZE, 
-				       timeout_msec*1000,
-				       "RESULT");
-	  if(resp_sz != -1 && 
-	     packet_in->client_txid != txid &&
-	     packet_in->code != RPC_REP_INVSRV) {
-	    continue; // Ignore response
-	  }
-	  break;
-	}
-	if(resp_sz == -1) {
-	  update_server("rx timeout");
-	  continue;
-	}
-	if(packet_in->code == RPC_REP_INVSRV) {
-	  if(packet_in->master == -1) {
-	    BOOST_LOG_TRIVIAL(info) << "Unknown master !";
-	    update_server("unknown master");
-	  }
-	  else {
-	    server = packet_in->master;
-	    set_server();
-	  }
-	  continue;
-	}
-	if(packet_in->code == RPC_REP_PENDING) {
-	  continue;
+				     "RESULT");
+	if(resp_sz != -1 && 
+	   packet_in->code != RPC_REP_INVSRV &&
+	   packet_in->client_txid != txid) {
+	  continue; // Ignore response
 	}
 	break;
       }
-
-      if(packet_in->code == RPC_REP_UNKNOWN) {
+      if(resp_sz == -1) {
+	update_server("rx timeout");
+	continue;
+      }
+      if(packet_in->code == RPC_REP_INVSRV) {
+	if(packet_in->master == -1) {
+	  BOOST_LOG_TRIVIAL(info) << "Unknown master !";
+	  update_server("unknown master");
+	}
+	else {
+	  server = packet_in->master;
+	  set_server();
+	}
 	continue;
       }
       break;

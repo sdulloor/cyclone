@@ -804,7 +804,8 @@ struct dispatcher_loop {
 	}
       }
       if(rpc_rep->code == RPC_REP_PENDING &&
-	 rpc_req->code == RPC_REQ_STATUS_BLOCK) {
+	 (rpc_req->code == RPC_REQ_STATUS_BLOCK ||
+	  rpc_req->code == RPC_REQ_FN)) {
 	mark_client_pending(rpc_req->client_txid,
 			    rpc_req->client_id,
 			    requestor);
