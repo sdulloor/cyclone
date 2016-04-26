@@ -76,6 +76,7 @@ typedef struct rpc_st {
     int parent_raft_term;
   };
   unsigned long timestamp;
+  unsigned long channel_seq;
   unsigned char payload[0];
 } rpc_t; // Used for both requests and replies
 

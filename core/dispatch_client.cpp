@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include "cyclone.hpp"
 #include "libcyclone.hpp"
 #include "../core/clock.hpp"
@@ -15,6 +16,8 @@ typedef struct rpc_client_st {
   rpc_t *packet_in;
   int server;
   int replicas;
+  unsigned long channel_seq;
+
   void update_server(const char *context)
   {
     BOOST_LOG_TRIVIAL(info) 
@@ -41,6 +44,7 @@ typedef struct rpc_client_st {
       packet_out->client_id   = me;
       packet_out->timestamp   = clock.current_time();
       packet_out->client_txid = (int)packet_out->timestamp;
+      packet_out->channel_seq = channel_seq++;
       retcode = cyclone_tx_timeout(router->output_socket(server), 
 				   (unsigned char *)packet_out, 
 				   sizeof(rpc_t), 
@@ -58,7 +62,8 @@ typedef struct rpc_client_st {
 				     "RESULT");
 	if(resp_sz != -1 &&
 	   packet_in->code != RPC_REP_INVSRV &&
-	   packet_in->client_txid != packet_out->client_txid) {
+	   (packet_in->client_txid != packet_out->client_txid ||
+	    packet_in->channel_seq != (channel_seq - 1))) {
 	  continue;
 	}
 	break;
@@ -96,6 +101,7 @@ typedef struct rpc_client_st {
       packet_out->client_id   = me;
       packet_out->timestamp   = clock.current_time();
       packet_out->client_txid = txid;
+      packet_out->channel_seq = channel_seq++;
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
       cfg->node = nodeid;
       retcode = cyclone_tx_timeout(router->output_socket(server), 
@@ -115,7 +121,8 @@ typedef struct rpc_client_st {
 				     "RESULT");
 	if(resp_sz != -1 &&
 	   packet_in->code != RPC_REP_INVSRV &&
-	   packet_in->client_txid != packet_out->client_txid) {
+	   (packet_in->client_txid != packet_out->client_txid ||
+	    packet_in->channel_seq != (channel_seq - 1))) {
 	  continue;
 	}
 	break;
@@ -150,6 +157,7 @@ typedef struct rpc_client_st {
       packet_out->client_id   = me;
       packet_out->timestamp   = clock.current_time();
       packet_out->client_txid = txid;
+      packet_out->channel_seq = channel_seq;
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
       cfg->node      = nodeid;
 
@@ -170,7 +178,8 @@ typedef struct rpc_client_st {
 				     "RESULT");
 	if(resp_sz != -1 &&
 	   packet_in->code != RPC_REP_INVSRV &&
-	   packet_in->client_txid != packet_out->client_txid) {
+	   (packet_in->client_txid != packet_out->client_txid ||
+	    packet_in->channel_seq != (channel_seq - 1))) {
 	  continue;
 	}
 	break;
@@ -203,6 +212,7 @@ typedef struct rpc_client_st {
     packet_out->client_id   = me;
     packet_out->client_txid = txid;
     packet_out->timestamp   = clock.current_time();
+    packet_out->channel_seq  = channel_seq++;
     while(true) {
       packet_out->code        = RPC_REQ_STATUS_BLOCK;
       retcode = cyclone_tx_timeout(router->output_socket(server), 
@@ -222,7 +232,8 @@ typedef struct rpc_client_st {
 				     timeout_msec*1000,
 				     "RESULT");
 	if(resp_sz != -1 && 
-	   packet_in->client_txid != txid &&
+	   (packet_in->client_txid != txid ||
+	    packet_in->channel_seq != (channel_seq - 1)) &&
 	   packet_in->code != RPC_REP_INVSRV) {
 	  continue; // Ignore response
 	}
@@ -267,6 +278,7 @@ typedef struct rpc_client_st {
 	packet_out->flags       = flags;
 	packet_out->client_id   = me;
 	packet_out->client_txid = txid;
+	packet_out->channel_seq = channel_seq++;
 	packet_out->timestamp   = clock.current_time();
 	memcpy(packet_out + 1, payload, sz);
 	retcode = cyclone_tx_timeout(router->output_socket(server), 
@@ -288,7 +300,8 @@ typedef struct rpc_client_st {
 				     "RESULT");
 	if(resp_sz != -1 && 
 	   packet_in->code != RPC_REP_INVSRV &&
-	   packet_in->client_txid != txid) {
+	   (packet_in->client_txid != txid ||
+	    packet_in->channel_seq != (channel_seq -1))) {
 	  continue; // Ignore response
 	}
 	break;
@@ -326,6 +339,7 @@ void* cyclone_client_init(int client_id,
 			  const char *config_server,
 			  const char *config_client)
 {
+  rtc_clock clock;
   rpc_client_t * client = new rpc_client_t();
   client->me = client_id;
   boost::property_tree::ptree pt_server;
@@ -346,6 +360,7 @@ void* cyclone_client_init(int client_id,
   client->packet_in = (rpc_t *)buf;
   client->server    = 0;
   client->replicas = replicas;
+  client->channel_seq = clock.current_time();
   return (void *)client;
 }
 

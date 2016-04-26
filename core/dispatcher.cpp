@@ -664,6 +664,7 @@ struct dispatcher_loop {
     void *cookie;
     unsigned long last_tx_committed;
     rpc_rep->client_id   = rpc_req->client_id;
+    rpc_rep->channel_seq = rpc_req->channel_seq;
     switch(rpc_req->code) {
     case RPC_REQ_LAST_TXID:
       if(!cyclone_is_leader(cyclone_handle)) {
