@@ -82,6 +82,7 @@ static void client_response(rpc_info_t *rpc, rpc_t *rpc_rep)
 {
   rpc_rep->client_id   = rpc->rpc->client_id;
   rpc_rep->client_txid = rpc->rpc->client_txid;
+  rpc_rep->channel_seq = rpc->rpc->channel_seq;
   int rep_sz = sizeof(rpc_t);
   if(rpc->rep_failed) {
     rpc_rep->code = RPC_REP_UNKNOWN;
@@ -188,7 +189,8 @@ static int get_max_client_txid(int client_id)
 }
 
 
-static void mark_client_pending(int client_txid, 
+static void mark_client_pending(int client_txid,
+				int channel_seq,
 				int client_id,
 				int mc)
 {
@@ -200,6 +202,7 @@ static void mark_client_pending(int client_txid,
     if(rpc_info->rpc->client_id == client_id &&
        rpc_info->rpc->client_txid == client_txid) {
       rpc_info->client_blocked = mc;
+      rpc_info->rpc->channel_seq = channel_seq;
       __sync_synchronize();
     }
     rpc_info = rpc_info->next;
@@ -809,6 +812,7 @@ struct dispatcher_loop {
 	 (rpc_req->code == RPC_REQ_STATUS_BLOCK ||
 	  rpc_req->code == RPC_REQ_FN)) {
 	mark_client_pending(rpc_req->client_txid,
+			    rpc_req->channel_seq,
 			    rpc_req->client_id,
 			    requestor);
 	rep_sz = 0;
