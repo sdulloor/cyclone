@@ -363,7 +363,7 @@ public:
 
 class server_switch {
   void **sockets_out;
-  void **sockets_in;
+  void *socket_in;
   int client_machines;
   int server_machines;
   int clients;
@@ -384,6 +384,7 @@ public:
   {
     std::stringstream key; 
     std::stringstream addr;
+    int port;
 
     key.str("");key.clear();
     key << "dispatch.server_baseport";
@@ -400,22 +401,22 @@ public:
     
     clients  = clients_in;
    
-    sockets_in  = new void *[client_machines*clients];
     sockets_out = new void *[client_machines*clients];
     
+    // Input wire
+    socket_in   = cyclone_socket_in(context); 
+    key.str("");key.clear();
+    addr.str("");addr.clear();
+    key << "machines.iface" << me;
+    addr << "tcp://";
+    addr << pt_server->get<std::string>(key.str().c_str());
+    port = server_baseport + me;
+    addr << ":" << port;
+    cyclone_bind_endpoint(socket_in, addr.str().c_str());
+
+
     for(int i=0;i<client_machines;i++) {
       for(int j=0;j<clients;j++) {
-	// input wire from client 
-	sockets_in[index(i, j)] = cyclone_socket_in(context);
-	key.str("");key.clear();
-	addr.str("");addr.clear();
-	key << "machines.iface" << me;
-	addr << "tcp://";
-	addr << pt_server->get<std::string>(key.str().c_str());
-	int port = server_baseport + me*client_machines*clients + i*clients + j;
-	addr << ":" << port;
-	cyclone_bind_endpoint(sockets_in[index(i, j)], addr.str().c_str());
-
 	// output wire to client
 	sockets_out[index(i, j)] = cyclone_socket_out(context, use_hwm);
 	key.str("");key.clear();
@@ -435,9 +436,9 @@ public:
     return sockets_out[index(machine, client)];
   }
 
-  void *input_socket(int machine, int client)
+  void *input_socket()
   {
-    return sockets_in[index(machine, client)];
+    return socket_in;
   }
 
   ~server_switch()
@@ -445,12 +446,11 @@ public:
     for(int i=0;i<client_machines;i++) {
       for(int j=0;j<clients;j++) {
 	zmq_close(output_socket(i, j));
-	zmq_close(input_socket(i, j));
       }
     }
+    zmq_close(socket_in);
     delete[] sockets_out;
-    delete[] sockets_in;
-  }
+   }
 };
 
 class client_switch {
@@ -507,11 +507,7 @@ public:
       key << "machines.addr" << i;
       addr << "tcp://";
       addr << pt_server->get<std::string>(key.str().c_str());
-      port =
-	server_baseport +
-	i*client_machines*clients +
-	me_mc*clients +
-	me;
+      port = server_baseport + i;
       addr << ":" << port;
       cyclone_connect_endpoint(sockets_out[i], addr.str().c_str());
     }

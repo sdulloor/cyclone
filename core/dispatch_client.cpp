@@ -11,6 +11,7 @@
 
 typedef struct rpc_client_st {
   int me;
+  int me_mc;
   client_switch *router;
   rpc_t *packet_out;
   rpc_t *packet_in;
@@ -45,6 +46,7 @@ typedef struct rpc_client_st {
       packet_out->timestamp   = clock.current_time();
       packet_out->client_txid = (int)packet_out->timestamp;
       packet_out->channel_seq = channel_seq++;
+      packet_out->requestor   = me_mc;
       retcode = cyclone_tx_timeout(router->output_socket(server), 
 				   (unsigned char *)packet_out, 
 				   sizeof(rpc_t), 
@@ -104,6 +106,7 @@ typedef struct rpc_client_st {
       packet_out->timestamp   = clock.current_time();
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
+      packet_out->requestor   = me_mc;
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
       cfg->node = nodeid;
       retcode = cyclone_tx_timeout(router->output_socket(server), 
@@ -161,6 +164,7 @@ typedef struct rpc_client_st {
       packet_out->timestamp   = clock.current_time();
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq;
+      packet_out->requestor   = me_mc;
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
       cfg->node      = nodeid;
 
@@ -217,6 +221,7 @@ typedef struct rpc_client_st {
     packet_out->client_txid = txid;
     packet_out->timestamp   = clock.current_time();
     packet_out->channel_seq  = channel_seq++;
+    packet_out->requestor   = me_mc;
     while(true) {
       packet_out->code        = RPC_REQ_STATUS_BLOCK;
       retcode = cyclone_tx_timeout(router->output_socket(server), 
@@ -284,6 +289,7 @@ typedef struct rpc_client_st {
 	packet_out->client_id   = me;
 	packet_out->client_txid = txid;
 	packet_out->channel_seq = channel_seq++;
+	packet_out->requestor   = me_mc;
 	packet_out->timestamp   = clock.current_time();
 	memcpy(packet_out + 1, payload, sz);
 	retcode = cyclone_tx_timeout(router->output_socket(server), 
@@ -348,6 +354,7 @@ void* cyclone_client_init(int client_id,
   rtc_clock clock;
   rpc_client_t * client = new rpc_client_t();
   client->me = client_id;
+  client->me_mc = client_mc;
   boost::property_tree::ptree pt_server;
   boost::property_tree::ptree pt_client;
   boost::property_tree::read_ini(config_server, pt_server);

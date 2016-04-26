@@ -653,7 +653,7 @@ struct dispatcher_loop {
     }
   }
   
-  void handle_rpc(unsigned long sz, int requestor)
+  void handle_rpc(unsigned long sz)
   {
     TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
     unsigned long last_committed;
@@ -663,6 +663,7 @@ struct dispatcher_loop {
     unsigned long rep_sz = 0;
     void *cookie;
     unsigned long last_tx_committed;
+    int requestor = rpc_req->requestor;
     rpc_rep->client_id   = rpc_req->client_id;
     rpc_rep->channel_seq = rpc_req->channel_seq;
     switch(rpc_req->code) {
@@ -829,22 +830,16 @@ struct dispatcher_loop {
   {
     rtc_clock clock;
     bool is_master = false;
-    clock.start();
+    unsigned long last_gc = clock.current_time();
     while(true) {
-      for(int i=0;i<machines;i++) {
-	for(int j=0;j<clients;j++) {
-	  unsigned long sz = cyclone_rx_noblock(router->input_socket(i, j),
-						rx_buffer,
-						DISP_MAX_MSGSIZE,
-						"DISP RCV");
-	  if(sz == -1) {
-	    continue;
-	  }
-	  handle_rpc(sz, i);
-	}
+      unsigned long sz = cyclone_rx_noblock(router->input_socket(),
+					    rx_buffer,
+					    DISP_MAX_MSGSIZE,
+					    "DISP RCV");
+      if(sz != -1) {
+	handle_rpc(sz);
       }
-      clock.stop();
-      if(clock.elapsed_time() >= PERIODICITY) {
+      if((clock.current_time() - last_gc) >= PERIODICITY) {
 	// Leadership change ?
 	if(cyclone_is_leader(cyclone_handle)) {
 	  gc_pending_rpc_list(true);
@@ -857,9 +852,8 @@ struct dispatcher_loop {
 	  gc_pending_rpc_list(false);
 	  is_master = false;
 	}
-	clock.reset();
+	last_gc = clock.current_time();
       }
-      clock.start();
     }
   }
 };

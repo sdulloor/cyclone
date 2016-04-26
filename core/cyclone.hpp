@@ -77,6 +77,7 @@ typedef struct rpc_st {
   };
   unsigned long timestamp;
   unsigned long channel_seq;
+  int requestor;
   unsigned char payload[0];
 } rpc_t; // Used for both requests and replies
 
