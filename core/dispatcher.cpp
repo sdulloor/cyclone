@@ -151,7 +151,6 @@ static void dump_active_list()
 {
   rpc_info_t *rpc_info;
   rpc_info_t *hit = NULL;
-  lock_rpc_list();
   rpc_info = pending_rpc_head;
   while(rpc_info != NULL) {
     BOOST_LOG_TRIVIAL(info) << "ACTIVE  "
@@ -159,7 +158,6 @@ static void dump_active_list()
 			    << rpc_info->raft_term;
     rpc_info = rpc_info->next;
   }
-  unlock_rpc_list(); 
 }
 
 static int get_max_client_txid(int client_id)
