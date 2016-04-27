@@ -49,6 +49,7 @@ static rpc_info_t * volatile pending_rpc_head;
 static rpc_info_t * volatile pending_rpc_tail;
 
 static volatile unsigned long list_lock = 0;
+static volatile unsigned long socket_lock = 0;
 static volatile bool building_image = false;
 
 static void lock(volatile unsigned long *lockp)
@@ -96,12 +97,13 @@ static void client_response(rpc_info_t *rpc, rpc_t *rpc_rep)
       rep_sz += rpc->sz;
     }
   }
+  lock(&socket_lock);
   cyclone_tx(router->output_socket(rpc->client_blocked,
 				   rpc->rpc->client_id), 
 	     (unsigned char *)rpc_rep, 
 	     rep_sz, 
 	     "Dispatch reply");
-  __sync_synchronize();
+  unlock(&socket_lock);
 }
 
 static rpc_info_t * locate_rpc_internal(int raft_idx,
@@ -190,7 +192,7 @@ static int get_max_client_txid(int client_id)
 
 
 static void mark_client_pending(int client_txid,
-				int channel_seq,
+				unsigned long channel_seq,
 				int client_id,
 				int mc)
 {
@@ -808,25 +810,27 @@ struct dispatcher_loop {
 	  }
 	}
       }
-      if(rpc_rep->code == RPC_REP_PENDING &&
-	 (rpc_req->code == RPC_REQ_STATUS_BLOCK ||
-	  rpc_req->code == RPC_REQ_FN)) {
-	mark_client_pending(rpc_req->client_txid,
-			    rpc_req->channel_seq,
-			    rpc_req->client_id,
-			    requestor);
-	rep_sz = 0;
-      }
       break;
     default:
       BOOST_LOG_TRIVIAL(fatal) << "DISPATCH: unknown code";
       exit(-1);
     }
+    if(rpc_rep->code == RPC_REP_PENDING &&
+       (rpc_req->code == RPC_REQ_STATUS_BLOCK ||
+	rpc_req->code == RPC_REQ_FN)) {
+      mark_client_pending(rpc_req->client_txid,
+			  rpc_req->channel_seq,
+			  rpc_req->client_id,
+			  requestor);
+      rep_sz = 0;
+    }
     if(rep_sz > 0) {
+      lock(&socket_lock);
       cyclone_tx(router->output_socket(requestor, rpc_req->client_id), 
 		 tx_buffer, 
 		 rep_sz, 
 		 "Dispatch reply");
+      unlock(&socket_lock);
     }
   }
 
