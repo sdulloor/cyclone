@@ -82,5 +82,6 @@ static const int RPC_FLAG_RO            = 2; // Read-only RPC
 
 // Possible error codes
 static const int RPC_EOLD               = -1; // RPC too old to cache result
+static const int RPC_EUNKNOWN           = -2; // RPC never seen (too new)
 
 #endif

@@ -264,13 +264,13 @@ typedef struct rpc_client_st {
 	}
 	continue;
       }
-      if(packet_in->code == RPC_REP_PENDING) {
-	continue;
-      }
       break;
     }
     if(packet_in->code == RPC_REP_OLD) {
       return RPC_EOLD;
+    }
+    if(packet_in->code == RPC_REP_UNKNOWN) {
+      return RPC_EUNKNOWN;
     }
     *response = (void *)(packet_in + 1);
     return (int)(resp_sz - sizeof(rpc_t));
