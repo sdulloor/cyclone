@@ -11,10 +11,20 @@ static unsigned long mapping_size;
 static unsigned long map_offset;
 save_page_t *saved_pages = NULL;
 
+static void check_sigsegv_range(unsigned long addr)
+{
+  unsigned long base = (unsigned long)mapping;
+  if(addr < base || addr >= (base + mapping_size)) {
+    BOOST_LOG_TRIVIAL(fatal) << "SIGSEGV from app outside monitored range";
+    exit(-1);
+  }
+}
+
 static void sigsegv_handler(int sig, siginfo_t *siginfo, void *context)
 {
   save_page_t * check = saved_pages;
   void *page = siginfo->si_addr;
+  check_sigsegv_range((unsigned long)page);
   void *page_aligned = (void *)((unsigned long)page & ~ (pagesize - 1));
   unsigned long offset = map_offset + ((char *)page_aligned - (char *)mapping);
   while(check != NULL) {
