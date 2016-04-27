@@ -91,7 +91,7 @@ static void client_response(rpc_info_t *rpc, rpc_t *rpc_rep)
   else {
     rpc_rep->code = RPC_REP_COMPLETE;
     if(rpc->sz > 0) {
-      memcpy(&rpc_rep->payload,
+      memcpy(rpc_rep + 1,
 	     (void *)rpc->ret_value,
 	     rpc->sz);
       rep_sz += rpc->sz;
@@ -773,7 +773,7 @@ struct dispatcher_loop {
 	    const struct client_state_st * s =
 	      &D_RO(root)->client_state[rpc_req->client_id];
 	    if(s->last_return_size > 0) {
-	      memcpy(&rpc_rep->payload,
+	      memcpy(rpc_rep + 1,
 		     (void *)D_RO(s->last_return_value),
 		     s->last_return_size);
 	      rep_sz += s->last_return_size;
@@ -790,7 +790,7 @@ struct dispatcher_loop {
 	  }
 	  else if(last_ro_txid == rpc_req->client_txid) {
 	    if(client_ro_state[rpc_req->client_id].last_return_size > 0) {
-	      memcpy(&rpc_rep->payload,
+	      memcpy(rpc_rep + 1,
 		     client_ro_state[rpc_req->client_id].last_return_value,
 		     client_ro_state[rpc_req->client_id].last_return_size);
 	      rep_sz += client_ro_state[rpc_req->client_id].last_return_size;

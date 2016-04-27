@@ -2,6 +2,17 @@
 #define _CIRCULAR_LOG_
 #include<libpmemobj.h>
 #include "pmem_layout.h"
+
+static const char * log_data(const struct circular_log *log)
+{
+  return (const char *)(log + 1);
+}
+
+static char * log_data(struct circular_log *log)
+{
+  return (char *)(log + 1);
+}
+
 void copy_from_circular_log(const struct circular_log *log,
 			    unsigned long LOGSIZE,
 			    unsigned char *dst,
@@ -11,10 +22,10 @@ void copy_from_circular_log(const struct circular_log *log,
   unsigned long chunk1 = (offset + size) > LOGSIZE ?
     (LOGSIZE - offset):size;
   unsigned long chunk2 = size - chunk1;
-  memcpy(dst, log->data + offset, chunk1);
+  memcpy(dst, log_data(log) + offset, chunk1);
   if(chunk2 > 0) {
     dst += chunk1;
-    memcpy(dst, log->data, chunk2);
+    memcpy(dst, log_data(log), chunk2);
   }
 }
 
@@ -28,10 +39,10 @@ void copy_to_circular_log(PMEMobjpool *pop,
   unsigned long chunk1 = (offset + size) > LOGSIZE ?
     (LOGSIZE - offset):size;
   unsigned long chunk2 = size - chunk1;
-  memcpy(log->data + offset, src, chunk1);
+  memcpy(log_data(log) + offset, src, chunk1);
   if(chunk2 > 0) {
     src += chunk1;
-    memcpy(log->data, src, chunk2);
+    memcpy(log_data(log), src, chunk2);
   }
 }
 
@@ -44,9 +55,9 @@ void persist_to_circular_log(PMEMobjpool *pop,
   unsigned long chunk1 = (offset + size) > LOGSIZE ?
     (LOGSIZE - offset):size;
   unsigned long chunk2 = size - chunk1;
-  pmemobj_persist(pop, log->data + offset, chunk1);
+  pmemobj_persist(pop, log_data(log) + offset, chunk1);
   if(chunk2 > 0) {
-    pmemobj_persist(pop, log->data, chunk2);
+    pmemobj_persist(pop, log_data(log), chunk2);
   }
 }
 
