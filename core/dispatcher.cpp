@@ -201,8 +201,9 @@ static void mark_client_pending(int client_txid,
   while(rpc_info != NULL) {
     if(rpc_info->rpc->client_id == client_id &&
        rpc_info->rpc->client_txid == client_txid) {
-      rpc_info->client_blocked = mc;
       rpc_info->rpc->channel_seq = channel_seq;
+      __sync_synchronize(); // Ensure reader sees seq
+      rpc_info->client_blocked = mc;
       __sync_synchronize();
     }
     rpc_info = rpc_info->next;
