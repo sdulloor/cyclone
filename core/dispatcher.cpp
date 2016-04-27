@@ -49,7 +49,7 @@ static rpc_info_t * volatile pending_rpc_head;
 static rpc_info_t * volatile pending_rpc_tail;
 
 static volatile unsigned long list_lock = 0;
-static volatile unsigned long socket_lock = 0;
+static volatile unsigned long pending_locks[263];
 static volatile bool building_image = false;
 
 static void lock(volatile unsigned long *lockp)
@@ -81,6 +81,11 @@ static void unlock_rpc_list()
 
 static void client_response(rpc_info_t *rpc, rpc_t *rpc_rep)
 {
+  lock(&rpc->pending_lock);
+  if(rpc->client_blocked == -1) {
+    unlock(&rpc->pending_lock);
+    return;
+  }
   rpc_rep->client_id   = rpc->rpc->client_id;
   rpc_rep->client_txid = rpc->rpc->client_txid;
   rpc_rep->channel_seq = rpc->rpc->channel_seq;
@@ -97,13 +102,17 @@ static void client_response(rpc_info_t *rpc, rpc_t *rpc_rep)
       rep_sz += rpc->sz;
     }
   }
-  lock(&socket_lock);
+  router->lock_output_socket(rpc->client_blocked,
+			     rpc->rpc->client_id);
   cyclone_tx(router->output_socket(rpc->client_blocked,
 				   rpc->rpc->client_id), 
 	     (unsigned char *)rpc_rep, 
 	     rep_sz, 
 	     "Dispatch reply");
-  unlock(&socket_lock);
+  router->unlock_output_socket(rpc->client_blocked,
+			       rpc->rpc->client_id);
+  rpc->client_blocked = -1;
+  unlock(&rpc->pending_lock);
 }
 
 static rpc_info_t * locate_rpc_internal(int raft_idx,
@@ -201,10 +210,10 @@ static void mark_client_pending(int client_txid,
   while(rpc_info != NULL) {
     if(rpc_info->rpc->client_id == client_id &&
        rpc_info->rpc->client_txid == client_txid) {
+      lock(&rpc_info->pending_lock);
       rpc_info->rpc->channel_seq = channel_seq;
-      __sync_synchronize(); // Ensure reader sees seq
       rpc_info->client_blocked = mc;
-      __sync_synchronize();
+      unlock(&rpc_info->pending_lock);
     }
     rpc_info = rpc_info->next;
   }
@@ -328,10 +337,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
       exit(-1);
     } TX_END
   }
-  if(rpc->client_blocked != -1) {
-    client_response(rpc, (rpc_t *)tx_async_buffer);
-    rpc->client_blocked = -1;
-  }
+  client_response(rpc, (rpc_t *)tx_async_buffer);
   __sync_synchronize();
   rpc->complete = true; // note: rpc will be freed after this
 }
@@ -378,10 +384,7 @@ void exec_rpc_internal(rpc_info_t *rpc)
       exit(-1);
     } TX_END
   }
-  if(rpc->client_blocked != -1) {
-    client_response(rpc, (rpc_t *)tx_async_buffer);
-    rpc->client_blocked = -1;
-  }
+  client_response(rpc, (rpc_t *)tx_async_buffer);
   __sync_synchronize();
   rpc->complete = true; // note: rpc will be freed after this
 }
@@ -409,10 +412,7 @@ void exec_rpc_internal_ro(rpc_info_t *rpc)
     __sync_synchronize();
     cstate->committed_txid = rpc->rpc->client_txid;
   }
-  if(rpc->client_blocked != -1) {
-    client_response(rpc, (rpc_t *)tx_async_buffer);
-    rpc->client_blocked = -1;
-  }
+  client_response(rpc, (rpc_t *)tx_async_buffer);
   __sync_synchronize();
   rpc->complete = true; // note: rpc will be freed after this
 }
@@ -466,9 +466,7 @@ static void gc_pending_rpc_list(bool is_master)
   while(deleted) {
     tmp = deleted;
     deleted = deleted->next;    
-    if(tmp->client_blocked != -1) {
-      client_response(tmp, rpc_rep);
-    }
+    client_response(tmp, rpc_rep);
     if(tmp->sz != 0) {
       gc_rpc(tmp->ret_value);
     }
@@ -499,6 +497,7 @@ static void issue_rpc(const rpc_t *rpc,
   rpc_info->follower_data_size = 0;
   rpc_info->have_follower_data = false;
   rpc_info->req_follower_data_active = false;
+  rpc_info->pending_lock = 0;
   rpc_info->client_blocked = -1;
   rpc_info->next = NULL;
   lock_rpc_list();
@@ -824,12 +823,12 @@ struct dispatcher_loop {
       rep_sz = 0;
     }
     if(rep_sz > 0) {
-      lock(&socket_lock);
+      router->lock_output_socket(requestor, rpc_req->client_id);
       cyclone_tx(router->output_socket(requestor, rpc_req->client_id), 
 		 tx_buffer, 
 		 rep_sz, 
 		 "Dispatch reply");
-      unlock(&socket_lock);
+      router->unlock_output_socket(requestor, rpc_req->client_id);
     }
   }
 
@@ -1016,5 +1015,8 @@ void dispatcher_start(const char* config_server_path,
 			     me,
 			     clients,
 			     false);
+  for(int i=0;i<263;i++) {
+    pending_locks[i] = 0;
+  }
   (*dispatcher_loop_obj)();
 }

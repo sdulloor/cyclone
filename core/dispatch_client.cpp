@@ -73,7 +73,7 @@ typedef struct rpc_client_st {
 	break;
       }
       if(resp_sz == -1) {
-	update_server("rx timeout");
+	update_server("rx timeout, get txid");
 	continue;
       }
       if(packet_in->code == RPC_REP_INVSRV) {
@@ -250,7 +250,7 @@ typedef struct rpc_client_st {
 	break;
       }
       if(resp_sz == -1) {
-	update_server("rx timeout");
+	update_server("rx timeout, get response");
 	continue;
       }
       if(packet_in->code == RPC_REP_INVSRV) {
@@ -319,7 +319,7 @@ typedef struct rpc_client_st {
 	break;
       }
       if(resp_sz == -1) {
-	update_server("rx timeout");
+	update_server("rx timeout, make rpc");
 	continue;
       }
       if(packet_in->code == RPC_REP_INVSRV) {

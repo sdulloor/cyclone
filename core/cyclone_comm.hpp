@@ -363,6 +363,7 @@ public:
 
 class server_switch {
   void **sockets_out;
+  unsigned long* socket_out_locks;
   void *socket_in;
   int client_machines;
   int server_machines;
@@ -372,6 +373,24 @@ class server_switch {
   {
     return mc*clients + client;
   }
+
+
+  void lock(volatile unsigned long *lockp)
+  {
+    // TEST + TEST&SET
+    do {
+      while((*lockp) != 0);
+    } while(!__sync_bool_compare_and_swap(lockp, 0, 1));
+    __sync_synchronize();
+  }
+
+  void unlock(volatile unsigned long *lockp)
+  {
+    __sync_synchronize();
+    __sync_bool_compare_and_swap(lockp, 1, 0);
+    __sync_synchronize();
+  }
+
   
 public:
   server_switch(void *context, 
@@ -402,7 +421,8 @@ public:
     clients  = clients_in;
    
     sockets_out = new void *[client_machines*clients];
-    
+    socket_out_locks = new unsigned long[client_machines*clients];
+
     // Input wire
     socket_in   = cyclone_socket_in(context); 
     key.str("");key.clear();
@@ -427,6 +447,7 @@ public:
 	port = client_baseport + j*server_machines + me;
 	addr << ":" << port;
 	cyclone_connect_endpoint(sockets_out[index(i, j)], addr.str().c_str());
+	socket_out_locks[index(i,j)] = 0;
       }
     }
   }
@@ -434,6 +455,16 @@ public:
   void * output_socket(int machine, int client)
   {
     return sockets_out[index(machine, client)];
+  }
+
+  void lock_output_socket(int machine, int client)
+  {
+    lock(&socket_out_locks[index(machine, client)]);
+  }
+
+  void unlock_output_socket(int machine, int client)
+  {
+    unlock(&socket_out_locks[index(machine, client)]);
   }
 
   void *input_socket()

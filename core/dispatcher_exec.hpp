@@ -21,6 +21,7 @@ typedef struct rpc_info_st {
   volatile bool rep_failed;
   volatile bool rep_follower_success;
   volatile bool complete;
+  volatile unsigned long pending_lock;
   volatile int client_blocked;
   struct rpc_info_st *next;
 } rpc_info_t;
