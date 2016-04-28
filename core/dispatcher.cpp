@@ -504,7 +504,7 @@ static void issue_rpc(const rpc_t *rpc,
   rpc_info->have_follower_data = false;
   rpc_info->req_follower_data_active = false;
   rpc_info->pending_lock = 0;
-  rpc_info->client_blocked = -1;
+  rpc_info->client_blocked = rpc_info->rpc->requestor;
   rpc_info->next = NULL;
   lock_rpc_list();
   if(pending_rpc_head == NULL) {
@@ -728,6 +728,7 @@ struct dispatcher_loop {
     void *cookie;
     unsigned long last_tx_committed;
     int requestor = rpc_req->requestor;
+    bool issued_rpc = false;
     rpc_rep->client_id   = rpc_req->client_id;
     rpc_rep->channel_seq = rpc_req->channel_seq;
     rpc_rep->client_txid = rpc_req->client_txid;
@@ -744,7 +745,9 @@ struct dispatcher_loop {
     else {
       determine_status(rpc_req, rpc_rep, &rep_sz);
       // Issue if necessary
-      if(rpc_rep->code == RPC_REP_UNKNOWN  &&  rpc_req->code != RPC_REQ_STATUS) {
+      if(rpc_rep->code == RPC_REP_UNKNOWN  &&  rpc_req->code != RPC_REQ_STATUS)
+      {
+	issued_rpc = true;
 	if(rpc_req->flags & RPC_FLAG_RO) {
 	  // Distinguish ro txids from rw txids
 	  issue_rpc(rpc_req, sz, -1, -1);
@@ -798,7 +801,7 @@ struct dispatcher_loop {
 	}
       }
     }
-    if(rpc_rep->code == RPC_REP_PENDING) {
+    if(rpc_rep->code == RPC_REP_PENDING && !issued_rpc) {
       mark_client_pending(rpc_req->client_txid,
 			  rpc_req->channel_seq,
 			  rpc_req->client_id,
