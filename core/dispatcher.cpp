@@ -403,7 +403,7 @@ void exec_rpc_internal_ro(rpc_info_t *rpc)
   rpc->rep_success = true; // No replication needed
   struct client_ro_state_st *cstate = &client_ro_state[rpc->rpc->client_id];
   lock(&result_lock);
-  if(cstate->last_return_value != NULL) {
+  if(cstate->last_return_size != 0) {
     free(cstate->last_return_value);
     cstate->last_return_size = 0;
   }
