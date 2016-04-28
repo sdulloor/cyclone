@@ -671,7 +671,14 @@ struct dispatcher_loop {
       lock(&result_lock);
       int last_rw_txid = D_RO(root)->client_state[rpc_req->client_id].committed_txid;
       int last_ro_txid = client_ro_state[rpc_req->client_id].committed_txid;
-      if(last_rw_txid < rpc_req->client_txid && last_ro_txid < rpc_req->client_txid ) {
+      if(((rpc_req->flags & RPC_FLAG_RO) == 0) &&
+	 last_rw_txid < rpc_req->client_txid) {
+	unlock(&result_lock);
+	rpc_rep->code = RPC_REP_PENDING;
+	return;
+      }
+      else if(((rpc_req->flags & RPC_FLAG_RO) != 0) &&
+	      last_ro_txid < rpc_req->client_txid ) {
 	unlock(&result_lock);
 	rpc_rep->code = RPC_REP_PENDING;
 	return;
