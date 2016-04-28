@@ -801,11 +801,13 @@ struct dispatcher_loop {
 	}
       }
     }
-    if(rpc_rep->code == RPC_REP_PENDING && !issued_rpc) {
-      mark_client_pending(rpc_req->client_txid,
-			  rpc_req->channel_seq,
-			  rpc_req->client_id,
-			  requestor);
+    if(rpc_rep->code == RPC_REP_PENDING) {
+      if(!issued_rpc) {
+	mark_client_pending(rpc_req->client_txid,
+			    rpc_req->channel_seq,
+			    rpc_req->client_id,
+			    requestor);
+      }
       rep_sz = 0;
     }
     if(rep_sz > 0) {
