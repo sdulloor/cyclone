@@ -810,6 +810,7 @@ struct dispatcher_loop {
     rtc_clock clock;
     bool is_master = false;
     unsigned long last_gc = clock.current_time();
+    while(building_image); // Wait till building image is complete
     while(true) {
       unsigned long sz = cyclone_rx_noblock(router->input_socket(),
 					    rx_buffer,
