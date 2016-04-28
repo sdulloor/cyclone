@@ -145,10 +145,12 @@ static rpc_info_t * locate_rpc_next_commit(bool keep_lock = false)
   lock_rpc_list();
   rpc_info = pending_rpc_head;
   while(rpc_info != NULL) {
-    if(!rpc_info->rep_failed && !rpc_info->rep_success) {
-      hit = rpc_info;
-      break;
-    } 
+    if((rpc_info->rpc->flags & RPC_FLAG_RO) == 0) {
+      if(!rpc_info->rep_failed && !rpc_info->rep_success) {
+	hit = rpc_info;
+	break;
+      }
+    }
     rpc_info = rpc_info->next;
   }
   if(!keep_lock) {
@@ -545,7 +547,7 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
     return;
   }
   rpc_info = locate_rpc_next_commit(true);
-  if(rpc_info == NULL && rpc_info->raft_idx > applied_raft_idx) {
+  if(rpc_info == NULL) {
     BOOST_LOG_TRIVIAL(fatal)
       << "Unable to locate any replicated RPC for commit";
     dump_active_list();
