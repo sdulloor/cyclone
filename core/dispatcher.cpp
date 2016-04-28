@@ -48,7 +48,8 @@ static int me;
 static rpc_info_t * volatile pending_rpc_head;
 static rpc_info_t * volatile pending_rpc_tail;
 
-static volatile unsigned long list_lock = 0;
+static volatile unsigned long list_lock   = 0;
+static volatile unsigned long result_lock = 0;
 static volatile unsigned long pending_locks[263];
 static volatile bool building_image = false;
 
@@ -228,6 +229,7 @@ static void mark_done(const rpc_t *rpc,
 		      const int ret_size)
 {
   int client_id = rpc->client_id;
+  lock(&result_lock);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   volatile int *c_raft_idx_p  = &D_RW(root)->applied_raft_idx;
   volatile int *c_raft_term_p = &D_RW(root)->applied_raft_term;
@@ -250,6 +252,7 @@ static void mark_done(const rpc_t *rpc,
   cstate->last_return_size = ret_size;
   __sync_synchronize(); // Main thread can return this value now
   cstate->committed_txid = rpc->client_txid;
+  unlock(&result_lock);
 }
 
 void exec_rpc_internal_synchronous(rpc_info_t *rpc)
@@ -655,7 +658,55 @@ struct dispatcher_loop {
       free(cookie);
     }
   }
-  
+
+  void determine_status(rpc_t * rpc_req, rpc_t *rpc_rep, unsigned long* rep_sz)
+  {
+    TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+    if(get_max_client_txid(rpc_req->client_id) < rpc_req->client_txid) {
+      rpc_rep->code = RPC_REP_UNKNOWN;
+      return;
+    }
+    else {
+      lock(&result_lock);
+      int last_rw_txid = D_RO(root)->client_state[rpc_req->client_id].committed_txid;
+      int last_ro_txid = client_ro_state[rpc_req->client_id].committed_txid;
+      if(last_rw_txid < rpc_req->client_txid && last_ro_txid < rpc_req->client_txid ) {
+	unlock(&result_lock);
+	rpc_rep->code = RPC_REP_PENDING;
+	return;
+      }
+      else if(last_rw_txid == rpc_req->client_txid) {
+	const struct client_state_st * s =
+	  &D_RO(root)->client_state[rpc_req->client_id];
+	*rep_sz = *rep_sz + s->last_return_size;
+	if(s->last_return_size > 0) {
+	  memcpy(rpc_rep + 1,
+		 (void *)D_RO(s->last_return_value),
+		 s->last_return_size);
+	}
+	unlock(&result_lock);
+	rpc_rep->code = RPC_REP_COMPLETE;
+	return;
+      }
+      else if(last_ro_txid == rpc_req->client_txid) {
+	*rep_sz = *rep_sz + client_ro_state[rpc_req->client_id].last_return_size;
+	if(client_ro_state[rpc_req->client_id].last_return_size > 0) {
+	      memcpy(rpc_rep + 1,
+		     client_ro_state[rpc_req->client_id].last_return_value,
+		     client_ro_state[rpc_req->client_id].last_return_size);
+	}
+	unlock(&result_lock);
+	rpc_rep->code = RPC_REP_COMPLETE;
+	return;
+      }
+      else {
+      	unlock(&result_lock);
+	rpc_rep->code = RPC_REP_OLD;
+      	return;
+      }
+    }
+  }
+        
   void handle_rpc(unsigned long sz)
   {
     TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
@@ -669,153 +720,75 @@ struct dispatcher_loop {
     int requestor = rpc_req->requestor;
     rpc_rep->client_id   = rpc_req->client_id;
     rpc_rep->channel_seq = rpc_req->channel_seq;
-    switch(rpc_req->code) {
-    case RPC_REQ_LAST_TXID:
-      if(!cyclone_is_leader(cyclone_handle)) {
-	rep_sz = sizeof(rpc_t);
-	rpc_rep->code = RPC_REP_INVSRV;
-	rpc_rep->master = cyclone_get_leader(cyclone_handle);
-      }
-      else {
-	rep_sz = sizeof(rpc_t);
-	rpc_rep->code = RPC_REP_COMPLETE;
-	rpc_rep->client_txid = rpc_req->client_txid;
-	rpc_rep->last_client_txid = get_max_client_txid(rpc_req->client_id);
-      }
-      break;
-    case RPC_REQ_NODEADD:
-    case RPC_REQ_NODEDEL:
-    case RPC_REQ_FN:
-      if(get_max_client_txid(rpc_req->client_id) >= rpc_req->client_txid) {
-	rpc_rep->client_txid = rpc_req->client_txid;
-	rep_sz = sizeof(rpc_t);
-	rpc_rep->code = RPC_REP_PENDING;
-      }
-      else if(rpc_req->flags & RPC_FLAG_RO) {
-	rpc_rep->client_txid = rpc_req->client_txid;
-	// Distinguish ro txids from rw txids
-	issue_rpc(rpc_req, sz, -1, -1);
-	rep_sz = sizeof(rpc_t);
-	rpc_rep->code = RPC_REP_PENDING;
-      }
-      else {
-	rpc_rep->client_txid = rpc_req->client_txid;
-	// Initiate replication
-	if(rpc_req->code == RPC_REQ_FN) {
-	  cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
-	}
-	else if(rpc_req->code == RPC_REQ_NODEADD) {
-	  // Wait for pipeline to drain
-	  while(is_pending_rpc_list());
-	  int chosen_raft_idx, chosen_raft_term;
-	  do {
-	    chosen_raft_term = D_RO(root)->applied_raft_term; 
-	    __sync_synchronize();
-	    chosen_raft_idx  = D_RO(root)->applied_raft_idx;
-	  } while(chosen_raft_term != D_RO(root)->applied_raft_term);
-	  cfg_change_t *cfg = (cfg_change_t *)(rpc_req + 1);
-	  cfg->last_included_term = chosen_raft_term;
-	  cfg->last_included_idx = chosen_raft_idx;
-	  take_checkpoint(cyclone_get_term(cyclone_handle),
-			  chosen_raft_idx,
-			  chosen_raft_term);
-	  cookie = cyclone_add_entry_cfg(cyclone_handle,
-					 RAFT_LOGTYPE_ADD_NONVOTING_NODE,
-					 rpc_req,
-					 sz);
-	  // Async send checkpoint 
-	  exec_send_checkpoint(cyclone_control_socket_out(cyclone_handle, 
-							  cfg->node),
-			       cyclone_handle);
-	}
-	else {
-	  cookie = cyclone_add_entry_cfg(cyclone_handle,
-					 RAFT_LOGTYPE_REMOVE_NODE,
-					 rpc_req,
-					 sz);
-	}
-	if(cookie != NULL) {
-	  rep_sz = sizeof(rpc_t);
+    rpc_rep->client_txid = rpc_req->client_txid;
+    rep_sz = sizeof(rpc_t);
+
+    if(!cyclone_is_leader(cyclone_handle)) {
+      rpc_rep->code = RPC_REP_INVSRV;
+      rpc_rep->master = cyclone_get_leader(cyclone_handle);
+    }
+    else if(rpc_req->code == RPC_REQ_LAST_TXID) {
+      rpc_rep->code = RPC_REP_COMPLETE;
+      rpc_rep->last_client_txid = get_max_client_txid(rpc_req->client_id);
+    }
+    else {
+      determine_status(rpc_req, rpc_rep, &rep_sz);
+      // Issue if necessary
+      if(rpc_rep->code == RPC_REP_UNKNOWN  &&  rpc_req->code != RPC_REQ_STATUS) {
+	if(rpc_req->flags & RPC_FLAG_RO) {
+	  // Distinguish ro txids from rw txids
+	  issue_rpc(rpc_req, sz, -1, -1);
 	  rpc_rep->code = RPC_REP_PENDING;
-	  free(cookie);
 	}
 	else {
-	  rep_sz = sizeof(rpc_t);
-	  rpc_rep->code = RPC_REP_INVSRV;
-	  rpc_rep->master = cyclone_get_leader(cyclone_handle);
-	}
-      }
-      break;
-    case RPC_REQ_STATUS:
-    case RPC_REQ_STATUS_BLOCK:
-      if(!cyclone_is_leader(cyclone_handle)) {
-	rep_sz = sizeof(rpc_t);
-	rpc_rep->code = RPC_REP_INVSRV;
-	rpc_rep->master = cyclone_get_leader(cyclone_handle);
-      }
-      else {
-	rpc_rep->client_id   = rpc_req->client_id;
-	rpc_rep->client_txid = rpc_req->client_txid;
-	rep_sz = sizeof(rpc_t);
-	if(get_max_client_txid(rpc_req->client_id) < rpc_req->client_txid) {
-	  rpc_rep->code = RPC_REP_UNKNOWN;
-	}
-	else {
-	  int last_rw_txid = D_RO(root)->client_state[rpc_req->client_id].committed_txid;
-	  int last_ro_txid = client_ro_state[rpc_req->client_id].committed_txid;
-	  if(last_rw_txid < rpc_req->client_txid &&
-	     last_ro_txid < rpc_req->client_txid ) {
+	  // Initiate replication
+	  if(rpc_req->code == RPC_REQ_FN) {
+	    cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
 	    rpc_rep->code = RPC_REP_PENDING;
 	  }
-	  else if(last_rw_txid == rpc_req->client_txid) {
-	    const struct client_state_st * s =
-	      &D_RO(root)->client_state[rpc_req->client_id];
-	    if(s->last_return_size > 0) {
-	      memcpy(rpc_rep + 1,
-		     (void *)D_RO(s->last_return_value),
-		     s->last_return_size);
-	      rep_sz += s->last_return_size;
-	    }
-	    __sync_synchronize();
-	    last_rw_txid = D_RO(root)->client_state[rpc_req->client_id].committed_txid;
-	    if(last_rw_txid == rpc_req->client_txid) {
-	      rpc_rep->code = RPC_REP_COMPLETE;
-	    }
-	    else {
-	      rpc_rep->code = RPC_REP_OLD;
-	      rep_sz = sizeof(rpc_t);
-	    }
+	  else if(rpc_req->code == RPC_REQ_NODEADD) {
+	    // Wait for pipeline to drain
+	    while(is_pending_rpc_list());
+	    int chosen_raft_idx, chosen_raft_term;
+	    do {
+	      chosen_raft_term = D_RO(root)->applied_raft_term; 
+	      __sync_synchronize();
+	      chosen_raft_idx  = D_RO(root)->applied_raft_idx;
+	    } while(chosen_raft_term != D_RO(root)->applied_raft_term);
+	    cfg_change_t *cfg = (cfg_change_t *)(rpc_req + 1);
+	    cfg->last_included_term = chosen_raft_term;
+	    cfg->last_included_idx = chosen_raft_idx;
+	    take_checkpoint(cyclone_get_term(cyclone_handle),
+			    chosen_raft_idx,
+			    chosen_raft_term);
+	    cookie = cyclone_add_entry_cfg(cyclone_handle,
+					   RAFT_LOGTYPE_ADD_NONVOTING_NODE,
+					   rpc_req,
+					   sz);
+	    // Async send checkpoint 
+	    exec_send_checkpoint(cyclone_control_socket_out(cyclone_handle, 
+							    cfg->node),
+				 cyclone_handle);
+	    rpc_rep->code = RPC_REP_COMPLETE;
 	  }
-	  else if(last_ro_txid == rpc_req->client_txid) {
-	    if(client_ro_state[rpc_req->client_id].last_return_size > 0) {
-	      memcpy(rpc_rep + 1,
-		     client_ro_state[rpc_req->client_id].last_return_value,
-		     client_ro_state[rpc_req->client_id].last_return_size);
-	      rep_sz += client_ro_state[rpc_req->client_id].last_return_size;
-	    }
-	    __sync_synchronize();
-	    last_ro_txid = client_ro_state[rpc_req->client_id].committed_txid;
-	    if(last_ro_txid == rpc_req->client_txid) {
-	      rpc_rep->code = RPC_REP_COMPLETE;
-	    }
-	    else {
-	      rpc_rep->code = RPC_REP_OLD;
-	      rep_sz = sizeof(rpc_t);
-	    }
+	  else {
+	    cookie = cyclone_add_entry_cfg(cyclone_handle,
+					   RAFT_LOGTYPE_REMOVE_NODE,
+					   rpc_req,
+					   sz);
+	    rpc_rep->code = RPC_REP_COMPLETE;
 	  }
-	  else { // Don't remember old results
-	    rpc_rep->code = RPC_REP_OLD;
+	  if(cookie != NULL) {
+	    free(cookie);
+	  }
+	  else {
+	    rpc_rep->code = RPC_REP_INVSRV;
+	    rpc_rep->master = cyclone_get_leader(cyclone_handle);
 	  }
 	}
       }
-      break;
-    default:
-      BOOST_LOG_TRIVIAL(fatal) << "DISPATCH: unknown code";
-      exit(-1);
     }
-    if(rpc_rep->code == RPC_REP_PENDING &&
-       (rpc_req->code == RPC_REQ_STATUS_BLOCK ||
-	rpc_req->code == RPC_REQ_FN)) {
+    if(rpc_rep->code == RPC_REP_PENDING) {
       mark_client_pending(rpc_req->client_txid,
 			  rpc_req->channel_seq,
 			  rpc_req->client_id,

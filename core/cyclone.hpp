@@ -81,17 +81,16 @@ typedef struct rpc_st {
 } rpc_t; // Used for both requests and replies
 
 // Possble values for code follow
-static const int RPC_REQ_FN             = 0; // Execute
-static const int RPC_REQ_STATUS         = 1; // Check status (non blocking)
-static const int RPC_REQ_STATUS_BLOCK   = 2; // Check status (blocking)
-static const int RPC_REQ_LAST_TXID      = 3; // Get last seen txid from this client
-static const int RPC_REQ_MARKER         = 4; // Dispatcher internal (do not use)
-static const int RPC_REQ_DATA           = 5; // Dispatcher internal (do not use)
-static const int RPC_REQ_NODEADD        = 6; // Add a replica
-static const int RPC_REQ_NODEDEL        = 7; // Delete a replica
-static const int RPC_REP_COMPLETE       = 8; // DONE 
-static const int RPC_REP_PENDING        = 9; // PENDING 
-static const int RPC_REP_UNKNOWN        = 10; // UNKNOWN RPC
-static const int RPC_REP_INVSRV         = 11; // WRONG master  -- master set in reply
-static const int RPC_REP_OLD            = 12; // RPC too old to cache results
+static const int RPC_REQ_FN             = 0; // Execute (block on completion)
+static const int RPC_REQ_STATUS         = 1; // Check status (block on completion)
+static const int RPC_REQ_LAST_TXID      = 2; // Get last seen txid from this client
+static const int RPC_REQ_MARKER         = 3; // Dispatcher internal (do not use)
+static const int RPC_REQ_DATA           = 4; // Dispatcher internal (do not use)
+static const int RPC_REQ_NODEADD        = 5; // Add a replica (non blocking)
+static const int RPC_REQ_NODEDEL        = 6; // Delete a replica (non blocking)
+static const int RPC_REP_COMPLETE       = 7; // DONE 
+static const int RPC_REP_PENDING        = 8; // PENDING 
+static const int RPC_REP_UNKNOWN        = 9; // UNKNOWN RPC
+static const int RPC_REP_INVSRV         = 10; // WRONG master  -- master set in reply
+static const int RPC_REP_OLD            = 11; // RPC too old to cache results
 #endif

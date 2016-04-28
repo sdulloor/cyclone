@@ -89,9 +89,6 @@ typedef struct rpc_client_st {
       }
       break;
     }
-    if(packet_in->code == RPC_REP_OLD) {
-      return RPC_EOLD;
-    }
     return packet_in->last_client_txid;
   }
 
@@ -223,7 +220,7 @@ typedef struct rpc_client_st {
     packet_out->channel_seq  = channel_seq++;
     packet_out->requestor   = me_mc;
     while(true) {
-      packet_out->code        = RPC_REQ_STATUS_BLOCK;
+      packet_out->code        = RPC_REQ_STATUS;
       retcode = cyclone_tx_timeout(router->output_socket(server), 
 				   (unsigned char *)packet_out, 
 				   sizeof(rpc_t), 
@@ -331,6 +328,9 @@ typedef struct rpc_client_st {
 	  server = packet_in->master;
 	  set_server();
 	}
+	continue;
+      }
+      if(packet_in->code == RPC_REP_UNKNOWN) {
 	continue;
       }
       break;
