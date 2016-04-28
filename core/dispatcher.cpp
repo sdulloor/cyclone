@@ -402,6 +402,7 @@ void exec_rpc_internal_ro(rpc_info_t *rpc)
 			&rpc->ret_value);
   rpc->rep_success = true; // No replication needed
   struct client_ro_state_st *cstate = &client_ro_state[rpc->rpc->client_id];
+  lock(&result_lock);
   if(cstate->last_return_value != NULL) {
     free(cstate->last_return_value);
     cstate->last_return_size = 0;
@@ -412,9 +413,9 @@ void exec_rpc_internal_ro(rpc_info_t *rpc)
 	   rpc->ret_value,
 	   rpc->sz);
     cstate->last_return_size = rpc->sz;
-    __sync_synchronize();
-    cstate->committed_txid = rpc->rpc->client_txid;
   }
+  cstate->committed_txid = rpc->rpc->client_txid;
+  unlock(&result_lock);
   client_response(rpc, (rpc_t *)tx_async_buffer);
   __sync_synchronize();
   rpc->complete = true; // note: rpc will be freed after this
