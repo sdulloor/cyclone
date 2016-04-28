@@ -160,7 +160,7 @@ typedef struct rpc_client_st {
       packet_out->client_id   = me;
       packet_out->timestamp   = clock.current_time();
       packet_out->client_txid = txid;
-      packet_out->channel_seq = channel_seq;
+      packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
       cfg->node      = nodeid;
