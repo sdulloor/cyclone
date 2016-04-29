@@ -279,7 +279,12 @@ public:
       addr << pt->get<std::string>(key.str().c_str());
       int port = baseport + me*replicas + i;
       addr << ":" << port;
-      cyclone_bind_endpoint(sockets_in[i], addr.str().c_str());
+      if( i != me) {
+	cyclone_bind_endpoint(sockets_in[i], addr.str().c_str());
+      }
+      else {
+	cyclone_bind_endpoint(sockets_in[i], "inproc://RAFT_LOOPBACK");
+      }
       
       // output wire to i
       if(i == me) {
@@ -296,7 +301,12 @@ public:
       addr << pt->get<std::string>(key.str().c_str());
       port = baseport + i*replicas + me ;
       addr << ":" << port;
-      cyclone_connect_endpoint(sockets_out[i], addr.str().c_str());
+      if(i != me) {
+	cyclone_connect_endpoint(sockets_out[i], addr.str().c_str());
+      }
+      else {
+	cyclone_connect_endpoint(sockets_out[i], "inproc://RAFT_LOOPBACK");
+      }
     }
     control_socket_in = cyclone_socket_in_loopback(context);
     key.str("");key.clear();
