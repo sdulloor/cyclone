@@ -26,11 +26,12 @@ const int  MSG_REQUESTVOTE_RESPONSE     = 2;
 const int  MSG_APPENDENTRIES            = 3;
 const int  MSG_APPENDENTRIES_RESPONSE   = 4;
 const int  MSG_CLIENT_REQ               = 5;
-const int  MSG_CLIENT_REQ_TERM          = 6;
-const int  MSG_CLIENT_STATUS            = 7;
-const int  MSG_CLIENT_REQ_CFG           = 8;
-const int  MSG_CLIENT_REQ_SET_IMGBUILD  = 9;
-const int  MSG_CLIENT_REQ_UNSET_IMGBUILD= 10;
+const int  MSG_CLIENT_REQ_BATCH         = 6;
+const int  MSG_CLIENT_REQ_TERM          = 7;
+const int  MSG_CLIENT_STATUS            = 8;
+const int  MSG_CLIENT_REQ_CFG           = 9;
+const int  MSG_CLIENT_REQ_SET_IMGBUILD  = 10;
+const int  MSG_CLIENT_REQ_UNSET_IMGBUILD= 11;
 
 
 /* Cyclone max message size */
@@ -43,6 +44,7 @@ typedef struct client_io_st {
   int size;
   int term;
   int type;
+  int* batch_sizes;
 } client_t;
 
 typedef struct
@@ -448,6 +450,47 @@ typedef struct cyclone_st {
 	cyclone_tx(router->request_in(),
 		    (unsigned char *)&client_rep,
 		    sizeof(void *),
+		    "CLIENT COOKIE SEND");
+      }
+      break;
+     case MSG_CLIENT_REQ_BATCH:
+#ifdef TRACING
+      trace_recv_cmd(msg->client.ptr, msg->client.size);
+#endif
+      if(!cyclone_is_leader(this)) {
+	void ** cookies = (void **)malloc(msg->client.size * sizeof(void *));
+	for(int i = 0;i<msg->client.size;i++) {
+	  cookies[i] = NULL;
+	}
+	cyclone_tx(router->request_in(),
+		   (unsigned char *)&cookies,
+		   sizeof(void **),
+		   "CLIENT COOKIE SEND");
+      }
+      else {
+	msg_entry_t *messages = malloc(msg->client.size*sizeof(msg_entry_t));
+	void *ptr = msg->client.ptr;
+	for(int i=0;i<msg->client.size;i++) {
+	  int msg_size = msg->client.batch_sizes[i];
+	  messages[i].id = rand();
+	  messages[i].data.buf = malloc(msg_size); 
+	  memcpy(messages[i].data.buf, 
+		 ptr, 
+		 msg_size);
+	  messages[i].data.len = msg_size;
+	  ptr = ptr + msg_size;
+	  messages[i].type = RAFT_LOGTYPE_NORMAL;
+	}
+	// TBD: Handle error
+	client_rep = (msg_entry_response_t *)
+	  malloc(msg->client.size*sizeof(msg_entry_response_t));
+	(void)raft_recv_entry_batch(raft_handle, 
+				    messages, 
+				    client_rep,
+				    msg->client.size);
+	cyclone_tx(router->request_in(),
+		    (unsigned char *)&client_rep,
+		    sizeof(void **),
 		    "CLIENT COOKIE SEND");
       }
       break;
