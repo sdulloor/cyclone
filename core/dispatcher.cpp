@@ -32,7 +32,7 @@ struct client_ro_state_st {
 } client_ro_state [MAX_CLIENTS];
 
 const int BATCH_SIZE = 5; // Should probably tune this ?
-static unsigned char *tx_buffer;[DISP_MAX_MSGSIZE];
+static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
 static unsigned char *rx_buffer;
 static unsigned char *rx_buffers;
 static unsigned char tx_async_buffer[DISP_MAX_MSGSIZE];
@@ -655,9 +655,9 @@ struct dispatcher_loop {
 
   void send_kicker()
   {
-    rpc_t *rpc_req = (rpc_t *)rx_buffer;
-    rpc_req->code = RPC_REQ_MARKER;
-    void *cookie = cyclone_add_entry(cyclone_handle, rpc_req, sizeof(rpc_t));
+    rpc_t rpc_req;
+    rpc_req.code = RPC_REQ_MARKER;
+    void *cookie = cyclone_add_entry(cyclone_handle, &rpc_req, sizeof(rpc_t));
     if(cookie != NULL) {
       free(cookie);
     }
@@ -728,6 +728,7 @@ struct dispatcher_loop {
     unsigned long last_tx_committed;
     int requestor = rpc_req->requestor;
     bool issued_rpc = false;
+    TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
     rpc_rep->client_id   = rpc_req->client_id;
     rpc_rep->channel_seq = rpc_req->channel_seq;
     rpc_rep->client_txid = rpc_req->client_txid;
@@ -749,6 +750,7 @@ struct dispatcher_loop {
       {
 	issued_rpc = true;
 	if(rpc_req->flags & RPC_FLAG_RO) {
+	  batch_issue = true;
 	  // Distinguish ro txids from rw txids
 	  issue_rpc(rpc_req, sz, -1, -1);
 	  rpc_rep->code = RPC_REP_PENDING;
@@ -822,9 +824,8 @@ struct dispatcher_loop {
     return batch_issue;
   }
 
-  void handle_batch_rpc(unsigned char *rx_buffers, int *rx_sizes, int requests)
+  void handle_batch_rpc(int *rx_sizes, int requests)
   {
-    TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
     bool need_issue_rpc[BATCH_SIZE];
     rx_buffer = rx_buffers;
     for(int i=0; i < requests;i++) {
@@ -839,22 +840,28 @@ struct dispatcher_loop {
 	rpc_rep->client_id   = rpc_req->client_id;
 	rpc_rep->channel_seq = rpc_req->channel_seq;
 	rpc_rep->client_txid = rpc_req->client_txid;
-	void * cookie = cyclone_add_entry(cyclone_handle,
-					  (rpc_t *)rx_buffer,
-					  rx_sizes[i]);
-	if(cookie != NULL) {
-	  free(cookie);
+	if(rpc_req->flags & RPC_FLAG_RO) {
+	  // Distinguish ro txids from rw txids
+	  issue_rpc(rpc_req, rx_sizes[i], -1, -1);
 	}
 	else {
-	  rpc_rep->code = RPC_REP_INVSRV;
-	  rpc_rep->master = cyclone_get_leader(cyclone_handle);
-	  router->lock_output_socket(rpc_req->requestor, rpc_req->client_id);
-	  cyclone_tx(router->output_socket(rpc_req->requestor,
-					   rpc_req->client_id), 
-		     tx_buffer, 
-		     sizeof(rpc_t), 
-		     "Dispatch reply");
-	  router->unlock_output_socket(rpc_req->requestor, rpc_req->client_id);
+	  void * cookie = cyclone_add_entry(cyclone_handle,
+					    (rpc_t *)rx_buffer,
+					    rx_sizes[i]);
+	  if(cookie != NULL) {
+	    free(cookie);
+	  }
+	  else {
+	    rpc_rep->code = RPC_REP_INVSRV;
+	    rpc_rep->master = cyclone_get_leader(cyclone_handle);
+	    router->lock_output_socket(rpc_req->requestor, rpc_req->client_id);
+	    cyclone_tx(router->output_socket(rpc_req->requestor,
+					     rpc_req->client_id), 
+		       tx_buffer, 
+		       sizeof(rpc_t), 
+		       "Dispatch reply");
+	    router->unlock_output_socket(rpc_req->requestor, rpc_req->client_id);
+	  }
 	}
       }
       rx_buffer += rx_sizes[i];
@@ -868,11 +875,14 @@ struct dispatcher_loop {
     bool is_master = false;
     unsigned long last_gc = clock.current_time();
     int requests = 0;
-    unsigned char * ptr = rx_buffers;
+    unsigned char * ptr;
     int rx_sizes[BATCH_SIZE];
     rpc_t *req;
+
+    rx_buffers = (unsigned char *)malloc(BATCH_SIZE * DISP_MAX_MSGSIZE);
     
     while(building_image); // Wait till building image is complete
+    ptr = rx_buffers;
     while(true) {
       unsigned long sz = cyclone_rx_noblock(router->input_socket(),
 					    ptr,
@@ -884,22 +894,22 @@ struct dispatcher_loop {
 	ptr += sz;
 	if(req->code == RPC_REQ_NODEADD || req->code == RPC_REQ_NODEDEL) {
 	  if(requests > 1) {
-	    handle_rpc(rx_sizes, requests - 1);
+	    handle_batch_rpc(rx_sizes, requests - 1);
 	  }
 	  memcpy(rx_buffers, ptr - sz, sz);
 	  rx_sizes[0] = sz;
-	  handle_rpc(rx_sizes, 1);
+	  handle_batch_rpc(rx_sizes, 1);
 	  requests = 0;
 	  ptr = rx_buffers;
 	}
 	else if(requests == BATCH_SIZE) {
-	  handle_rpc(rx_sizes, requests);
+	  handle_batch_rpc(rx_sizes, requests);
 	  requests = 0;
 	  ptr = rx_buffers;
 	}
       }
       else if(requests > 0) {
-	handle_rpc(rx_sizes, requests);
+	handle_batch_rpc(rx_sizes, requests);
 	requests = 0;
 	ptr = rx_buffers;
       }
@@ -975,9 +985,6 @@ void dispatcher_start(const char* config_server_path,
   nvheap_setup_callback_saved = nvheap_setup_callback;
   dispatcher_exec_startup();
 
-  tx_buffer  = (unsigned char *)malloc(DISP_MAX_MSGSIZE);
-  rx_buffers = (unsigned char *)malloc(BATCH_SIZE * DISP_MAX_MSGSIZE);
-  
   bool i_am_active = false;
   for(int i=0;i<pt_server.get<int>("active.replicas");i++) {
     char nodeidxkey[100];
