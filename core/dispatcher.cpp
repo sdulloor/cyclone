@@ -31,9 +31,10 @@ struct client_ro_state_st {
   int last_return_size;
 } client_ro_state [MAX_CLIENTS];
 
-
-static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
-static unsigned char rx_buffer[DISP_MAX_MSGSIZE];
+const int BATCH_SIZE = 5; // Should probably tune this ?
+static unsigned char *tx_buffer;[DISP_MAX_MSGSIZE];
+static unsigned char *rx_buffer;
+static unsigned char *rx_buffers;
 static unsigned char tx_async_buffer[DISP_MAX_MSGSIZE];
 static server_switch *router;
 
@@ -717,10 +718,8 @@ struct dispatcher_loop {
     }
   }
         
-  void handle_rpc(unsigned long sz)
+  bool handle_rpc(int sz)
   {
-    TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-    unsigned long last_committed;
     rpc_t *rpc_req = (rpc_t *)rx_buffer;
     rpc_t *rpc_rep = (rpc_t *)tx_buffer;
     rpc_info_t *rpc_info;
@@ -733,7 +732,8 @@ struct dispatcher_loop {
     rpc_rep->channel_seq = rpc_req->channel_seq;
     rpc_rep->client_txid = rpc_req->client_txid;
     rep_sz = sizeof(rpc_t);
-
+    bool batch_issue = false;
+    
     if(!cyclone_is_leader(cyclone_handle)) {
       rpc_rep->code = RPC_REP_INVSRV;
       rpc_rep->master = cyclone_get_leader(cyclone_handle);
@@ -756,8 +756,7 @@ struct dispatcher_loop {
 	else {
 	  // Initiate replication
 	  if(rpc_req->code == RPC_REQ_FN) {
-	    cookie = cyclone_add_entry(cyclone_handle, rpc_req, sz);
-	    rpc_rep->code = RPC_REP_PENDING;
+	    batch_issue = true;
 	  }
 	  else if(rpc_req->code == RPC_REQ_NODEADD) {
 	    // Wait for pipeline to drain
@@ -791,12 +790,14 @@ struct dispatcher_loop {
 					   sz);
 	    rpc_rep->code = RPC_REP_COMPLETE;
 	  }
-	  if(cookie != NULL) {
-	    free(cookie);
-	  }
-	  else {
-	    rpc_rep->code = RPC_REP_INVSRV;
-	    rpc_rep->master = cyclone_get_leader(cyclone_handle);
+	  if(!batch_issue) {
+	    if(cookie != NULL) {
+	      free(cookie);
+	    }
+	    else {
+	      rpc_rep->code = RPC_REP_INVSRV;
+	      rpc_rep->master = cyclone_get_leader(cyclone_handle);
+	    }
 	  }
 	}
       }
@@ -818,22 +819,91 @@ struct dispatcher_loop {
 		 "Dispatch reply");
       router->unlock_output_socket(requestor, rpc_req->client_id);
     }
+    return batch_issue;
   }
 
+  void handle_batch_rpc(unsigned char *rx_buffers, int *rx_sizes, int requests)
+  {
+    TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+    bool need_issue_rpc[BATCH_SIZE];
+    rx_buffer = rx_buffers;
+    for(int i=0; i < requests;i++) {
+      need_issue_rpc[i] = handle_rpc(rx_sizes[i]);
+      rx_buffer += rx_sizes[i];
+    }
+    rx_buffer = rx_buffers;
+    for(int i=0;i < requests;i++) {
+      if(need_issue_rpc[i]) {
+	rpc_t *rpc_req = (rpc_t *)rx_buffer;
+	rpc_t *rpc_rep = (rpc_t *)tx_buffer;
+	rpc_rep->client_id   = rpc_req->client_id;
+	rpc_rep->channel_seq = rpc_req->channel_seq;
+	rpc_rep->client_txid = rpc_req->client_txid;
+	void * cookie = cyclone_add_entry(cyclone_handle,
+					  (rpc_t *)rx_buffer,
+					  rx_sizes[i]);
+	if(cookie != NULL) {
+	  free(cookie);
+	}
+	else {
+	  rpc_rep->code = RPC_REP_INVSRV;
+	  rpc_rep->master = cyclone_get_leader(cyclone_handle);
+	  router->lock_output_socket(rpc_req->requestor, rpc_req->client_id);
+	  cyclone_tx(router->output_socket(rpc_req->requestor,
+					   rpc_req->client_id), 
+		     tx_buffer, 
+		     sizeof(rpc_t), 
+		     "Dispatch reply");
+	  router->unlock_output_socket(rpc_req->requestor, rpc_req->client_id);
+	}
+      }
+      rx_buffer += rx_sizes[i];
+    }
+  }
+
+  
   void operator ()()
   {
     rtc_clock clock;
     bool is_master = false;
     unsigned long last_gc = clock.current_time();
+    int requests = 0;
+    unsigned char * ptr = rx_buffers;
+    int rx_sizes[BATCH_SIZE];
+    rpc_t *req;
+    
     while(building_image); // Wait till building image is complete
     while(true) {
       unsigned long sz = cyclone_rx_noblock(router->input_socket(),
-					    rx_buffer,
+					    ptr,
 					    DISP_MAX_MSGSIZE,
 					    "DISP RCV");
       if(sz != -1) {
-	handle_rpc(sz);
+	rx_sizes[requests++] = sz;
+	req = (rpc_t *)ptr;
+	ptr += sz;
+	if(req->code == RPC_REQ_NODEADD || req->code == RPC_REQ_NODEDEL) {
+	  if(requests > 1) {
+	    handle_rpc(rx_sizes, requests - 1);
+	  }
+	  memcpy(rx_buffers, ptr - sz, sz);
+	  rx_sizes[0] = sz;
+	  handle_rpc(rx_sizes, 1);
+	  requests = 0;
+	  ptr = rx_buffers;
+	}
+	else if(requests == BATCH_SIZE) {
+	  handle_rpc(rx_sizes, requests);
+	  requests = 0;
+	  ptr = rx_buffers;
+	}
       }
+      else if(requests > 0) {
+	handle_rpc(rx_sizes, requests);
+	requests = 0;
+	ptr = rx_buffers;
+      }
+
       if((clock.current_time() - last_gc) >= PERIODICITY) {
 	// Leadership change ?
 	if(cyclone_is_leader(cyclone_handle)) {
@@ -905,6 +975,9 @@ void dispatcher_start(const char* config_server_path,
   nvheap_setup_callback_saved = nvheap_setup_callback;
   dispatcher_exec_startup();
 
+  tx_buffer  = (unsigned char *)malloc(DISP_MAX_MSGSIZE);
+  rx_buffers = (unsigned char *)malloc(BATCH_SIZE * DISP_MAX_MSGSIZE);
+  
   bool i_am_active = false;
   for(int i=0;i<pt_server.get<int>("active.replicas");i++) {
     char nodeidxkey[100];
