@@ -468,8 +468,9 @@ typedef struct cyclone_st {
 		   "CLIENT COOKIE SEND");
       }
       else {
-	msg_entry_t *messages = malloc(msg->client.size*sizeof(msg_entry_t));
-	void *ptr = msg->client.ptr;
+	msg_entry_t *messages = 
+	  (msg_entry_t *)malloc(msg->client.size*sizeof(msg_entry_t));
+	char *ptr = (char *)msg->client.ptr;
 	for(int i=0;i<msg->client.size;i++) {
 	  int msg_size = msg->client.batch_sizes[i];
 	  messages[i].id = rand();

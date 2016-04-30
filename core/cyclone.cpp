@@ -293,6 +293,17 @@ static int __raft_logentry_offer(raft_server_t* raft,
 }
 
 
+/** Raft callback for appending an item to the log */
+static int __raft_logentry_offer_batch(raft_server_t* raft,
+				       void *udata,
+				       raft_entry_t *ety,
+				       int ety_idx,
+				       int count)
+{
+  // TBD
+  return 0;
+}
+
 /** Raft callback for removing the first entry from the log
  * @note this is provided to support log compaction in the future */
 static int __raft_logentry_poll(raft_server_t* raft,
@@ -377,6 +388,7 @@ raft_cbs_t raft_funcs = {
   __persist_vote,
   __persist_term,
   __raft_logentry_offer,
+  __raft_logentry_offer_batch,
   __raft_logentry_poll,
   __raft_logentry_pop,
   __raft_has_sufficient_logs,
