@@ -245,7 +245,9 @@ static void cyclone_bind_endpoint(void *socket, const char *endpoint)
 class raft_switch {
   void **sockets_out;
   void **control_sockets_out;
-  void **sockets_in;
+  void *socket_in;
+  void *request_socket_in;
+  void *request_socket_out;
   void *control_socket_in;
   int replicas;
 public:
@@ -258,55 +260,41 @@ public:
   {
     std::stringstream key;
     std::stringstream addr;
-    sockets_in  = new void *[replicas];
     sockets_out = new void *[replicas];
     control_sockets_out = new void*[replicas];
+
     key.str("");key.clear();
     key << "quorum.baseport";
     int baseport =  pt->get<int>(key.str().c_str());
-    for(int i=0;i<replicas;i++) {
-      // input wire from i
-      if(i == me) {
-	sockets_in[i] = cyclone_socket_in_loopback(context);
-      }
-      else {
-  	sockets_in[i] = cyclone_socket_in(context);
-      }
-      key.str("");key.clear();
-      addr.str("");addr.clear();
-      key << "machines.iface" << me;
-      addr << "tcp://";
-      addr << pt->get<std::string>(key.str().c_str());
-      int port = baseport + me*replicas + i;
-      addr << ":" << port;
-      if( i != me) {
-	cyclone_bind_endpoint(sockets_in[i], addr.str().c_str());
-      }
-      else {
-	cyclone_bind_endpoint(sockets_in[i], "inproc://RAFT_LOOPBACK");
-      }
-      
-      // output wire to i
-      if(i == me) {
-	sockets_out[i] = cyclone_socket_out_loopback(context);
-      }
-      else {
-	sockets_out[i] = cyclone_socket_out(context, use_hwm);
-      }
 
+    // Create input socket
+    socket_in = cyclone_socket_in(context);
+    key.str("");key.clear();
+    addr.str("");addr.clear();
+    key << "machines.iface" << me;
+    addr << "tcp://";
+    addr << pt->get<std::string>(key.str().c_str());
+    int port = baseport + i;
+    addr << ":" << port;
+    cyclone_bind_endpoint(socket_in, addr.str().c_str());
+
+    // Create input request socket
+    request_socket_in = cyclone_socket_in_loopback(context);
+    cyclone_bind_endpoint(request_socket_in, "inproc://RAFT_REQ");
+    // Create output request socket
+    request_socket_out = cyclone_socket_out_loopback(context);
+    cyclone_connect_endpoint(request_socket_out, "inproc://RAFT_REQ");
+    
+    for(int i=0;i<replicas;i++) {
+      sockets_out[i] = cyclone_socket_out(context, use_hwm);
       key.str("");key.clear();
       addr.str("");addr.clear();
       key << "machines.addr" << i;
       addr << "tcp://";
       addr << pt->get<std::string>(key.str().c_str());
-      port = baseport + i*replicas + me ;
+      port = baseport + i ;
       addr << ":" << port;
-      if(i != me) {
-	cyclone_connect_endpoint(sockets_out[i], addr.str().c_str());
-      }
-      else {
-	cyclone_connect_endpoint(sockets_out[i], "inproc://RAFT_LOOPBACK");
-      }
+      cyclone_connect_endpoint(sockets_out[i], addr.str().c_str());
     }
     control_socket_in = cyclone_socket_in_loopback(context);
     key.str("");key.clear();
@@ -314,7 +302,7 @@ public:
     key << "machines.iface" << me;
     addr << "tcp://";
     addr << pt->get<std::string>(key.str().c_str());
-    int port = baseport + replicas*replicas + me;
+    int port = baseport + replicas + me;
     addr << ":" << port;
     cyclone_bind_endpoint(control_socket_in, addr.str().c_str());
     for(int i=0;i<replicas;i++) {
@@ -324,7 +312,7 @@ public:
       key << "machines.addr" << i;
       addr << "tcp://";
       addr << pt->get<std::string>(key.str().c_str());
-      port = baseport + replicas*replicas + i ;
+      port = baseport + replicas + i ;
       addr << ":" << port;
       cyclone_connect_endpoint(control_sockets_out[i], addr.str().c_str());
     }
@@ -335,11 +323,21 @@ public:
     return sockets_out[machine];
   }
 
-  void* input_socket(int machine)
+  void* input_socket()
   {
-    return sockets_in[machine];
+    return socket_in;
   }
 
+  void * request_in()
+  {
+    return request_socket_in;
+  }
+
+  void *request_out()
+  {
+    return request_socket_out;
+  }
+  
   void* control_input_socket()
   {
     return control_socket_in;

@@ -416,11 +416,11 @@ void* cyclone_add_entry(void *cyclone_handle, void *data, int size)
 #ifdef TRACING
   trace_send_cmd(data, size);
 #endif
-  cyclone_tx(handle->router->output_socket(handle->me), 
+  cyclone_tx(handle->router->request_out(), 
 	     (const unsigned char *)&msg, 
 	     sizeof(msg_t), 
 	     "client req");
-  cyclone_rx(handle->router->output_socket(handle->me),
+  cyclone_rx(handle->router->request_out(),
 	     (unsigned char *)&cookie,
 	     sizeof(void *),
 	     "CLIENT REQ recv");
@@ -440,11 +440,11 @@ void* cyclone_add_entry_cfg(void *cyclone_handle, int type, void *data, int size
 #ifdef TRACING
   trace_send_cmd(data, size);
 #endif
-  cyclone_tx(handle->router->output_socket(handle->me), 
+  cyclone_tx(handle->router->request_out(), 
 	     (const unsigned char *)&msg, 
 	     sizeof(msg_t), 
 	     "client req");
-  cyclone_rx(handle->router->output_socket(handle->me),
+  cyclone_rx(handle->router->request_out(),
 	     (unsigned char *)&cookie,
 	     sizeof(void *),
 	     "CLIENT REQ recv");
@@ -467,11 +467,11 @@ void* cyclone_add_entry_term(void *cyclone_handle,
 #ifdef TRACING
   trace_send_cmd(data, size);
 #endif
-  cyclone_tx(handle->router->output_socket(handle->me), 
+  cyclone_tx(handle->router->request_out(), 
 	     (const unsigned char *)&msg, 
 	     sizeof(msg_t), 
 	     "client req");
-  cyclone_rx(handle->router->output_socket(handle->me),
+  cyclone_rx(handle->router->request_out(),
 	     (unsigned char *)&cookie,
 	     sizeof(void *),
 	     "CLIENT REQ recv");
@@ -486,11 +486,11 @@ void* cyclone_set_img_build(void *cyclone_handle)
   void *cookie = NULL;
   msg.source      = handle->me;
   msg.msg_type    = MSG_CLIENT_REQ_SET_IMGBUILD;
-  cyclone_tx(handle->router->output_socket(handle->me), 
+  cyclone_tx(handle->router->request_out(), 
 	     (const unsigned char *)&msg, 
 	     sizeof(msg_t), 
 	     "client req");
-  cyclone_rx(handle->router->output_socket(handle->me),
+  cyclone_rx(handle->router->request_out(),
 	     (unsigned char *)&cookie,
 	     sizeof(void *),
 	     "CLIENT REQ recv");
@@ -505,11 +505,11 @@ void* cyclone_unset_img_build(void *cyclone_handle)
   void *cookie = NULL;
   msg.source      = handle->me;
   msg.msg_type    = MSG_CLIENT_REQ_UNSET_IMGBUILD;
-  cyclone_tx(handle->router->output_socket(handle->me), 
+  cyclone_tx(handle->router->request_out(), 
 	     (const unsigned char *)&msg, 
 	     sizeof(msg_t), 
 	     "client req");
-  cyclone_rx(handle->router->output_socket(handle->me),
+  cyclone_rx(handle->router->request_out(),
 	     (unsigned char *)&cookie,
 	     sizeof(void *),
 	     "CLIENT REQ recv");
@@ -524,11 +524,11 @@ int cyclone_check_status(void *cyclone_handle, void *cookie)
   msg.msg_type    = MSG_CLIENT_STATUS;
   msg.client.ptr  = cookie;
   int result;
-  cyclone_tx(handle->router->output_socket(handle->me), 
+  cyclone_tx(handle->router->request_out(), 
 	      (unsigned char *)&msg, 
 	      sizeof(msg_t), 
 	      "client status");
-  cyclone_rx(handle->router->output_socket(handle->me),
+  cyclone_rx(handle->router->request_out(),
 	      (unsigned char *)&result,
 	      sizeof(int),
 	      "CLIENT STATUS RECV");

@@ -568,14 +568,22 @@ struct cyclone_monitor {
     while(!terminate) {
       // Handle any outstanding requests
       for(int i=0;i<cyclone_handle->replicas;i++) {
-	unsigned long sz = cyclone_rx_noblock(cyclone_handle->router->input_socket(i),
-					      cyclone_handle->cyclone_buffer_in,
-					      MSG_MAXSIZE,
-					      "Incoming");
-	if(sz == -1) {
-	  continue;
+	unsigned long sz =
+	  cyclone_rx_noblock(cyclone_handle->router->input_socket(),
+			     cyclone_handle->cyclone_buffer_in,
+			     MSG_MAXSIZE,
+			     "Incoming");
+	if(sz != -1) {
+	  cyclone_handle->handle_incoming(sz);
 	}
-	cyclone_handle->handle_incoming(sz);
+	sz =
+	  cyclone_rx_noblock(cyclone_handle->router->request_in(),
+			     cyclone_handle->cyclone_buffer_in,
+			     MSG_MAXSIZE,
+			     "Incoming");
+	if(sz != -1) {
+	  cyclone_handle->handle_incoming(sz);
+	}
       }
       timer.stop();
       int elapsed_time = timer.elapsed_time();
