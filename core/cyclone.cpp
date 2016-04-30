@@ -300,7 +300,37 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 				       int ety_idx,
 				       int count)
 {
-  // TBD
+  TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
+  log_t tmp = D_RO(root)->log;
+  log_t *log = D_RW(log);
+  unsigned long tail = log->log_tail;
+#ifdef TRACING
+    trace_pre_append((unsigned char *)chunk, ety->data.len);
+#endif
+  for(int i=0;i<count;i++,ety++,ety_idx++) {
+    tail = append_to_raft_log_noupdate(log,
+				       (unsigned char *)ety,
+				       sizeof(raft_entry_t),
+				       tail);
+    void *spot = (void *)tail;
+    tail = append_to_raft_log_noupdate(log,
+				       (unsigned char *)ety->data.buf,
+				       ety->data.len,
+				       tail);
+    
+    ety->data.buf = spot;
+  }
+  persist_to_circular_log(pop_raft_state, log,
+			  RAFT_LOGSIZE,
+			  log->log_tail,
+			  tail - log->log_tail);
+  log->log_tail = tail;
+  pmemobj_persist(pop_raft_state,
+		  &log->log_tail,
+		  sizeof(unsigned long));
+#ifdef TRACING
+    trace_post_append(chunk, ety->data.len);
+#endif
   return 0;
 }
 

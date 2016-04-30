@@ -153,6 +153,47 @@ typedef struct cyclone_st {
 		    sizeof(unsigned long));
   }
 
+  unsigned long append_to_raft_log_noupdate(log_t *log,
+					    unsigned char *data,
+					    int size,
+					    unsigned long tail)
+  {
+    unsigned long space_needed = size + 2*sizeof(int);
+    unsigned long space_available;
+    if(log->log_head <= tail) {
+      space_available = RAFT_LOGSIZE -
+	(tail - log->log_head);
+    }
+    else {
+      space_available =	log->log_head - tail;
+    }
+    if(space_available < space_needed) {
+      // Overflow !
+      BOOST_LOG_TRIVIAL(fatal) << "Out of RAFT logspace !";
+      exit(-1);
+    }
+    unsigned long new_tail = tail;
+    copy_to_circular_log(pop_raft_state, log,
+			 RAFT_LOGSIZE,
+			 tail,
+			 (unsigned char *)&size,
+			 sizeof(int));
+    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
+    copy_to_circular_log(pop_raft_state, log,
+			 RAFT_LOGSIZE,
+			 new_tail,
+			 data,
+			 size);
+    new_tail = circular_log_advance_ptr(new_tail, size, RAFT_LOGSIZE);
+    copy_to_circular_log(pop_raft_state, log,
+			 RAFT_LOGSIZE,
+			 new_tail,
+			 (unsigned char *)&size,
+			 sizeof(int));
+    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
+    return new_tail;
+  }
+
   unsigned long double_append_to_raft_log(unsigned char *data1, 
 					  int size1,
 					  unsigned char *data2,
@@ -216,7 +257,6 @@ typedef struct cyclone_st {
 			 (unsigned char *)&size2,
 			 sizeof(int));
     new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
-
 
 
     persist_to_circular_log(pop_raft_state, log,
