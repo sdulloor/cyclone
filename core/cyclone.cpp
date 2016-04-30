@@ -300,32 +300,33 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 				       int ety_idx,
 				       int count)
 {
-  TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
+  cyclone_t* cyclone_handle = (cyclone_t *)udata;
+  TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state, raft_pstate_t);
   log_t tmp = D_RO(root)->log;
-  log_t *log = D_RW(log);
+  struct circular_log *log = D_RW(tmp);
   unsigned long tail = log->log_tail;
 #ifdef TRACING
     trace_pre_append((unsigned char *)chunk, ety->data.len);
 #endif
   for(int i=0;i<count;i++,ety++,ety_idx++) {
-    tail = append_to_raft_log_noupdate(log,
-				       (unsigned char *)ety,
-				       sizeof(raft_entry_t),
-				       tail);
+    tail = cyclone_handle->append_to_raft_log_noupdate(log,
+						       (unsigned char *)ety,
+						       sizeof(raft_entry_t),
+						       tail);
     void *spot = (void *)tail;
-    tail = append_to_raft_log_noupdate(log,
-				       (unsigned char *)ety->data.buf,
-				       ety->data.len,
-				       tail);
+    tail = cyclone_handle->append_to_raft_log_noupdate(log,
+						       (unsigned char *)ety->data.buf,
+						       ety->data.len,
+						       tail);
     
     ety->data.buf = spot;
   }
-  persist_to_circular_log(pop_raft_state, log,
-			  RAFT_LOGSIZE,
+  persist_to_circular_log(cyclone_handle->pop_raft_state, log,
+			  cyclone_handle->RAFT_LOGSIZE,
 			  log->log_tail,
 			  tail - log->log_tail);
   log->log_tail = tail;
-  pmemobj_persist(pop_raft_state,
+  pmemobj_persist(cyclone_handle->pop_raft_state,
 		  &log->log_tail,
 		  sizeof(unsigned long));
 #ifdef TRACING

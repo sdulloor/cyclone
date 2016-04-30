@@ -153,7 +153,7 @@ typedef struct cyclone_st {
 		    sizeof(unsigned long));
   }
 
-  unsigned long append_to_raft_log_noupdate(log_t *log,
+  unsigned long append_to_raft_log_noupdate(struct circular_log *log,
 					    unsigned char *data,
 					    int size,
 					    unsigned long tail)
