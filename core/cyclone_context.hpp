@@ -427,7 +427,7 @@ typedef struct cyclone_st {
 #endif
       if(!cyclone_is_leader(this)) {
 	client_rep = NULL;
-	cyclone_tx(router->input_socket(me),
+	cyclone_tx(router->request_in(),
 		    (unsigned char *)&client_rep,
 		    sizeof(void *),
 		    "CLIENT COOKIE SEND");
@@ -445,7 +445,7 @@ typedef struct cyclone_st {
 	(void)raft_recv_entry(raft_handle, 
 			      &client_req, 
 			      client_rep);
-	cyclone_tx(router->input_socket(me),
+	cyclone_tx(router->request_in(),
 		    (unsigned char *)&client_rep,
 		    sizeof(void *),
 		    "CLIENT COOKIE SEND");
@@ -457,7 +457,7 @@ typedef struct cyclone_st {
 #endif
       if(!cyclone_is_leader(this)) {
 	client_rep = NULL;
-	cyclone_tx(router->input_socket(me),
+	cyclone_tx(router->request_in(),
 		    (unsigned char *)&client_rep,
 		    sizeof(void *),
 		    "CLIENT COOKIE SEND");
@@ -475,7 +475,7 @@ typedef struct cyclone_st {
 	(void)raft_recv_entry(raft_handle, 
 			      &client_req, 
 			      client_rep);
-	cyclone_tx(router->input_socket(me),
+	cyclone_tx(router->request_in(),
 		    (unsigned char *)&client_rep,
 		    sizeof(void *),
 		    "CLIENT COOKIE SEND");
@@ -487,14 +487,14 @@ typedef struct cyclone_st {
 #endif
       if(!cyclone_is_leader(this)) {
 	client_rep = NULL;
-	cyclone_tx(router->input_socket(me),
+	cyclone_tx(router->request_in(),
 		    (unsigned char *)&client_rep,
 		    sizeof(void *),
 		    "CLIENT COOKIE SEND");
       }
       else if(raft_get_current_term(raft_handle) != msg->client.term) {
 	client_rep = NULL;
-	cyclone_tx(router->input_socket(me),
+	cyclone_tx(router->request_in(),
 		   (unsigned char *)&client_rep,
 		   sizeof(void *),
 		   "CLIENT COOKIE SEND");
@@ -512,7 +512,7 @@ typedef struct cyclone_st {
 	(void)raft_recv_entry(raft_handle, 
 			      &client_req, 
 			      client_rep);
-	cyclone_tx(router->input_socket(me),
+	cyclone_tx(router->request_in(),
 		    (unsigned char *)&client_rep,
 		    sizeof(void *),
 		    "CLIENT COOKIE SEND");
@@ -522,7 +522,7 @@ typedef struct cyclone_st {
     case MSG_CLIENT_STATUS:
       e = raft_msg_entry_response_committed
 	(raft_handle, (const msg_entry_response_t *)msg->client.ptr);
-      cyclone_tx(router->input_socket(me),
+      cyclone_tx(router->request_in(),
 		  (unsigned char *)&e,
 		  sizeof(int),
 		  "CLIENT COOKIE SEND");
@@ -531,7 +531,7 @@ typedef struct cyclone_st {
     case MSG_CLIENT_REQ_SET_IMGBUILD:
       raft_set_img_build(raft_handle);
       client_rep = NULL;
-      cyclone_tx(router->input_socket(me),
+      cyclone_tx(router->request_in(),
 		  (unsigned char *)&e,
 		  sizeof(int),
 		  "CLIENT COOKIE SEND");
@@ -539,7 +539,7 @@ typedef struct cyclone_st {
     case MSG_CLIENT_REQ_UNSET_IMGBUILD:
       raft_unset_img_build(raft_handle);
       client_rep = NULL;
-      cyclone_tx(router->input_socket(me),
+      cyclone_tx(router->request_in(),
 		  (unsigned char *)&e,
 		  sizeof(int),
 		  "CLIENT COOKIE SEND");

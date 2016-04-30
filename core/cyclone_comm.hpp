@@ -274,7 +274,7 @@ public:
     key << "machines.iface" << me;
     addr << "tcp://";
     addr << pt->get<std::string>(key.str().c_str());
-    int port = baseport + i;
+    int port = baseport + me;
     addr << ":" << port;
     cyclone_bind_endpoint(socket_in, addr.str().c_str());
 
@@ -302,7 +302,7 @@ public:
     key << "machines.iface" << me;
     addr << "tcp://";
     addr << pt->get<std::string>(key.str().c_str());
-    int port = baseport + replicas + me;
+    port = baseport + replicas + me;
     addr << ":" << port;
     cyclone_bind_endpoint(control_socket_in, addr.str().c_str());
     for(int i=0;i<replicas;i++) {
@@ -348,21 +348,17 @@ public:
     return control_sockets_out[machine];
   }
 
-  void **input_socket_array()
-  {
-    return sockets_in;
-  }
-
   ~raft_switch()
   {
     for(int i=0;i<=replicas;i++) {
       zmq_close(sockets_out[i]);
       zmq_close(control_sockets_out[i]);
-      zmq_close(sockets_in[i]);
     }
+    zmq_close(socket_in);
+    zmq_close(request_socket_in);
+    zmq_close(request_socket_out);
     zmq_close(control_socket_in);
     delete[] sockets_out;
-    delete[] sockets_in;
   }
 };
 
