@@ -328,6 +328,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 				     e->term);
 
     }
+    free(e->data.buf);
     e->data.buf = spot;
   }
   persist_to_circular_log(cyclone_handle->pop_raft_state, log,
