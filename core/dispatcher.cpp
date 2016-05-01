@@ -853,6 +853,7 @@ struct dispatcher_loop {
 
   void handle_batch_rpc(int *rx_sizes, int requests)
   {
+    BOOST_LOG_TRIVIAL(info) << "REQ = " << requests;
     bool need_issue_rpc[BATCH_SIZE];
     int i;
     rx_buffer = rx_buffers;
@@ -886,6 +887,7 @@ struct dispatcher_loop {
     rtc_clock clock;
     bool is_master = false;
     unsigned long last_gc = clock.current_time();
+    unsigned long last_batch = last_gc;
     int requests = 0;
     unsigned char * ptr;
     int rx_sizes[BATCH_SIZE];
@@ -900,6 +902,7 @@ struct dispatcher_loop {
 					    ptr,
 					    DISP_MAX_MSGSIZE,
 					    "DISP RCV");
+      unsigned long mark = clock.current_time();
       if(sz != -1) {
 	rx_sizes[requests++] = sz;
 	req = (rpc_t *)ptr;
@@ -913,20 +916,24 @@ struct dispatcher_loop {
 	  handle_batch_rpc(rx_sizes, 1);
 	  requests = 0;
 	  ptr = rx_buffers;
+	  last_batch = mark;
 	}
 	else if(requests == BATCH_SIZE) {
 	  handle_batch_rpc(rx_sizes, requests);
 	  requests = 0;
 	  ptr = rx_buffers;
+	  last_batch = mark;
 	}
       }
-      else if(requests > 0) {
+      else if(requests > 0 && 
+	      (mark - last_batch) >= DISP_BATCHING_INTERVAL) {
 	handle_batch_rpc(rx_sizes, requests);
 	requests = 0;
 	ptr = rx_buffers;
+	last_batch = mark;
       }
 
-      if((clock.current_time() - last_gc) >= PERIODICITY) {
+      if((mark - last_gc) >= PERIODICITY) {
 	// Leadership change ?
 	if(cyclone_is_leader(cyclone_handle)) {
 	  gc_pending_rpc_list(true);
@@ -939,7 +946,7 @@ struct dispatcher_loop {
 	  gc_pending_rpc_list(false);
 	  is_master = false;
 	}
-	last_gc = clock.current_time();
+	last_gc = mark;
       }
     }
   }
