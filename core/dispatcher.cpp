@@ -824,47 +824,59 @@ struct dispatcher_loop {
     return batch_issue;
   }
 
+  void batch_issue_rpc(unsigned char *ptr, int *sizes, int batch_size)
+  {
+    void *cookies = cyclone_add_batch(cyclone_handle,
+				      ptr,
+				      sizes,
+				      batch_size);
+    if(cookies == NULL) {
+      for(int i=0;i<batch_size;i++) {
+	rpc_t *rpc_req = (rpc_t *)ptr;
+	rpc_t *rpc_rep = (rpc_t *)tx_buffer;
+	rpc_rep->code = RPC_REP_INVSRV;
+	rpc_rep->master = cyclone_get_leader(cyclone_handle);
+	router->lock_output_socket(rpc_req->requestor, rpc_req->client_id);
+	cyclone_tx(router->output_socket(rpc_req->requestor,
+					 rpc_req->client_id), 
+		   tx_buffer, 
+		   sizeof(rpc_t), 
+		   "Dispatch reply");
+	router->unlock_output_socket(rpc_req->requestor, rpc_req->client_id);
+	ptr = ptr + sizes[i];
+      }
+    }
+    else {
+      free(cookies);
+    }
+  }
+
   void handle_batch_rpc(int *rx_sizes, int requests)
   {
     bool need_issue_rpc[BATCH_SIZE];
+    int i;
     rx_buffer = rx_buffers;
     for(int i=0; i < requests;i++) {
       need_issue_rpc[i] = handle_rpc(rx_sizes[i]);
       rx_buffer += rx_sizes[i];
     }
     rx_buffer = rx_buffers;
-    for(int i=0;i < requests;i++) {
-      if(need_issue_rpc[i]) {
-	rpc_t *rpc_req = (rpc_t *)rx_buffer;
-	rpc_t *rpc_rep = (rpc_t *)tx_buffer;
-	rpc_rep->client_id   = rpc_req->client_id;
-	rpc_rep->channel_seq = rpc_req->channel_seq;
-	rpc_rep->client_txid = rpc_req->client_txid;
-	if(rpc_req->flags & RPC_FLAG_RO) {
-	  // Distinguish ro txids from rw txids
-	  issue_rpc(rpc_req, rx_sizes[i], -1, -1);
-	}
-	else {
-	  void * cookie = cyclone_add_entry(cyclone_handle,
-					    (rpc_t *)rx_buffer,
-					    rx_sizes[i]);
-	  if(cookie != NULL) {
-	    free(cookie);
-	  }
-	  else {
-	    rpc_rep->code = RPC_REP_INVSRV;
-	    rpc_rep->master = cyclone_get_leader(cyclone_handle);
-	    router->lock_output_socket(rpc_req->requestor, rpc_req->client_id);
-	    cyclone_tx(router->output_socket(rpc_req->requestor,
-					     rpc_req->client_id), 
-		       tx_buffer, 
-		       sizeof(rpc_t), 
-		       "Dispatch reply");
-	    router->unlock_output_socket(rpc_req->requestor, rpc_req->client_id);
-	  }
-	}
+    int batch_head = -1;
+    void *batch_head_ptr = NULL;
+    for(i=0;i < requests;i++) {
+      if(!need_issue_rpc [i] && batch_head != -1) {
+	batch_issue_rpc((unsigned char *)batch_head_ptr, &rx_sizes[batch_head], i - batch_head);
+	batch_head = -1;
+	batch_head_ptr = NULL;
+      }
+      else if(need_issue_rpc[i] && batch_head == -1) {
+	batch_head = i;
+	batch_head_ptr = rx_buffer;
       }
       rx_buffer += rx_sizes[i];
+    }
+    if(batch_head != -1) {
+      batch_issue_rpc((unsigned char *)batch_head_ptr, &rx_sizes[batch_head], i - batch_head);
     }
   }
 

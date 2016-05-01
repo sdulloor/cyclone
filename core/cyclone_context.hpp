@@ -498,13 +498,10 @@ typedef struct cyclone_st {
       trace_recv_cmd(msg->client.ptr, msg->client.size);
 #endif
       if(!cyclone_is_leader(this)) {
-	void ** cookies = (void **)malloc(msg->client.size * sizeof(void *));
-	for(int i = 0;i<msg->client.size;i++) {
-	  cookies[i] = NULL;
-	}
+	void * cookies = NULL;
 	cyclone_tx(router->request_in(),
 		   (unsigned char *)&cookies,
-		   sizeof(void **),
+		   sizeof(void *),
 		   "CLIENT COOKIE SEND");
       }
       else {
@@ -531,7 +528,7 @@ typedef struct cyclone_st {
 				    msg->client.size);
 	cyclone_tx(router->request_in(),
 		    (unsigned char *)&client_rep,
-		    sizeof(void **),
+		    sizeof(void *),
 		    "CLIENT COOKIE SEND");
       }
       break;

@@ -15,6 +15,7 @@ int cyclone_serialize_last_applied(void *cyclone_handle, void *buf);
 
 // Returns a non-null cookie if accepted for replication
 extern void *cyclone_add_entry(void * cyclone_handle, void *data, int size); 
+extern void *cyclone_add_batch(void * cyclone_handle, void *data, int* sizes, int batch_size); 
 extern void *cyclone_add_entry_cfg(void * cyclone_handle,
 				   int type,
 				   void *data,

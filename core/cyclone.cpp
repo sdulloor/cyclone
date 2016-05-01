@@ -308,18 +308,27 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 #ifdef TRACING
     trace_pre_append((unsigned char *)chunk, ety->data.len);
 #endif
-  for(int i=0;i<count;i++,ety++,ety_idx++) {
+  raft_entry_t *e = ety;
+  for(int i=0; i<count;i++,e++) {
     tail = cyclone_handle->append_to_raft_log_noupdate(log,
-						       (unsigned char *)ety,
+						       (unsigned char *)e,
 						       sizeof(raft_entry_t),
 						       tail);
     void *spot = (void *)tail;
     tail = cyclone_handle->append_to_raft_log_noupdate(log,
-						       (unsigned char *)ety->data.buf,
-						       ety->data.len,
+						       (unsigned char *)e->data.buf,
+						       e->data.len,
 						       tail);
     
-    ety->data.buf = spot;
+    if(cyclone_handle->cyclone_rep_cb != NULL) { 
+      cyclone_handle->cyclone_rep_cb(cyclone_handle->user_arg,
+				     (const unsigned char *)e->data.buf,
+				     e->data.len,
+				     ety_idx + i,
+				     e->term);
+
+    }
+    e->data.buf = spot;
   }
   persist_to_circular_log(cyclone_handle->pop_raft_state, log,
 			  cyclone_handle->RAFT_LOGSIZE,
@@ -470,14 +479,14 @@ void* cyclone_add_entry(void *cyclone_handle, void *data, int size)
   return cookie;
 }
 
-void** cyclone_add_batch(void *cyclone_handle,
-			 void *data,
-			 int *sizes,
-			 int batch_size)
+void* cyclone_add_batch(void *cyclone_handle,
+			void *data,
+			int *sizes,
+			int batch_size)
 {
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
   msg_t msg;
-  void **cookies = NULL;
+  void *cookies = NULL;
   msg.source      = handle->me;
   msg.msg_type    = MSG_CLIENT_REQ_BATCH;
   msg.client.ptr  = data;
