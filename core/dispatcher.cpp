@@ -853,7 +853,6 @@ struct dispatcher_loop {
 
   void handle_batch_rpc(int *rx_sizes, int requests)
   {
-    BOOST_LOG_TRIVIAL(info) << "REQ = " << requests;
     bool need_issue_rpc[BATCH_SIZE];
     int i;
     rx_buffer = rx_buffers;
