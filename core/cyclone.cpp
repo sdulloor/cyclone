@@ -231,29 +231,11 @@ static int __applylog(raft_server_t* raft,
   return 0;
 }
 
-
-/** Raft callback for appending an item to the log */
-static int __raft_logentry_offer(raft_server_t* raft,
-				 void *udata,
-				 raft_entry_t *ety,
-				 int ety_idx)
+static void handle_cfg_change(cyclone_t * cyclone_handle,
+			      raft_entry_t *ety,
+			      void *chunk)
 {
-  int result = 0;
-  cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  void *chunk = ety->data.buf;
-#ifdef TRACING
-  trace_pre_append((unsigned char *)chunk, ety->data.len);
-#endif
-  ety->data.buf = (void *)
-    cyclone_handle->double_append_to_raft_log
-    ((unsigned char *)ety,
-     sizeof(raft_entry_t),
-     (unsigned char *)ety->data.buf,
-     ety->data.len);
-#ifdef TRACING
-    trace_post_append(chunk, ety->data.len);
-#endif
-    if(ety->type == RAFT_LOGTYPE_ADD_NONVOTING_NODE) {
+  if(ety->type == RAFT_LOGTYPE_ADD_NONVOTING_NODE) {
     cfg_change_t *cfg = (cfg_change_t *)((char *)chunk + sizeof(rpc_t));
     int delta_node_id = cfg->node;
     // call raft add non-voting node
@@ -280,6 +262,31 @@ static int __raft_logentry_offer(raft_server_t* raft,
 		     raft_get_node(cyclone_handle->raft_handle,
 				   delta_node_id));
   }
+}
+
+
+/** Raft callback for appending an item to the log */
+static int __raft_logentry_offer(raft_server_t* raft,
+				 void *udata,
+				 raft_entry_t *ety,
+				 int ety_idx)
+{
+  int result = 0;
+  cyclone_t* cyclone_handle = (cyclone_t *)udata;
+  void *chunk = ety->data.buf;
+#ifdef TRACING
+  trace_pre_append((unsigned char *)chunk, ety->data.len);
+#endif
+  ety->data.buf = (void *)
+    cyclone_handle->double_append_to_raft_log
+    ((unsigned char *)ety,
+     sizeof(raft_entry_t),
+     (unsigned char *)ety->data.buf,
+     ety->data.len);
+#ifdef TRACING
+    trace_post_append(chunk, ety->data.len);
+#endif
+    handle_cfg_change(cyclone_handle, ety, chunk);
   if(cyclone_handle->cyclone_rep_cb != NULL && ety->type != RAFT_LOGTYPE_ADD_NODE) {    
     cyclone_handle->cyclone_rep_cb(cyclone_handle->user_arg,
 				   (const unsigned char *)chunk,
@@ -320,6 +327,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 						       e->data.len,
 						       tail);
     
+    handle_cfg_change(cyclone_handle, e, e->data.buf);
     if(cyclone_handle->cyclone_rep_cb != NULL) { 
       cyclone_handle->cyclone_rep_cb(cyclone_handle->user_arg,
 				     (const unsigned char *)e->data.buf,
