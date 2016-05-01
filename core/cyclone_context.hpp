@@ -526,6 +526,7 @@ typedef struct cyclone_st {
 				    messages, 
 				    client_rep,
 				    msg->client.size);
+	free(messages);
 	cyclone_tx(router->request_in(),
 		    (unsigned char *)&client_rep,
 		    sizeof(void *),
