@@ -330,6 +330,13 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
       } TX_ONABORT {
 	if(!repeat) {
 	  user_tx_aborted= true;
+	} 
+	else {
+	  if(rpc->sz > 0) {
+	    gc_rpc(rpc->ret_value);
+	    rpc->sz = 0;
+	    rpc->ret_value = NULL;
+	  }
 	}
       } TX_END
     }
@@ -507,6 +514,8 @@ static void issue_rpc(const rpc_t *rpc,
   rpc_info->pending_lock = 0;
   rpc_info->client_blocked = rpc_info->rpc->requestor;
   rpc_info->next = NULL;
+  rpc_info->sz = 0;
+  rpc_info->ret_value = NULL;
   lock_rpc_list();
   if(pending_rpc_head == NULL) {
     pending_rpc_head = pending_rpc_tail = rpc_info;
