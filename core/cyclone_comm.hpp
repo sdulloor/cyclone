@@ -481,12 +481,6 @@ public:
     if(sockets_out[index(mc, client)] != NULL) {
       return; // Already setup
     }
-    BOOST_LOG_TRIVIAL(info) << "ringing doorbell mc = "
-			    << mc 
-			    << " client  ="
-			    << client
-			    << " port = "
-			    << port;
     std::stringstream key; 
     std::stringstream addr;
     // output wire to client

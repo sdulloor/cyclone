@@ -935,7 +935,7 @@ struct dispatcher_loop {
 	  rpc_rep->client_id   = req->client_id;
 	  rpc_rep->channel_seq = req->channel_seq;
 	  router->lock_output_socket(req->requestor, req->client_id);
-	  cyclone_tx_special(router->output_socket(req->requestor, req->client_id), 
+	  cyclone_tx(router->output_socket(req->requestor, req->client_id), 
 		     tx_buffer, 
 		     sizeof(rpc_t), 
 		     "Dispatch reply");
