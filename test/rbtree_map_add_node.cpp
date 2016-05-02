@@ -63,7 +63,6 @@ int main(int argc, const char *argv[]) {
   void* handle = cyclone_client_init(me,
 				     atoi(argv[2]),
 				     replicas,
-				     clients,
 				     fname_server,
 				     fname_client);
   int ctr = get_last_txid(handle) + 1;

@@ -62,7 +62,6 @@ int main(int argc, const char *argv[]) {
   void * handle = cyclone_client_init(me,
 				      me % pt_client.get<int>("machines.machines"),
 				      replicas,
-				      clients,
 				      argv[5],
 				      argv[6]);
   int partitions = atoi(argv[7]);
@@ -76,7 +75,6 @@ int main(int argc, const char *argv[]) {
     quorum_handles[i] = cyclone_client_init(me,
 					    me,
 					    replicas,
-					    clients,
 					    fname_server,
 					    fname_client);
     BOOST_LOG_TRIVIAL(info) << "Connecting to quorum " << i;    

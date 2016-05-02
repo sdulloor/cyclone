@@ -441,19 +441,25 @@ public:
 
     for(int i=0;i<client_machines;i++) {
       for(int j=0;j<clients;j++) {
-	// output wire to client
-	sockets_out[index(i, j)] = cyclone_socket_out(context, use_hwm);
-	key.str("");key.clear();
-	addr.str("");addr.clear();
-	key << "machines.addr" << i;
-	addr << "tcp://";
-	addr << pt_client->get<std::string>(key.str().c_str());
-	port = client_baseport + j*server_machines + me;
-	addr << ":" << port;
-	cyclone_connect_endpoint(sockets_out[index(i, j)], addr.str().c_str());
+	socket_out[index(i,j)] = NULL;
 	socket_out_locks[index(i,j)] = 0;
       }
     }
+  }
+
+  void ring_doorbell(int mc, int client, int port)
+  {
+    std::stringstream key; 
+    std::stringstream addr;
+    // output wire to client
+    sockets_out[index(mc, client)] = cyclone_socket_out(context, use_hwm);
+    key.str("");key.clear();
+    addr.str("");addr.clear();
+    key << "machines.addr" << i;
+    addr << "tcp://";
+    addr << pt_client->get<std::string>(key.str().c_str());
+    addr << ":" << port;
+    cyclone_connect_endpoint(sockets_out[index(i, j)], addr.str().c_str());
   }
   
   void * output_socket(int machine, int client)
@@ -491,6 +497,7 @@ public:
 class client_switch {
   void **sockets_out;
   void **sockets_in;
+  int *ports_in;
   int server_machines;
   int client_machines;
 
@@ -500,7 +507,6 @@ public:
 		boost::property_tree::ptree *pt_client,
 		int me,
 		int me_mc,
-		int clients,
 		bool use_hwm)
     
   {
@@ -512,16 +518,15 @@ public:
     int server_baseport =  pt_server->get<int>(key.str().c_str());
 
     key.str("");key.clear();
-    key << "dispatch.client_baseport";
-    int client_baseport =  pt_client->get<int>(key.str().c_str());
-
-    key.str("");key.clear();
     key << "machines.machines";
     server_machines = pt_server->get<int>(key.str().c_str());
     client_machines = pt_client->get<int>(key.str().c_str());
 
     sockets_in  = new void *[server_machines];
+    ports_in    = new int[server_machines];
     sockets_out = new void *[server_machines];
+
+    char * zmq_dsn = new char[1024];
     
     for(int i=0;i<server_machines;i++) {
       // input wire from server 
@@ -531,10 +536,19 @@ public:
       key << "machines.iface" << me_mc;
       addr << "tcp://";
       addr << pt_client->get<std::string>(key.str().c_str());
-      int port = client_baseport + me*server_machines + i;
-      addr << ":" << port;
+      addr << ":*" << port;
       cyclone_bind_endpoint(sockets_in[i], addr.str().c_str());
-      
+      int sz  = 1024;
+      int e = zmq_getsockopt(sockets_in[i], ZMQ_LAST_ENDPOINT, zmq_dsn, &sz);
+      if(e != 0) {
+	BOOST_LOG_TRIVIAL(fatal) << "Unable to read port number";
+	exit(-1);
+      }
+      char *ptr = zmq_dsn[strlen(zmq_dsn) - 1];
+      while((*ptr) != ':') ptr--;
+      ptr++;
+      ports_in[i] = atoi(ptr);
+	
       // output wire to server
       sockets_out[i] = cyclone_socket_out(context, use_hwm);
       key.str("");key.clear();
@@ -546,6 +560,7 @@ public:
       addr << ":" << port;
       cyclone_connect_endpoint(sockets_out[i], addr.str().c_str());
     }
+    delete zmq_dsn;
   }
     
   void * output_socket(int machine)
@@ -553,6 +568,11 @@ public:
     return sockets_out[machine];
   }
 
+  int input_port(int machine)
+  {
+    return ports_in[machine];
+  }
+  
   void *input_socket(int machine)
   {
     return sockets_in[machine];

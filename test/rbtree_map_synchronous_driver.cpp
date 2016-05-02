@@ -58,7 +58,6 @@ int main(int argc, const char *argv[]) {
   void * handle = cyclone_client_init(me,
 				      me,
 				      replicas,
-				      clients,
 				      "config_server.ini",
 				      "config_client.ini");
   char *buffer = new char[CLIENT_MAXPAYLOAD];

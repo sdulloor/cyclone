@@ -18,21 +18,77 @@ typedef struct rpc_client_st {
   int server;
   int replicas;
   unsigned long channel_seq;
+  bool *rung_doorbell;
 
+  void ring_doorbell()
+  {
+    while(true) {
+      if(rung_doorbell[server]) {
+	break;
+      }
+      BOOST_LOG_TRIVIAL(info) << "Ringing doorbell";
+      packet_out->code = RPC_DOORBELL;
+      packet_out->client_id   = me;
+      packet_out->client_txid = (int)packet_out->timestamp;
+      packet_out->channel_seq = channel_seq++;
+      packet_out->requestor   = me_mc;
+      packet_out->port      = router->input_port(server);
+      retcode = cyclone_tx_timeout(router->output_socket(server), 
+				   (unsigned char *)packet_out, 
+				   sizeof(rpc_t), 
+				   timeout_msec*1000,
+				   "PROPOSE");
+      if(retcode == -1) {
+	BOOST_LOG_TRIVIAL(info) << "Unable to tx doorbell";
+	server = (server + 1)%replicas;
+	BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
+	continue;
+      }
+      while(true) {
+	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
+				     (unsigned char *)packet_in, 
+				     DISP_MAX_MSGSIZE, 
+				     timeout_msec*1000,
+				     "RESULT");
+	if(resp_sz == -1) {
+	  break;
+	}
+	if(packet_in->channel_seq != (channel_seq - 1)) {
+	  continue;
+	}
+      }
+      if(resp_sz == -1) {
+	BOOST_LOG_TRIVIAL(info) << "Timeout doorbell";
+	server = (server + 1)%replicas;
+	BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
+	continue;
+      }
+      rung_doorbell[server] = true;
+    }
+  }
+  
   void update_server(const char *context)
   {
-    BOOST_LOG_TRIVIAL(info) 
-      << "CLIENT DETECTED POSSIBLE FAILED MASTER: "
-      << server
-      << " Reason " 
-      << context;
-    server = (server + 1)%replicas;
-    BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
+    while(true) {
+      BOOST_LOG_TRIVIAL(info) 
+	<< "CLIENT DETECTED POSSIBLE FAILED MASTER: "
+	<< server
+	<< " Reason " 
+	<< context;
+      server = (server + 1)%replicas;
+      BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
+      if(!rung_doorbell[server]) {
+	ring_doorbell();
+      }
+    }
   }
 
   void set_server()
   {
     BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING MASTER " << server;
+    if(!rung_doorbell[server]) {
+      ring_doorbell();
+    }
   }
 
   int get_last_txid()
@@ -357,7 +413,6 @@ typedef struct rpc_client_st {
 void* cyclone_client_init(int client_id,
 			  int client_mc,
 			  int replicas,
-			  int clients,
 			  const char *config_server,
 			  const char *config_client)
 {
@@ -375,7 +430,6 @@ void* cyclone_client_init(int client_id,
 				     &pt_client,
 				     client_id,
 				     client_mc,
-				     clients,
 				     false);
   void *buf = new char[DISP_MAX_MSGSIZE];
   client->packet_out = (rpc_t *)buf;
@@ -384,6 +438,10 @@ void* cyclone_client_init(int client_id,
   client->server    = 0;
   client->replicas = replicas;
   client->channel_seq = clock.current_time();
+  client->rung_doorbell = new bool[replicas];
+  for(int i=0;i<replicas;i++) {
+    client->run_doorbell[i] = false;
+  }
   return (void *)client;
 }
 

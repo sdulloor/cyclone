@@ -570,7 +570,6 @@ int main(int argc, char *argv[])
     quorum_handles[i] = cyclone_client_init(clients - 1,
 					    coord_id,
 					    replicas,
-					    clients,
 					    fname_server,
 					    fname_client);
     ctr[i] = get_last_txid(quorum_handles[i]) + 1;

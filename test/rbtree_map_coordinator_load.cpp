@@ -62,7 +62,6 @@ int main(int argc, const char *argv[]) {
   void * handle = cyclone_client_init(me,
 				      me % pt_client.get<int>("machines.machines"),
 				      replicas,
-				      clients,
 				      argv[5],
 				      argv[6]);
   char *buffer = new char[CLIENT_MAXPAYLOAD];

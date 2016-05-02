@@ -37,7 +37,6 @@ int main(int argc, char *argv[])
   void * handle = cyclone_client_init(me,
 				      me,
 				      replicas,
-				      clients,
 				      "cyclone_test.ini",
 				      "cyclone_test.ini");
   char *proposal = new char[CLIENT_MAXPAYLOAD];

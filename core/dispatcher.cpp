@@ -752,6 +752,12 @@ struct dispatcher_loop {
       rpc_rep->code = RPC_REP_COMPLETE;
       rpc_rep->last_client_txid = get_max_client_txid(rpc_req->client_id);
     }
+    else if(rpc_req->code == RPC_DOORBELL) {
+      rpc_rep->code = RPC_REP_COMPLETE;
+      server_switch->ring_doorbell(requestor,
+				   rpc_req->client_id,
+				   rpc_req->port);
+    }
     else {
       determine_status(rpc_req, rpc_rep, &rep_sz);
       // Issue if necessary
