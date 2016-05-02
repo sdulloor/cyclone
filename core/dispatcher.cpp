@@ -51,7 +51,6 @@ static rpc_info_t * volatile pending_rpc_tail;
 
 static volatile unsigned long list_lock   = 0;
 static volatile unsigned long result_lock = 0;
-static volatile unsigned long pending_locks[263];
 static volatile bool building_image = false;
 
 static void lock(volatile unsigned long *lockp)
@@ -744,14 +743,7 @@ struct dispatcher_loop {
     rep_sz = sizeof(rpc_t);
     bool batch_issue = false;
     
-    if(rpc_req->code == RPC_DOORBELL) {
-      rpc_rep->code = RPC_REP_COMPLETE;
-      router->ring_doorbell(zmq_context,
-			    requestor,
-			    rpc_req->client_id,
-			    rpc_req->port);
-    }
-    else if(!cyclone_is_leader(cyclone_handle)) {
+    if(!cyclone_is_leader(cyclone_handle)) {
       rpc_rep->code = RPC_REP_INVSRV;
       rpc_rep->master = cyclone_get_leader(cyclone_handle);
     }
@@ -932,6 +924,24 @@ struct dispatcher_loop {
 	  requests = 0;
 	  ptr = rx_buffers;
 	  last_batch = mark;
+	}
+	else if(req->code == RPC_DOORBELL) {
+	  router->ring_doorbell(zmq_context,
+				req->requestor,
+				req->client_id,
+				req->port);
+	  rpc_t *rpc_rep = (rpc_t *)tx_buffer;
+	  rpc_rep->code = RPC_REP_COMPLETE;
+	  rpc_rep->client_id   = req->client_id;
+	  rpc_rep->channel_seq = req->channel_seq;
+	  router->lock_output_socket(req->requestor, req->client_id);
+	  cyclone_tx_special(router->output_socket(req->requestor, req->client_id), 
+		     tx_buffer, 
+		     sizeof(rpc_t), 
+		     "Dispatch reply");
+	  router->unlock_output_socket(req->requestor, req->client_id);
+	  ptr -= sz;
+	  requests--;
 	}
 	else if(requests == BATCH_SIZE) {
 	  handle_batch_rpc(rx_sizes, requests);
@@ -1118,8 +1128,5 @@ void dispatcher_start(const char* config_server_path,
 			     me,
 			     clients,
 			     false);
-  for(int i=0;i<263;i++) {
-    pending_locks[i] = 0;
-  }
   (*dispatcher_loop_obj)();
 }

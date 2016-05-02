@@ -9,6 +9,28 @@
 
 // Cyclone communication
 
+static int cyclone_tx_special(void *socket,
+		      const unsigned char *data,
+		      unsigned long size,
+		      const char *context) 
+{
+  BOOST_LOG_TRIVIAL(info) << "tx socket is " << socket;
+  int rc = zmq_send(socket, data, size, ZMQ_NOBLOCK);
+  if(rc == -1) {
+    if (errno != EAGAIN) {
+      BOOST_LOG_TRIVIAL(warning) 
+	<< "CYCLONE: Unable to transmit "
+	<< context << " "
+	<< zmq_strerror(zmq_errno());
+      exit(-1);
+    }
+    return -1;
+  }
+  else {
+    return 0;
+  }
+}
+
 static int cyclone_tx(void *socket,
 		      const unsigned char *data,
 		      unsigned long size,
@@ -222,6 +244,9 @@ static void cyclone_connect_endpoint(void *socket, const char *endpoint)
   BOOST_LOG_TRIVIAL(info)
     << "CYCLONE::COMM Connecting to "
     << endpoint;
+    BOOST_LOG_TRIVIAL(info)
+      << "CYCLONE::COMM socket is "
+      << socket;
   zmq_connect(socket, endpoint);
 }
 
@@ -453,17 +478,27 @@ public:
 
   void ring_doorbell(void *context, int mc, int client, int port)
   {
+    if(sockets_out[index(mc, client)] != NULL) {
+      return; // Already setup
+    }
+    BOOST_LOG_TRIVIAL(info) << "ringing doorbell mc = "
+			    << mc 
+			    << " client  ="
+			    << client
+			    << " port = "
+			    << port;
     std::stringstream key; 
     std::stringstream addr;
     // output wire to client
-    sockets_out[index(mc, client)] = cyclone_socket_out(context, saved_use_hwm);
+    void *socket = cyclone_socket_out(context, saved_use_hwm);
+    sockets_out[index(mc, client)] = socket;
     key.str("");key.clear();
     addr.str("");addr.clear();
     key << "machines.addr" << mc;
     addr << "tcp://";
     addr << saved_pt_client->get<std::string>(key.str().c_str());
     addr << ":" << port;
-    cyclone_connect_endpoint(sockets_out[index(mc, client)], addr.str().c_str());
+    cyclone_connect_endpoint(socket, addr.str().c_str());
   }
   
   void * output_socket(int machine, int client)
@@ -531,7 +566,7 @@ public:
     sockets_out = new void *[server_machines];
 
     char * zmq_dsn = new char[1024];
-    
+    int port;
     for(int i=0;i<server_machines;i++) {
       // input wire from server 
       sockets_in[i] = cyclone_socket_in(context);
@@ -552,7 +587,6 @@ public:
       while((*ptr) != ':') ptr--;
       ptr++;
       ports_in[i] = atoi(ptr);
-	
       // output wire to server
       sockets_out[i] = cyclone_socket_out(context, use_hwm);
       key.str("");key.clear();
@@ -560,7 +594,7 @@ public:
       key << "machines.addr" << i;
       addr << "tcp://";
       addr << pt_server->get<std::string>(key.str().c_str());
-      int port = server_baseport + i;
+      port = server_baseport + i;
       addr << ":" << port;
       cyclone_connect_endpoint(sockets_out[i], addr.str().c_str());
     }

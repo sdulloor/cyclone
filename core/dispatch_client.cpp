@@ -29,7 +29,6 @@ typedef struct rpc_client_st {
       BOOST_LOG_TRIVIAL(info) << "Ringing doorbell";
       packet_out->code = RPC_DOORBELL;
       packet_out->client_id   = me;
-      packet_out->client_txid = (int)packet_out->timestamp;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
       packet_out->port      = router->input_port(server);
@@ -58,12 +57,14 @@ typedef struct rpc_client_st {
 	  continue;
 	}
       }
+
       if(resp_sz == -1) {
 	BOOST_LOG_TRIVIAL(info) << "Timeout doorbell";
 	server = (server + 1)%replicas;
 	BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
 	continue;
       }
+
       rung_doorbell[server] = true;
     }
   }
@@ -436,13 +437,14 @@ void* cyclone_client_init(int client_id,
   client->packet_out = (rpc_t *)buf;
   buf = new char[DISP_MAX_MSGSIZE];
   client->packet_in = (rpc_t *)buf;
-  client->server    = 0;
   client->replicas = replicas;
   client->channel_seq = clock.current_time();
   client->rung_doorbell = new bool[replicas];
   for(int i=0;i<replicas;i++) {
     client->rung_doorbell[i] = false;
   }
+  client->server = 0;
+  client->set_server();
   return (void *)client;
 }
 
