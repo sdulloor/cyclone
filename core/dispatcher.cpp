@@ -105,11 +105,19 @@ static void client_response(rpc_info_t *rpc, rpc_t *rpc_rep)
   }
   router->lock_output_socket(rpc->client_blocked,
 			     rpc->rpc->client_id);
+  if(router->output_socket(rpc->client_blocked, rpc->rpc->client_id) == NULL) {
+    BOOST_LOG_TRIVIAL(info) << "received rpc req without doorbell "
+			    << " mc = " << rpc->client_blocked
+			    << " client = " << rpc->rpc->client_id
+			    << " code  = " << rpc->rpc->code;
+    exit(-1);
+  }
+
   cyclone_tx(router->output_socket(rpc->client_blocked,
 				   rpc->rpc->client_id), 
 	     (unsigned char *)rpc_rep, 
 	     rep_sz, 
-	     "Dispatch reply");
+	     "Dispatch reply -- client response");
   router->unlock_output_socket(rpc->client_blocked,
 			       rpc->rpc->client_id);
   rpc->client_blocked = -1;
@@ -494,7 +502,8 @@ static void gc_pending_rpc_list(bool is_master)
 static void issue_rpc(const rpc_t *rpc,
 		      int len,
 		      int raft_idx,
-		      int raft_term)
+		      int raft_term,
+		      bool mark_resp)
 {
   rpc_info_t *rpc_info = new rpc_info_t;
   rpc_info->raft_idx    = raft_idx;
@@ -511,7 +520,12 @@ static void issue_rpc(const rpc_t *rpc,
   rpc_info->have_follower_data = false;
   rpc_info->req_follower_data_active = false;
   rpc_info->pending_lock = 0;
-  rpc_info->client_blocked = rpc_info->rpc->requestor;
+  if(mark_resp) {
+    rpc_info->client_blocked = rpc_info->rpc->requestor;
+  }
+  else {
+    rpc_info->client_blocked = -1;
+  }
   rpc_info->next = NULL;
   rpc_info->sz = 0;
   rpc_info->ret_value = NULL;
@@ -616,7 +630,7 @@ void cyclone_rep_cb(void *user_arg,
   if(!building_image && raft_idx  <= applied_raft_idx) {
     return;
   }
-  issue_rpc(rpc, len, raft_idx, raft_term);
+  issue_rpc(rpc, len, raft_idx, raft_term, false);
 }
 
 // Note: cyclone pop_cb cannot be called once the node becomes a master
@@ -735,7 +749,7 @@ struct dispatcher_loop {
     void *cookie;
     unsigned long last_tx_committed;
     int requestor = rpc_req->requestor;
-    bool issued_rpc = false;
+    bool will_issue_rpc = false;
     TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
     rpc_rep->client_id   = rpc_req->client_id;
     rpc_rep->channel_seq = rpc_req->channel_seq;
@@ -756,11 +770,10 @@ struct dispatcher_loop {
       // Issue if necessary
       if(rpc_rep->code == RPC_REP_UNKNOWN  &&  rpc_req->code != RPC_REQ_STATUS)
       {
-	issued_rpc = true;
+	will_issue_rpc = true;
 	if(rpc_req->flags & RPC_FLAG_RO) {
-	  batch_issue = true;
 	  // Distinguish ro txids from rw txids
-	  issue_rpc(rpc_req, sz, -1, -1);
+	  issue_rpc(rpc_req, sz, -1, -1, true);
 	  rpc_rep->code = RPC_REP_PENDING;
 	}
 	else {
@@ -813,7 +826,7 @@ struct dispatcher_loop {
       }
     }
     if(rpc_rep->code == RPC_REP_PENDING) {
-      if(!issued_rpc) {
+      if(!will_issue_rpc) {
 	mark_client_pending(rpc_req->client_txid,
 			    rpc_req->channel_seq,
 			    rpc_req->client_id,
@@ -826,7 +839,7 @@ struct dispatcher_loop {
       cyclone_tx(router->output_socket(requestor, rpc_req->client_id), 
 		 tx_buffer, 
 		 rep_sz, 
-		 "Dispatch reply");
+		 "Dispatch reply -- handle rpc");
       router->unlock_output_socket(requestor, rpc_req->client_id);
     }
     return batch_issue;
@@ -849,7 +862,7 @@ struct dispatcher_loop {
 					 rpc_req->client_id), 
 		   tx_buffer, 
 		   sizeof(rpc_t), 
-		   "Dispatch reply");
+		   "Dispatch reply -- batch issue rpc");
 	router->unlock_output_socket(rpc_req->requestor, rpc_req->client_id);
 	ptr = ptr + sizes[i];
       }
@@ -938,7 +951,7 @@ struct dispatcher_loop {
 	  cyclone_tx(router->output_socket(req->requestor, req->client_id), 
 		     tx_buffer, 
 		     sizeof(rpc_t), 
-		     "Dispatch reply");
+		     "Doorbell reply");
 	  router->unlock_output_socket(req->requestor, req->client_id);
 	  ptr -= sz;
 	  requests--;

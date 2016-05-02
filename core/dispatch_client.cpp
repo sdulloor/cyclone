@@ -14,6 +14,7 @@ typedef struct rpc_client_st {
   int me_mc;
   client_switch *router;
   rpc_t *packet_out;
+  rpc_t *packet_out_doorbell;
   rpc_t *packet_in;
   int server;
   int replicas;
@@ -27,13 +28,13 @@ typedef struct rpc_client_st {
 	break;
       }
       BOOST_LOG_TRIVIAL(info) << "Ringing doorbell";
-      packet_out->code = RPC_DOORBELL;
-      packet_out->client_id   = me;
-      packet_out->channel_seq = channel_seq++;
-      packet_out->requestor   = me_mc;
-      packet_out->port      = router->input_port(server);
+      packet_out_doorbell->code = RPC_DOORBELL;
+      packet_out_doorbell->client_id   = me;
+      packet_out_doorbell->channel_seq = channel_seq++;
+      packet_out_doorbell->requestor   = me_mc;
+      packet_out_doorbell->port      = router->input_port(server);
       int retcode = cyclone_tx_timeout(router->output_socket(server), 
-				       (unsigned char *)packet_out, 
+				       (unsigned char *)packet_out_doorbell, 
 				       sizeof(rpc_t), 
 				       timeout_msec*1000,
 				       "PROPOSE");
@@ -56,6 +57,7 @@ typedef struct rpc_client_st {
 	if(packet_in->channel_seq != (channel_seq - 1)) {
 	  continue;
 	}
+	break;
       }
 
       if(resp_sz == -1) {
@@ -71,17 +73,15 @@ typedef struct rpc_client_st {
   
   void update_server(const char *context)
   {
-    while(true) {
-      BOOST_LOG_TRIVIAL(info) 
-	<< "CLIENT DETECTED POSSIBLE FAILED MASTER: "
-	<< server
-	<< " Reason " 
-	<< context;
-      server = (server + 1)%replicas;
-      BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
-      if(!rung_doorbell[server]) {
-	ring_doorbell();
-      }
+    BOOST_LOG_TRIVIAL(info) 
+      << "CLIENT DETECTED POSSIBLE FAILED MASTER: "
+      << server
+      << " Reason " 
+      << context;
+    server = (server + 1)%replicas;
+    BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
+    if(!rung_doorbell[server]) {
+      ring_doorbell();
     }
   }
 
@@ -437,6 +437,8 @@ void* cyclone_client_init(int client_id,
   client->packet_out = (rpc_t *)buf;
   buf = new char[DISP_MAX_MSGSIZE];
   client->packet_in = (rpc_t *)buf;
+  buf = new char[DISP_MAX_MSGSIZE];
+  client->packet_out_doorbell = (rpc_t *)buf;
   client->replicas = replicas;
   client->channel_seq = clock.current_time();
   client->rung_doorbell = new bool[replicas];

@@ -9,28 +9,6 @@
 
 // Cyclone communication
 
-static int cyclone_tx_special(void *socket,
-		      const unsigned char *data,
-		      unsigned long size,
-		      const char *context) 
-{
-  BOOST_LOG_TRIVIAL(info) << "tx socket is " << socket;
-  int rc = zmq_send(socket, data, size, ZMQ_NOBLOCK);
-  if(rc == -1) {
-    if (errno != EAGAIN) {
-      BOOST_LOG_TRIVIAL(warning) 
-	<< "CYCLONE: Unable to transmit "
-	<< context << " "
-	<< zmq_strerror(zmq_errno());
-      exit(-1);
-    }
-    return -1;
-  }
-  else {
-    return 0;
-  }
-}
-
 static int cyclone_tx(void *socket,
 		      const unsigned char *data,
 		      unsigned long size,
@@ -244,9 +222,6 @@ static void cyclone_connect_endpoint(void *socket, const char *endpoint)
   BOOST_LOG_TRIVIAL(info)
     << "CYCLONE::COMM Connecting to "
     << endpoint;
-    BOOST_LOG_TRIVIAL(info)
-      << "CYCLONE::COMM socket is "
-      << socket;
   zmq_connect(socket, endpoint);
 }
 
@@ -519,7 +494,9 @@ public:
   {
     for(int i=0;i<client_machines;i++) {
       for(int j=0;j<clients;j++) {
-	zmq_close(output_socket(i, j));
+	if(output_socket(i, j) != NULL) {
+	  zmq_close(output_socket(i, j));
+	}
       }
     }
     zmq_close(socket_in);
@@ -577,6 +554,7 @@ public:
 	BOOST_LOG_TRIVIAL(fatal) << "Unable to read port number";
 	exit(-1);
       }
+      BOOST_LOG_TRIVIAL(info) << "Bind point is " << zmq_dsn;
       char *ptr = &zmq_dsn[strlen(zmq_dsn) - 1];
       while((*ptr) != ':') ptr--;
       ptr++;
