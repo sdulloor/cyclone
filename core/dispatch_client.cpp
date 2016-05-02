@@ -33,17 +33,18 @@ typedef struct rpc_client_st {
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
       packet_out->port      = router->input_port(server);
-      retcode = cyclone_tx_timeout(router->output_socket(server), 
-				   (unsigned char *)packet_out, 
-				   sizeof(rpc_t), 
-				   timeout_msec*1000,
-				   "PROPOSE");
+      int retcode = cyclone_tx_timeout(router->output_socket(server), 
+				       (unsigned char *)packet_out, 
+				       sizeof(rpc_t), 
+				       timeout_msec*1000,
+				       "PROPOSE");
       if(retcode == -1) {
 	BOOST_LOG_TRIVIAL(info) << "Unable to tx doorbell";
 	server = (server + 1)%replicas;
 	BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
 	continue;
       }
+      int resp_sz;
       while(true) {
 	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
 				     (unsigned char *)packet_in, 
@@ -440,7 +441,7 @@ void* cyclone_client_init(int client_id,
   client->channel_seq = clock.current_time();
   client->rung_doorbell = new bool[replicas];
   for(int i=0;i<replicas;i++) {
-    client->run_doorbell[i] = false;
+    client->rung_doorbell[i] = false;
   }
   return (void *)client;
 }

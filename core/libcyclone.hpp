@@ -54,7 +54,6 @@ static const int CLIENT_MAXPAYLOAD = (DISP_MAX_MSGSIZE - 512);
 void* cyclone_client_init(int client_id,
 			  int client_mc,
 			  int replicas,
-			  int clients,
 			  const char *config_server,
 			  const char *config_client);
 // Make an rpc call -- returns size of response

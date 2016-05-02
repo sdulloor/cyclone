@@ -744,19 +744,20 @@ struct dispatcher_loop {
     rep_sz = sizeof(rpc_t);
     bool batch_issue = false;
     
-    if(!cyclone_is_leader(cyclone_handle)) {
+    if(rpc_req->code == RPC_DOORBELL) {
+      rpc_rep->code = RPC_REP_COMPLETE;
+      router->ring_doorbell(zmq_context,
+			    requestor,
+			    rpc_req->client_id,
+			    rpc_req->port);
+    }
+    else if(!cyclone_is_leader(cyclone_handle)) {
       rpc_rep->code = RPC_REP_INVSRV;
       rpc_rep->master = cyclone_get_leader(cyclone_handle);
     }
     else if(rpc_req->code == RPC_REQ_LAST_TXID) {
       rpc_rep->code = RPC_REP_COMPLETE;
       rpc_rep->last_client_txid = get_max_client_txid(rpc_req->client_id);
-    }
-    else if(rpc_req->code == RPC_DOORBELL) {
-      rpc_rep->code = RPC_REP_COMPLETE;
-      server_switch->ring_doorbell(requestor,
-				   rpc_req->client_id,
-				   rpc_req->port);
     }
     else {
       determine_status(rpc_req, rpc_rep, &rep_sz);
