@@ -37,7 +37,7 @@ static unsigned char *rx_buffer;
 static unsigned char *rx_buffers;
 static unsigned char tx_async_buffer[DISP_MAX_MSGSIZE];
 static server_switch *router;
-
+static int replica_me;
 
 static PMEMobjpool *state;
 static rpc_callback_t execute_rpc;
@@ -630,7 +630,8 @@ void cyclone_rep_cb(void *user_arg,
   if(!building_image && raft_idx  <= applied_raft_idx) {
     return;
   }
-  issue_rpc(rpc, len, raft_idx, raft_term, false);
+  issue_rpc(rpc, len, raft_idx, raft_term, 
+	    (rpc->receiver == replica_me ? true:false));
 }
 
 // Note: cyclone pop_cb cannot be called once the node becomes a master
@@ -756,6 +757,7 @@ struct dispatcher_loop {
     rpc_rep->client_txid = rpc_req->client_txid;
     rep_sz = sizeof(rpc_t);
     bool batch_issue = false;
+    rpc_req->receiver = replica_me;
     
     if(!cyclone_is_leader(cyclone_handle)) {
       rpc_rep->code = RPC_REP_INVSRV;
@@ -1136,6 +1138,7 @@ void dispatcher_start(const char* config_server_path,
   dispatcher_loop_obj->zmq_context = zmq_context;
   dispatcher_loop_obj->clients  = clients;
   dispatcher_loop_obj->machines = pt_client.get<int>("machines.machines");
+  replica_me = me;
   router = new server_switch(zmq_context,
 			     &pt_server,
 			     &pt_client,
