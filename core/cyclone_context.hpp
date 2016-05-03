@@ -650,7 +650,7 @@ struct cyclone_monitor {
     while(!terminate) {
       // Handle any outstanding requests
       for(int i=0;i<cyclone_handle->replicas;i++) {
-	unsigned long sz =
+	int sz =
 	  cyclone_rx_noblock(cyclone_handle->router->input_socket(),
 			     cyclone_handle->cyclone_buffer_in,
 			     MSG_MAXSIZE,

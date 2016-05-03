@@ -62,10 +62,10 @@ static int cyclone_tx_timeout(void *socket,
   return rc;
 }
 
-static unsigned long cyclone_rx(void *socket,
-				unsigned char *data,
-				unsigned long size,
-				const char *context)
+static int cyclone_rx(void *socket,
+		      unsigned char *data,
+		      unsigned long size,
+		      const char *context)
 {
   int rc;
   while (true) {
@@ -84,14 +84,14 @@ static unsigned long cyclone_rx(void *socket,
       break;
     }
   }
-  return (unsigned long) rc;
+  return rc;
 }
 
-static unsigned long cyclone_rx_timeout(void *socket,
-					unsigned char *data,
-					unsigned long size,
-					unsigned long timeout_usecs,
-					const char *context)
+static int cyclone_rx_timeout(void *socket,
+			      unsigned char *data,
+			      unsigned long size,
+			      unsigned long timeout_usecs,
+			      const char *context)
 {
   int rc;
   rtc_clock clock;
@@ -114,13 +114,13 @@ static unsigned long cyclone_rx_timeout(void *socket,
     }
     clock.start();
   }
-  return (unsigned long) rc;
+  return rc;
 }
 
-static unsigned long cyclone_rx_noblock(void *socket,
-					unsigned char *data,
-					unsigned long size,
-					const char *context)
+static int cyclone_rx_noblock(void *socket,
+			      unsigned char *data,
+			      unsigned long size,
+			      const char *context)
 {
   int rc;
   rc = zmq_recv(socket, data, size, ZMQ_NOBLOCK);
@@ -133,7 +133,7 @@ static unsigned long cyclone_rx_noblock(void *socket,
       exit(-1);
     }
   }
-  return (unsigned long) rc;
+  return rc;
 }
 
 static void * setup_cyclone_inpoll(void **sockets, int cnt)

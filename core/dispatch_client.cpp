@@ -346,28 +346,26 @@ typedef struct rpc_client_st {
     rtc_clock clock;
     while(true) {
       // Make request
-      while(true) {
-	packet_out->code        = RPC_REQ_FN;
-	packet_out->flags       = flags;
-	packet_out->client_id   = me;
-	packet_out->client_txid = txid;
-	packet_out->channel_seq = channel_seq++;
-	packet_out->requestor   = me_mc;
+      packet_out->code        = RPC_REQ_FN;
+      packet_out->flags       = flags;
+      packet_out->client_id   = me;
+      packet_out->client_txid = txid;
+      packet_out->channel_seq = channel_seq++;
+      packet_out->requestor   = me_mc;
 #ifdef TRACING	
-	packet_out->timestamp   = clock.current_time();
+      packet_out->timestamp   = clock.current_time();
 #endif
-	memcpy(packet_out + 1, payload, sz);
-	retcode = cyclone_tx_timeout(router->output_socket(server), 
-				     (unsigned char *)packet_out, 
-				     sizeof(rpc_t) + sz, 
-				     timeout_msec*1000,
-				     "PROPOSE");
-	if(retcode == -1) {
-	  update_server("tx timeout");
-	  continue;
-	}
-	break;
+      memcpy(packet_out + 1, payload, sz);
+      retcode = cyclone_tx_timeout(router->output_socket(server), 
+				   (unsigned char *)packet_out, 
+				   sizeof(rpc_t) + sz, 
+				   timeout_msec*1000,
+				   "PROPOSE");
+      if(retcode == -1) {
+	update_server("tx timeout");
+	continue;
       }
+      
       while(true) {
 	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
 				     (unsigned char *)packet_in, 

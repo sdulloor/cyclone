@@ -274,7 +274,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
   volatile int execution_term;
   volatile bool is_leader;
   volatile bool have_data;
-  while(!rpc->rep_success && !rpc->rep_failed);
+ while(!rpc->rep_success && !rpc->rep_failed);
   if(rpc->rep_success) {
     while(repeat) {
       execution_term = cyclone_get_term(cyclone_handle);
@@ -780,6 +780,7 @@ struct dispatcher_loop {
 	  // Initiate replication
 	  if(rpc_req->code == RPC_REQ_FN) {
 	    batch_issue = true;
+	    rpc_rep->code = RPC_REP_PENDING;
 	  }
 	  else if(rpc_req->code == RPC_REQ_NODEADD) {
 	    // Wait for pipeline to drain
@@ -918,10 +919,10 @@ struct dispatcher_loop {
     while(building_image); // Wait till building image is complete
     ptr = rx_buffers;
     while(true) {
-      unsigned long sz = cyclone_rx_noblock(router->input_socket(),
-					    ptr,
-					    DISP_MAX_MSGSIZE,
-					    "DISP RCV");
+      int sz = cyclone_rx_noblock(router->input_socket(),
+				  ptr,
+				  DISP_MAX_MSGSIZE,
+				  "DISP RCV");
       unsigned long mark = clock.current_time();
       if(sz != -1) {
 	rx_sizes[requests++] = sz;
