@@ -73,7 +73,7 @@ int main(int argc, const char *argv[]) {
     sprintf(fname_server, "%s%d.ini", argv[8], i);
     sprintf(fname_client, "%s%d.ini", argv[9], i);
     quorum_handles[i] = cyclone_client_init(me,
-					    me,
+					    me % pt_client.get<int>("machines.machines"),
 					    replicas,
 					    fname_server,
 					    fname_client);

@@ -70,7 +70,6 @@ int main(int argc, const char *argv[]) {
     handles[i] = cyclone_client_init(me,
 				     me % pt_client.get<int>("machines.machines"),
 				     replicas,
-				     clients,
 				     fname_server,
 				     fname_client);
   }
@@ -128,14 +127,13 @@ int main(int argc, const char *argv[]) {
   total_latency = 0;
   tx_block_cnt  = 0;
   tx_block_begin = clock.current_time();
-  
+  unsigned long tx_begin_time = clock.current_time();
   while(true) {
     prop->fn = FN_BUMP;
     prop->k_data.key = me*KEYS + (int)KEYS*(rand()/(RAND_MAX + 1.0));
     prop->timestamp = clock.current_time();
     prop->src       = me;
     prop->order     = (order++);
-    unsigned long tx_begin_time = clock.current_time();
     int partition = prop->k_data.key % partitions;
     sz = make_rpc(handles[partition],
 		  buffer,
@@ -144,20 +142,36 @@ int main(int argc, const char *argv[]) {
 		  ctr[partition],
 		  0);
     ctr[partition]++;
-    total_latency += (clock.current_time() - tx_begin_time);
-    usleep(sleep_time);
     tx_block_cnt++;
-    if(clock.current_time() - tx_block_begin >= 10000) {
+
+    prop->fn = FN_LOOKUP;
+    prop->k_data.key = me*KEYS + (int)KEYS*(rand()/(RAND_MAX + 1.0));
+    prop->timestamp = clock.current_time();
+    prop->src       = me;
+    prop->order     = (order++);
+    partition = prop->k_data.key % partitions;
+    sz = make_rpc(handles[partition],
+		  buffer,
+		  sizeof(struct proposal),
+		  &resp,
+		  ctr[partition],
+		  RPC_FLAG_RO);
+    ctr[partition]++;
+    tx_block_cnt++;
+
+    if(tx_block_cnt > 5000) {
+      total_latency = (clock.current_time() - tx_begin_time);
       BOOST_LOG_TRIVIAL(info) << "LOAD = "
-			      << ((double)1000000*tx_block_cnt)/(clock.current_time() - tx_block_begin)
+			      << ((double)1000000*tx_block_cnt)/total_latency
 			      << " tx/sec "
 			      << "LATENCY = "
 			      << ((double)total_latency)/tx_block_cnt
 			      << " us ";
-      tx_block_begin = clock.current_time();
+      tx_begin_time = clock.current_time();
       tx_block_cnt   = 0;
       total_latency  = 0;
     }
+    
   }
   return 0;
 }

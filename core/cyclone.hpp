@@ -80,6 +80,7 @@ typedef struct rpc_st {
   unsigned long timestamp;
   unsigned long channel_seq;
   int requestor;
+  int receiver;
 } rpc_t; // Used for both requests and replies
 
 // Possble values for code follow
