@@ -61,11 +61,6 @@ typedef struct
   };
 } msg_t;
 
-#ifdef TRACING
-extern void trace_recv_entry(void *data, const int len);
-extern void trace_recv_cmd(void *data, const int size);
-#endif
-
 struct throttle_st {
   int prev_log_term;
   int prev_log_idx;
@@ -444,9 +439,6 @@ typedef struct cyclone_st {
       memcpy(msg->ae.entries[i].data.buf, 
 	     ptr, 
 	     msg->ae.entries[i].data.len);
-#ifdef TRACING
-      trace_recv_entry(ptr, msg->ae.entries[i].data.len);
-#endif
       ptr += msg->ae.entries[i].data.len;
     }
     e = raft_recv_appendentries(raft_handle, 
@@ -464,9 +456,6 @@ typedef struct cyclone_st {
 					   &msg->aer);
       break;
     case MSG_CLIENT_REQ:
-#ifdef TRACING
-      trace_recv_cmd(msg->client.ptr, msg->client.size);
-#endif
       if(!cyclone_is_leader(this)) {
 	client_rep = NULL;
 	cyclone_tx(router->request_in(),
@@ -494,9 +483,6 @@ typedef struct cyclone_st {
       }
       break;
      case MSG_CLIENT_REQ_BATCH:
-#ifdef TRACING
-      trace_recv_cmd(msg->client.ptr, msg->client.size);
-#endif
       if(!cyclone_is_leader(this)) {
 	void * cookies = NULL;
 	cyclone_tx(router->request_in(),
@@ -534,9 +520,6 @@ typedef struct cyclone_st {
       }
       break;
     case MSG_CLIENT_REQ_CFG:
-#ifdef TRACING
-      trace_recv_cmd(msg->client.ptr, msg->client.size);
-#endif
       if(!cyclone_is_leader(this)) {
 	client_rep = NULL;
 	cyclone_tx(router->request_in(),
@@ -564,9 +547,6 @@ typedef struct cyclone_st {
       }
       break;
     case MSG_CLIENT_REQ_TERM:
-#ifdef TRACING
-      trace_recv_cmd(msg->client.ptr, msg->client.size);
-#endif
       if(!cyclone_is_leader(this)) {
 	client_rep = NULL;
 	cyclone_tx(router->request_in(),

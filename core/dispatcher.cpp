@@ -912,9 +912,8 @@ struct dispatcher_loop {
   
   void operator ()()
   {
-    rtc_clock clock;
     bool is_master = false;
-    unsigned long last_gc = clock.current_time();
+    unsigned long last_gc = rtc_clock::current_time();
     unsigned long last_batch = last_gc;
     int requests = 0;
     unsigned char * ptr;
@@ -930,10 +929,11 @@ struct dispatcher_loop {
 				  ptr,
 				  DISP_MAX_MSGSIZE,
 				  "DISP RCV");
-      unsigned long mark = clock.current_time();
+      unsigned long mark = rtc_clock::current_time();
       if(sz != -1) {
 	rx_sizes[requests++] = sz;
 	req = (rpc_t *)ptr;
+	req->timestamp = mark;
 	ptr += sz;
 	if(req->code == RPC_REQ_NODEADD || req->code == RPC_REQ_NODEDEL) {
 	  if(requests > 1) {

@@ -7,7 +7,7 @@
 class rtc_clock {
   unsigned long start_time;
   unsigned long elapsed_useconds;
-  unsigned long get_current_rtc()
+  static unsigned long get_current_rtc()
   {
     struct timeval tm;
     gettimeofday(&tm, NULL);
@@ -35,7 +35,7 @@ class rtc_clock {
   {
     return elapsed_useconds;
   }
-  unsigned long current_time()
+  static unsigned long current_time()
   {
     return get_current_rtc();
   }

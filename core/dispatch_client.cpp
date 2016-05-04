@@ -101,9 +101,6 @@ typedef struct rpc_client_st {
     while(true) {
       packet_out->code        = RPC_REQ_LAST_TXID;
       packet_out->client_id   = me;
-#ifdef TRACING
-      packet_out->timestamp   = clock.current_time();
-#endif
       packet_out->client_txid = (int)packet_out->timestamp;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
@@ -160,9 +157,6 @@ typedef struct rpc_client_st {
     while(true) {
       packet_out->code        = RPC_REQ_NODEDEL;
       packet_out->client_id   = me;
-#ifdef TRACING
-      packet_out->timestamp   = clock.current_time();
-#endif
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
@@ -220,9 +214,6 @@ typedef struct rpc_client_st {
     while(true) {
       packet_out->code        = RPC_REQ_NODEADD;
       packet_out->client_id   = me;
-#ifdef TRACING      
-      packet_out->timestamp   = clock.current_time();
-#endif
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
@@ -280,9 +271,6 @@ typedef struct rpc_client_st {
     int resp_sz;
     packet_out->client_id   = me;
     packet_out->client_txid = txid;
-#ifdef TRACING    
-    packet_out->timestamp   = clock.current_time();
-#endif
     packet_out->channel_seq  = channel_seq++;
     packet_out->requestor   = me_mc;
     while(true) {
@@ -352,9 +340,6 @@ typedef struct rpc_client_st {
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
-#ifdef TRACING	
-      packet_out->timestamp   = clock.current_time();
-#endif
       memcpy(packet_out + 1, payload, sz);
       retcode = cyclone_tx_timeout(router->output_socket(server), 
 				   (unsigned char *)packet_out, 

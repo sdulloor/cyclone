@@ -4,14 +4,6 @@
 #include "timeouts.hpp"
 #include "checkpoint.hpp"
 
-#ifdef TRACING
-extern void trace_send_cmd(void *data, const int size);
-extern void trace_pre_append(void *data, const int size);
-extern void trace_post_append(void *data, const int size);
-extern void trace_send_entry(void *data, const int size);
-#endif
-
-
 void *cyclone_control_socket_out(void *cyclone_handle, 
 				 int replica)
 {
@@ -80,7 +72,6 @@ static int __send_appendentries(raft_server_t* raft,
   void *socket      = raft_node_get_udata(node);
   msg_t *msg = (msg_t *)cyclone_handle->cyclone_buffer_out;
   unsigned char *ptr = (unsigned char *)(msg + 1);
-  rtc_clock clock;
   int nodeidx = raft_node_get_id(node);
   bool same_log_point  =
     (m->prev_log_term == cyclone_handle->throttles[nodeidx].prev_log_term &&
@@ -88,12 +79,12 @@ static int __send_appendentries(raft_server_t* raft,
   bool prev_was_heartbeat = (cyclone_handle->throttles[nodeidx].prev_entries == 0);
   bool current_is_heartbeat = (m->n_entries == 0);
   if(same_log_point && (prev_was_heartbeat == current_is_heartbeat)) {
-    if((clock.current_time() - cyclone_handle->throttles[nodeidx].last_tx_time) <=
+    if((rtc_clock::current_time() - cyclone_handle->throttles[nodeidx].last_tx_time) <=
        cyclone_handle->throttles[nodeidx].timeout) {
       return 0; // throttle retx
     }
     else {
-      cyclone_handle->throttles[nodeidx].last_tx_time = clock.current_time();
+      cyclone_handle->throttles[nodeidx].last_tx_time = rtc_clock::current_time();
       cyclone_handle->throttles[nodeidx].timeout = 2*cyclone_handle->throttles[nodeidx].timeout;
     }
   }
@@ -101,7 +92,7 @@ static int __send_appendentries(raft_server_t* raft,
     cyclone_handle->throttles[nodeidx].prev_log_term = m->prev_log_term;
     cyclone_handle->throttles[nodeidx].prev_log_idx = m->prev_log_idx;
     cyclone_handle->throttles[nodeidx].prev_entries = m->n_entries;
-    cyclone_handle->throttles[nodeidx].last_tx_time = clock.current_time();
+    cyclone_handle->throttles[nodeidx].last_tx_time = rtc_clock::current_time();
     cyclone_handle->throttles[nodeidx].timeout = RAFT_REQUEST_TIMEOUT/2;
   }
   msg->msg_type         = MSG_APPENDENTRIES;
@@ -127,10 +118,6 @@ static int __send_appendentries(raft_server_t* raft,
   for(i=0;i<m->n_entries;i++) {
     (void)cyclone_handle->read_from_log(ptr,
 					(unsigned long)m->entries[i].data.buf);
-#ifdef TRACING
-    BOOST_LOG_TRIVIAL(info) << "SENDING CMD TO " << nodeidx;
-    trace_send_entry(ptr, m->entries[i].data.len);
-#endif
     ptr += m->entries[i].data.len;
   }
   cyclone_tx(socket, 
@@ -152,20 +139,12 @@ static int __persist_vote(raft_server_t* raft,
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state,
 				       raft_pstate_t);
-#ifdef TRACING
-  rtc_clock timer;
-  timer.start();
-#endif  
   TX_BEGIN(cyclone_handle->pop_raft_state) {
     TX_ADD(root);
     D_RW(root)->voted_for = voted_for;
   }TX_ONABORT {
     status = -1;
   } TX_END
-#ifdef TRACING
-  timer.stop();
-  //BOOST_LOG_TRIVIAL(info) << "VOTE_PERSIST_DELTA ms:" << timer.elapsed_time()/1000;
-#endif
   return status;
 }
 
@@ -180,20 +159,12 @@ static int __persist_term(raft_server_t* raft,
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state,
 				       raft_pstate_t);
-#ifdef TRACING
-  rtc_clock timer;
-  timer.start();
-#endif
   TX_BEGIN(cyclone_handle->pop_raft_state) {
     TX_ADD(root);
     D_RW(root)->term = current_term;
   } TX_ONABORT {
     status = -1;
   } TX_END
-#ifdef TRACING
-  timer.stop();    
-  //BOOST_LOG_TRIVIAL(info) << "TERM_PERSIST_DELTA ms: " << timer.elapsed_time()/1000;
-#endif
   return status;
 }
 
@@ -274,18 +245,12 @@ static int __raft_logentry_offer(raft_server_t* raft,
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   void *chunk = ety->data.buf;
-#ifdef TRACING
-  trace_pre_append((unsigned char *)chunk, ety->data.len);
-#endif
   ety->data.buf = (void *)
     cyclone_handle->double_append_to_raft_log
     ((unsigned char *)ety,
      sizeof(raft_entry_t),
      (unsigned char *)ety->data.buf,
      ety->data.len);
-#ifdef TRACING
-    trace_post_append(chunk, ety->data.len);
-#endif
     handle_cfg_change(cyclone_handle, ety, chunk);
   if(cyclone_handle->cyclone_rep_cb != NULL && ety->type != RAFT_LOGTYPE_ADD_NODE) {    
     cyclone_handle->cyclone_rep_cb(cyclone_handle->user_arg,
@@ -312,9 +277,6 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
   log_t tmp = D_RO(root)->log;
   struct circular_log *log = D_RW(tmp);
   unsigned long tail = log->log_tail;
-#ifdef TRACING
-    trace_pre_append((unsigned char *)chunk, ety->data.len);
-#endif
   raft_entry_t *e = ety;
   for(int i=0; i<count;i++,e++) {
     tail = cyclone_handle->append_to_raft_log_noupdate(log,
@@ -348,9 +310,6 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
   pmemobj_persist(cyclone_handle->pop_raft_state,
 		  &log->log_tail,
 		  sizeof(unsigned long));
-#ifdef TRACING
-    trace_post_append(chunk, ety->data.len);
-#endif
   return 0;
 }
 
@@ -475,9 +434,6 @@ void* cyclone_add_entry(void *cyclone_handle, void *data, int size)
   msg.msg_type    = MSG_CLIENT_REQ;
   msg.client.ptr  = data;
   msg.client.size = size;
-#ifdef TRACING
-  trace_send_cmd(data, size);
-#endif
   cyclone_tx(handle->router->request_out(), 
 	     (const unsigned char *)&msg, 
 	     sizeof(msg_t), 
@@ -502,9 +458,6 @@ void* cyclone_add_batch(void *cyclone_handle,
   msg.client.ptr  = data;
   msg.client.size = batch_size;
   msg.client.batch_sizes = sizes;
-#ifdef TRACING
-  trace_send_cmd(data, size);
-#endif
   cyclone_tx(handle->router->request_out(), 
 	     (const unsigned char *)&msg, 
 	     sizeof(msg_t), 
@@ -526,9 +479,6 @@ void* cyclone_add_entry_cfg(void *cyclone_handle, int type, void *data, int size
   msg.client.ptr  = data;
   msg.client.size = size;
   msg.client.type = type;
-#ifdef TRACING
-  trace_send_cmd(data, size);
-#endif
   cyclone_tx(handle->router->request_out(), 
 	     (const unsigned char *)&msg, 
 	     sizeof(msg_t), 
@@ -553,9 +503,6 @@ void* cyclone_add_entry_term(void *cyclone_handle,
   msg.client.ptr  = data;
   msg.client.size = size;
   msg.client.term = term;
-#ifdef TRACING
-  trace_send_cmd(data, size);
-#endif
   cyclone_tx(handle->router->request_out(), 
 	     (const unsigned char *)&msg, 
 	     sizeof(msg_t), 
