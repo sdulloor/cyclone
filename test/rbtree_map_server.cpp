@@ -75,25 +75,24 @@ int callback(const unsigned char *data,
 	     void **return_value)
 {
   // Heartbeat
-  rtc_clock clock;
   static unsigned long tx_block_cnt   = 0;
-  static unsigned long tx_block_begin = clock.current_time();
+  static unsigned long tx_block_begin = rtc_clock::current_time();
   static unsigned long total_latency = 0;
 
-  if(clock.current_time() - tx_block_begin >= 5000000 &&
+  if(rtc_clock::current_time() - tx_block_begin >= 5000000 &&
      tx_block_cnt > 0) {
     BOOST_LOG_TRIVIAL(info) << "LOAD = "
-			    << ((double)1000000*tx_block_cnt)/(clock.current_time() - tx_block_begin)
+			    << ((double)1000000*tx_block_cnt)/(rtc_clock::current_time() - tx_block_begin)
 			    << " tx/sec "
 			    << "LATENCY ="
 			    << ((double)total_latency)/tx_block_cnt
 			    << " us ";
-    tx_block_begin = clock.current_time();
+    tx_block_begin = rtc_clock::current_time();
     tx_block_cnt   = 0;
     total_latency  = 0;
   }
   tx_block_cnt++;
-  unsigned long tx_begin_time = clock.current_time();
+  unsigned long tx_begin_time = rtc_clock::current_time();
   //////////////
 
   struct proposal *req = (struct proposal *)data;
@@ -191,7 +190,7 @@ int callback(const unsigned char *data,
     BOOST_LOG_TRIVIAL(fatal) << "Tree: unknown fn !";
     exit(-1);
   }
-  total_latency += (clock.current_time() - tx_begin_time);
+  total_latency += (rtc_clock::current_time() - tx_begin_time);
   return sizeof(struct proposal);
 }
 

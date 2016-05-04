@@ -625,8 +625,8 @@ struct cyclone_monitor {
   
   void operator ()()
   {
-    rtc_clock timer;
-    timer.start();
+    unsigned long mark = rtc_clock::current_time();
+    unsigned long elapsed_time;
     while(!terminate) {
       // Handle any outstanding requests
       for(int i=0;i<cyclone_handle->replicas;i++) {
@@ -647,14 +647,11 @@ struct cyclone_monitor {
 	  cyclone_handle->handle_incoming(sz);
 	}
       }
-      timer.stop();
-      int elapsed_time = timer.elapsed_time();
       // Handle periodic events -- - AFTER any incoming requests
-      if(elapsed_time >= PERIODICITY) {
-	raft_periodic(cyclone_handle->raft_handle, elapsed_time);
-	timer.reset();
+      if((elapsed_time = rtc_clock::current_time() - mark) >= PERIODICITY) {
+	raft_periodic(cyclone_handle->raft_handle, (int)elapsed_time);
+	mark = rtc_clock::current_time();
       }
-      timer.start();
     }
   }
 };

@@ -97,7 +97,6 @@ typedef struct rpc_client_st {
   {
     int retcode;
     int resp_sz;
-    rtc_clock clock;
     while(true) {
       packet_out->code        = RPC_REQ_LAST_TXID;
       packet_out->client_id   = me;
@@ -153,7 +152,6 @@ typedef struct rpc_client_st {
   {
     int retcode;
     int resp_sz;
-    rtc_clock clock;
     while(true) {
       packet_out->code        = RPC_REQ_NODEDEL;
       packet_out->client_id   = me;
@@ -210,7 +208,6 @@ typedef struct rpc_client_st {
   {
     int retcode;
     int resp_sz;
-    rtc_clock clock;
     while(true) {
       packet_out->code        = RPC_REQ_NODEADD;
       packet_out->client_id   = me;
@@ -266,7 +263,6 @@ typedef struct rpc_client_st {
 
   int retrieve_response(void **response, int txid)
   {
-    rtc_clock clock;
     int retcode;
     int resp_sz;
     packet_out->client_id   = me;
@@ -331,7 +327,6 @@ typedef struct rpc_client_st {
   {
     int retcode;
     int resp_sz;
-    rtc_clock clock;
     while(true) {
       // Make request
       packet_out->code        = RPC_REQ_FN;
@@ -401,7 +396,6 @@ void* cyclone_client_init(int client_id,
 			  const char *config_server,
 			  const char *config_client)
 {
-  rtc_clock clock;
   rpc_client_t * client = new rpc_client_t();
   client->me = client_id;
   client->me_mc = client_mc;
@@ -423,7 +417,7 @@ void* cyclone_client_init(int client_id,
   buf = new char[DISP_MAX_MSGSIZE];
   client->packet_out_doorbell = (rpc_t *)buf;
   client->replicas = replicas;
-  client->channel_seq = clock.current_time();
+  client->channel_seq = client_id*client_mc*rtc_clock::current_time();
   client->rung_doorbell = new bool[replicas];
   for(int i=0;i<replicas;i++) {
     client->rung_doorbell[i] = false;

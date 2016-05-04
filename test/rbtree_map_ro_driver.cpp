@@ -46,7 +46,6 @@
 #define KEYS 100
 
 int main(int argc, const char *argv[]) {
-  rtc_clock clock;
   if(argc != 5) {
     printf("Usage: %s client_id replicas clients sleep_usecs\n", argv[0]);
     exit(-1);
@@ -67,30 +66,30 @@ int main(int argc, const char *argv[]) {
   void *resp;
   unsigned long order = 0;
   unsigned long tx_block_cnt   = 0;
-  unsigned long tx_block_begin = clock.current_time();
+  unsigned long tx_block_begin = rtc_clock::current_time();
   unsigned long total_latency  = 0;
   int ctr = get_last_txid(handle) + 1;
   for(int i=0;i<KEYS;i++) {
     prop->fn = FN_INSERT;
     prop->kv_data.key   = me*KEYS + i;
     prop->kv_data.value = me*KEYS + i;
-    prop->timestamp = clock.current_time();
+    prop->timestamp = rtc_clock::current_time();
     prop->src       = me;
     prop->order     = (order++);
-    unsigned long tx_begin_time = clock.current_time();
+    unsigned long tx_begin_time = rtc_clock::current_time();
     sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, ctr, 0);
     ctr++;
-    total_latency += (clock.current_time() - tx_begin_time);
+    total_latency += (rtc_clock::current_time() - tx_begin_time);
     usleep(sleep_time);
     tx_block_cnt++;
-    if(clock.current_time() - tx_block_begin >= 10000) {
+    if(rtc_clock::current_time() - tx_block_begin >= 10000) {
       BOOST_LOG_TRIVIAL(info) << "LOAD = "
-			      << ((double)1000000*tx_block_cnt)/(clock.current_time() - tx_block_begin)
+			      << ((double)1000000*tx_block_cnt)/(rtc_clock::current_time() - tx_block_begin)
 			      << " tx/sec "
 			      << "LATENCY = "
 			      << ((double)total_latency)/tx_block_cnt
 			      << " us ";
-      tx_block_begin = clock.current_time();
+      tx_block_begin = rtc_clock::current_time();
       tx_block_cnt   = 0;
       total_latency  = 0;
     }
@@ -98,16 +97,16 @@ int main(int argc, const char *argv[]) {
 
   total_latency = 0;
   tx_block_cnt  = 0;
-  tx_block_begin = clock.current_time();
+  tx_block_begin = rtc_clock::current_time();
   
   while(true) {
     for(int i=0;i<KEYS;i++) {
       prop->fn = FN_LOOKUP;
       prop->k_data.key = me*KEYS + i;
-      prop->timestamp = clock.current_time();
+      prop->timestamp = rtc_clock::current_time();
       prop->src       = me;
       prop->order     = (order++);
-      unsigned long tx_begin_time = clock.current_time();
+      unsigned long tx_begin_time = rtc_clock::current_time();
       sz = make_rpc(handle, buffer, sizeof(struct proposal), &resp, ctr,
 		    RPC_FLAG_RO);
       ctr++;
@@ -115,17 +114,17 @@ int main(int argc, const char *argv[]) {
 	BOOST_LOG_TRIVIAL(fatal) << "Lookup failed !";
 	exit(-1);
       }
-      total_latency += (clock.current_time() - tx_begin_time);
+      total_latency += (rtc_clock::current_time() - tx_begin_time);
       usleep(sleep_time);
       tx_block_cnt++;
-      if(clock.current_time() - tx_block_begin >= 10000) {
+      if(rtc_clock::current_time() - tx_block_begin >= 10000) {
 	BOOST_LOG_TRIVIAL(info) << "LOAD = "
-				<< ((double)1000000*tx_block_cnt)/(clock.current_time() - tx_block_begin)
+				<< ((double)1000000*tx_block_cnt)/(rtc_clock::current_time() - tx_block_begin)
 				<< " tx/sec "
 				<< "LATENCY = "
 				<< ((double)total_latency)/tx_block_cnt
 				<< " us ";
-	tx_block_begin = clock.current_time();
+	tx_block_begin = rtc_clock::current_time();
 	tx_block_cnt   = 0;
 	total_latency  = 0;
       }

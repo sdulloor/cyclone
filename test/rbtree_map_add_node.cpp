@@ -46,7 +46,6 @@
 
 
 int main(int argc, const char *argv[]) {
-  rtc_clock clock;
   if(argc != 9) {
     printf("Usage: %s client_id mc_id replicas clients server_prefix client_prefix partition replica\n", argv[0]); 
     exit(-1);

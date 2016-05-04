@@ -36,9 +36,8 @@ static int cyclone_tx_timeout(void *socket,
 			      unsigned long timeout_usecs,
 			      const char *context) 
 {
-  rtc_clock clock;
   int rc;
-  clock.start();
+  unsigned long mark = rtc_clock::current_time();
   while (true) {
     rc = zmq_send(socket, data, size, ZMQ_NOBLOCK);
     if(rc >= 0) {
@@ -53,11 +52,9 @@ static int cyclone_tx_timeout(void *socket,
 	exit(-1);
       }
     }
-    clock.stop();
-    if(clock.elapsed_time() >= timeout_usecs) {
+    if((rtc_clock::current_time() - mark) >= timeout_usecs) {
       break;
     }
-    clock.start();
   }
   return rc;
 }
@@ -94,8 +91,7 @@ static int cyclone_rx_timeout(void *socket,
 			      const char *context)
 {
   int rc;
-  rtc_clock clock;
-  clock.start();
+  unsigned long mark = rtc_clock::current_time();
   while (true) {
     rc = zmq_recv(socket, data, size, ZMQ_NOBLOCK);
     if(rc >= 0) {
@@ -108,11 +104,9 @@ static int cyclone_rx_timeout(void *socket,
 	<< zmq_strerror(zmq_errno());
       exit(-1);
     }
-    clock.stop();
-    if(clock.elapsed_time() >= timeout_usecs) {
+    if((rtc_clock::current_time() - mark) >= timeout_usecs) {
       break;
     }
-    clock.start();
   }
   return rc;
 }

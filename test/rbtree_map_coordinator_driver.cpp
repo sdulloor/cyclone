@@ -48,7 +48,6 @@
 #define KEYS 191
 
 int main(int argc, const char *argv[]) {
-  rtc_clock clock;
   if(argc != 10) {
     printf("Usage: %s client_id replicas clients sleep_usecs server_config  client_config partitions quorum_server_prefix quorum_client_prefix\n", argv[0]);
     exit(-1);
@@ -87,7 +86,7 @@ int main(int argc, const char *argv[]) {
   void *resp;
   unsigned long order = 0;
   unsigned long tx_block_cnt   = 0;
-  unsigned long tx_block_begin = clock.current_time();
+  unsigned long tx_block_begin = rtc_clock::current_time();
   unsigned long total_latency  = 0;
   BOOST_LOG_TRIVIAL(info) << "Connecting to coordinator";
   int ctr = get_last_txid(handle) + 1;
@@ -100,7 +99,7 @@ int main(int argc, const char *argv[]) {
     struct proposal vquery;
     vquery.fn = FN_GET_VERSION;
     vquery.k_data.key   = me*KEYS + key;
-    vquery.timestamp = clock.current_time();
+    vquery.timestamp = rtc_clock::current_time();
     vquery.src       = me;
     vquery.order     = 0;
     int q = vquery.k_data.key % partitions;
@@ -118,7 +117,7 @@ int main(int argc, const char *argv[]) {
     infolock->value = ((struct proposal *)resp)->code;
     infok->key   = me*KEYS + key;
     infok->value = 0xdeadbeef;
-    unsigned long tx_begin_time = clock.current_time();
+    unsigned long tx_begin_time = rtc_clock::current_time();
     sz = make_rpc(handle, buffer, size_tx(tx), &resp, ctr, RPC_FLAG_SYNCHRONOUS);
     if(sz != sizeof(tx_client_response)) {
       fprintf(stderr, "unexepected response to tx of size %d", sz);
@@ -129,17 +128,17 @@ int main(int argc, const char *argv[]) {
       exit(-1);
     }
     ctr++;
-    total_latency += (clock.current_time() - tx_begin_time);
+    total_latency += (rtc_clock::current_time() - tx_begin_time);
     usleep(sleep_time);
     tx_block_cnt++;
-    if(clock.current_time() - tx_block_begin >= 10000) {
+    if(rtc_clock::current_time() - tx_block_begin >= 10000) {
       BOOST_LOG_TRIVIAL(info) << "LOAD = "
-			      << ((double)1000000*tx_block_cnt)/(clock.current_time() - tx_block_begin)
+			      << ((double)1000000*tx_block_cnt)/(rtc_clock::current_time() - tx_block_begin)
 			      << " tx/sec "
 			      << "LATENCY = "
 			      << ((double)total_latency)/tx_block_cnt
 			      << " us ";
-      tx_block_begin = clock.current_time();
+      tx_block_begin = rtc_clock::current_time();
       tx_block_cnt   = 0;
       total_latency  = 0;
     }

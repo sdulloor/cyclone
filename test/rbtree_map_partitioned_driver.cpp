@@ -49,7 +49,6 @@
 #define KEYS 191
 
 int main(int argc, const char *argv[]) {
-  rtc_clock clock;
   if(argc != 8) {
     printf("Usage: %s client_id replicas clients sleep_usecs partitions server_config_prefix client_config_prefix\n", argv[0]);
     exit(-1);
@@ -80,7 +79,7 @@ int main(int argc, const char *argv[]) {
   void *resp;
   unsigned long order = 0;
   unsigned long tx_block_cnt   = 0;
-  unsigned long tx_block_begin = clock.current_time();
+  unsigned long tx_block_begin = rtc_clock::current_time();
   unsigned long total_latency  = 0;
   
   int ctr[partitions];
@@ -94,10 +93,10 @@ int main(int argc, const char *argv[]) {
     prop->fn = FN_INSERT;
     prop->kv_data.key   = me*KEYS + i;
     prop->kv_data.value = me*KEYS + i;
-    prop->timestamp = clock.current_time();
+    prop->timestamp = rtc_clock::current_time();
     prop->src       = me;
     prop->order     = (order++);
-    unsigned long tx_begin_time = clock.current_time();
+    unsigned long tx_begin_time = rtc_clock::current_time();
     int partition = prop->kv_data.key % partitions;
     sz = make_rpc(handles[partition],
 		  buffer,
@@ -106,17 +105,17 @@ int main(int argc, const char *argv[]) {
 		  ctr[partition],
 		  0);
     ctr[partition]++;
-    total_latency += (clock.current_time() - tx_begin_time);
+    total_latency += (rtc_clock::current_time() - tx_begin_time);
     usleep(sleep_time);
     tx_block_cnt++;
-    if(clock.current_time() - tx_block_begin >= 10000) {
+    if(rtc_clock::current_time() - tx_block_begin >= 10000) {
       BOOST_LOG_TRIVIAL(info) << "LOAD = "
-			      << ((double)1000000*tx_block_cnt)/(clock.current_time() - tx_block_begin)
+			      << ((double)1000000*tx_block_cnt)/(rtc_clock::current_time() - tx_block_begin)
 			      << " tx/sec "
 			      << "LATENCY = "
 			      << ((double)total_latency)/tx_block_cnt
 			      << " us ";
-      tx_block_begin = clock.current_time();
+      tx_block_begin = rtc_clock::current_time();
       tx_block_cnt   = 0;
       total_latency  = 0;
     }
@@ -126,12 +125,12 @@ int main(int argc, const char *argv[]) {
 
   total_latency = 0;
   tx_block_cnt  = 0;
-  tx_block_begin = clock.current_time();
-  unsigned long tx_begin_time = clock.current_time();
+  tx_block_begin = rtc_clock::current_time();
+  unsigned long tx_begin_time = rtc_clock::current_time();
   while(true) {
     prop->fn = FN_BUMP;
     prop->k_data.key = me*KEYS + (int)KEYS*(rand()/(RAND_MAX + 1.0));
-    prop->timestamp = clock.current_time();
+    prop->timestamp = rtc_clock::current_time();
     prop->src       = me;
     prop->order     = (order++);
     int partition = prop->k_data.key % partitions;
@@ -143,13 +142,13 @@ int main(int argc, const char *argv[]) {
 		  0);
     ctr[partition]++;
     tx_block_cnt++;
-
+    /*
     prop->fn = FN_LOOKUP;
     prop->k_data.key = me*KEYS + (int)KEYS*(rand()/(RAND_MAX + 1.0));
-    prop->timestamp = clock.current_time();
+    prop->timestamp = rtc_clock::current_time();
     prop->src       = me;
     prop->order     = (order++);
-    partition = prop->k_data.key % partitions;
+    int partition = prop->k_data.key % partitions;
     sz = make_rpc(handles[partition],
 		  buffer,
 		  sizeof(struct proposal),
@@ -158,16 +157,16 @@ int main(int argc, const char *argv[]) {
 		  RPC_FLAG_RO);
     ctr[partition]++;
     tx_block_cnt++;
-
+    */
     if(tx_block_cnt > 5000) {
-      total_latency = (clock.current_time() - tx_begin_time);
+      total_latency = (rtc_clock::current_time() - tx_begin_time);
       BOOST_LOG_TRIVIAL(info) << "LOAD = "
 			      << ((double)1000000*tx_block_cnt)/total_latency
 			      << " tx/sec "
 			      << "LATENCY = "
 			      << ((double)total_latency)/tx_block_cnt
 			      << " us ";
-      tx_begin_time = clock.current_time();
+      tx_begin_time = rtc_clock::current_time();
       tx_block_cnt   = 0;
       total_latency  = 0;
     }

@@ -48,7 +48,6 @@
 #define KEYS 100
 
 int main(int argc, const char *argv[]) {
-  rtc_clock clock;
   if(argc != 7) {
     printf("Usage: %s client_id replicas clients sleep_usecs server_config client_config\n", argv[0]);
     exit(-1);
@@ -70,7 +69,7 @@ int main(int argc, const char *argv[]) {
   void *resp;
   unsigned long order = 0;
   unsigned long tx_block_cnt   = 0;
-  unsigned long tx_block_begin = clock.current_time();
+  unsigned long tx_block_begin = rtc_clock::current_time();
   unsigned long total_latency  = 0;
   int ctr = get_last_txid(handle) + 1;
   
@@ -79,20 +78,20 @@ int main(int argc, const char *argv[]) {
     struct kv *infok = inserts_list(tx, 0);
     infok->key   = me*KEYS + i;
     infok->value = me*KEYS + i;
-    unsigned long tx_begin_time = clock.current_time();
+    unsigned long tx_begin_time = rtc_clock::current_time();
     sz = make_rpc(handle, buffer, sizeof(rbtree_tx_t), &resp, ctr, RPC_FLAG_SYNCHRONOUS);
     ctr++;
-    total_latency += (clock.current_time() - tx_begin_time);
+    total_latency += (rtc_clock::current_time() - tx_begin_time);
     usleep(sleep_time);
     tx_block_cnt++;
-    if(clock.current_time() - tx_block_begin >= 10000) {
+    if(rtc_clock::current_time() - tx_block_begin >= 10000) {
       BOOST_LOG_TRIVIAL(info) << "LOAD = "
-			      << ((double)1000000*tx_block_cnt)/(clock.current_time() - tx_block_begin)
+			      << ((double)1000000*tx_block_cnt)/(rtc_clock::current_time() - tx_block_begin)
 			      << " tx/sec "
 			      << "LATENCY = "
 			      << ((double)total_latency)/tx_block_cnt
 			      << " us ";
-      tx_block_begin = clock.current_time();
+      tx_block_begin = rtc_clock::current_time();
       tx_block_cnt   = 0;
       total_latency  = 0;
     }
@@ -100,7 +99,7 @@ int main(int argc, const char *argv[]) {
 
   total_latency = 0;
   tx_block_cnt  = 0;
-  tx_block_begin = clock.current_time();
+  tx_block_begin = rtc_clock::current_time();
   BOOST_LOG_TRIVIAL(info) << "Complete";
   return 0;
 }

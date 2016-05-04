@@ -4,13 +4,11 @@
 #include <libcyclone.hpp>
 #include <stdio.h>
 
-rtc_clock timer;
-
 static void print(const char *prefix,
 		  const void *data,
 		  const int size)
 {
-  unsigned long elapsed_usecs = timer.current_time();
+  unsigned long elapsed_usecs = rtc_clock::current_time();
   char *buf = (char *)data;
   if(size != 16) {
     BOOST_LOG_TRIVIAL(fatal) << "CLIENT: Incorrect record size";
@@ -44,7 +42,7 @@ int main(int argc, char *argv[])
   while(true) {
     *(unsigned int *)&proposal[0] = me;
     *(unsigned int *)&proposal[4] = ctr;
-    *(unsigned long *)&proposal[8] = timer.current_time();
+    *(unsigned long *)&proposal[8] = rtc_clock::current_time();
     void *resp;
     print("PROPOSE", proposal, 16);
     int sz = make_rpc(handle, proposal, 16, &resp, ctr, 0);
