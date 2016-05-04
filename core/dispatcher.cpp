@@ -314,7 +314,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	  free(follower_data);
 	  while(!rpc->rep_follower_success &&
 		cyclone_get_term(cyclone_handle) == execution_term);
-	  if(cyclone_get_term(cyclone_handle) != execution_term) {
+	  if(!rpc->rep_follower_success) {
 	    repeat = true;
 	    pmemobj_tx_abort(-1);
 	  }
@@ -460,12 +460,15 @@ static void gc_pending_rpc_list(bool is_master)
   tmp = pending_rpc_head;
   while(tmp) {
     if(tmp->req_follower_data_active) {
-      cyclone_add_entry_term(cyclone_handle,
-			     tmp->req_follower_data,
-			     tmp->req_follower_data_size,
-			     tmp->req_follower_term);
+      cookie = cyclone_add_entry_term(cyclone_handle,
+				      tmp->req_follower_data,
+				      tmp->req_follower_data_size,
+				      tmp->req_follower_term);
       __sync_synchronize();
       tmp->req_follower_data_active = false;
+      if(cookie != NULL) {
+	free(cookie);
+      }
     }
     tmp = tmp->next;
   }

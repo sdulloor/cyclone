@@ -12,7 +12,7 @@ typedef struct rpc_info_st {
   void *ret_value;
   void *follower_data;
   int follower_data_size;
-  bool have_follower_data;
+  volatile bool have_follower_data;
   char * volatile req_follower_data;
   volatile int req_follower_data_size;
   volatile int req_follower_term;
