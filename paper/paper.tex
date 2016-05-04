@@ -24,13 +24,11 @@ stores. Cyclone provides both failure atomicity as well as
 strongly consistent replication when updates to the heap are enclosed in
 software transactions thereby giving strong guarantees to programmers
 with minimal effort on their part. Under the hood Cyclone decouples modification
-of local persistent memory from replication to maximize performance. In
-addition, unlike traditional systems that provide strong replication, Cyclone
-does require programs to be provisioned for checkpoints since NVM is directly
-manipulated by programmers and therefore up to date till the last executed
-transaction. Instead, Cyclone provides a novel NVM copy mechanism to bring up
-new nodes added to the cluster.
-
+of local persistent memory from replication to maximize performance. Unlike
+traditional systems that provide strong replication, the ``in-memory'' image is
+persistent and there is no need for checkpoints - except when new replicas are
+added. In addition linearizable reads can be directly executed without the need to
+combine pending updates from a log.
 \end{abstract}  
 
 \section{Introduction}
