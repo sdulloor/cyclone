@@ -274,17 +274,19 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
   volatile int execution_term;
   volatile bool is_leader;
   volatile bool have_data;
- while(!rpc->rep_success && !rpc->rep_failed);
+  while(!rpc->rep_success && !rpc->rep_failed);
   if(rpc->rep_success) {
     while(repeat) {
-      execution_term = cyclone_get_term(cyclone_handle);
+      execution_term = cyclone_get_term(cyclone_handle); // get current view
+      if(cyclone_get_leader(cyclone_handle) == -1) { // Make sure its stable
+	continue;
+      }
       is_leader = cyclone_is_leader(cyclone_handle);
       have_data = rpc->have_follower_data;
       user_tx_aborted = false;
       __sync_synchronize();
-      if(cyclone_get_term(cyclone_handle) != execution_term ||
-	 cyclone_get_leader(cyclone_handle) == -1) {
-	continue;
+      if(cyclone_get_term(cyclone_handle) != execution_term) {
+	continue; // Make sure view hasn't changed
       }
       repeat = false;
       TX_BEGIN(state) {
