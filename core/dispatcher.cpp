@@ -29,6 +29,7 @@ struct client_ro_state_st {
   volatile unsigned long committed_txid;
   char * last_return_value;
   int last_return_size;
+  bool inflight;
 } client_ro_state [MAX_CLIENTS];
 
 static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
@@ -762,6 +763,7 @@ struct dispatcher_loop {
     rep_sz = sizeof(rpc_t);
     bool batch_issue = false;
     rpc_req->receiver = replica_me;
+    client_ro_state[rpc_req->client_id].inflight = false;
     
     if(!cyclone_is_leader(cyclone_handle)) {
       rpc_rep->code = RPC_REP_INVSRV;
@@ -879,9 +881,10 @@ struct dispatcher_loop {
     }
   }
 
+  bool *need_issue_rpc;
+
   void handle_batch_rpc(int *rx_sizes, int requests)
   {
-    bool need_issue_rpc[BATCH_SIZE];
     int i;
     rx_buffer = rx_buffers;
     for(int i=0; i < requests;i++) {
@@ -916,11 +919,14 @@ struct dispatcher_loop {
     unsigned long last_batch = last_gc;
     int requests = 0;
     unsigned char * ptr;
-    int rx_sizes[BATCH_SIZE];
+    int *rx_sizes = (int *)malloc(MAX_BATCH_SIZE*sizeof(int));
+    need_issue_rpc = (bool *)malloc(MAX_BATCH_SIZE*sizeof(bool));
     rpc_t *req;
-    int adaptive_batch_size = BATCH_SIZE;
+    const int BUFSPACE = MIN_BATCH_BUFFERS*DISP_MAX_MSGSIZE;
+    int adaptive_batch_size = MIN_BATCH_BUFFERS;
+    int space_left = BUFSPACE;
 
-    rx_buffers = (unsigned char *)malloc(BATCH_SIZE * DISP_MAX_MSGSIZE);
+    rx_buffers = (unsigned char *)malloc(BUFSPACE);
     
     while(building_image); // Wait till building image is complete
     ptr = rx_buffers;
@@ -931,48 +937,65 @@ struct dispatcher_loop {
 				  "DISP RCV");
       unsigned long mark = rtc_clock::current_time();
       if(sz != -1) {
-	rx_sizes[requests++] = sz;
+	rx_sizes[requests] = sz;
 	req = (rpc_t *)ptr;
 	req->timestamp = mark;
-	ptr += sz;
-	if(requests == 1) {
-	  last_batch = mark;
-	}
-	if(req->code == RPC_REQ_NODEADD || req->code == RPC_REQ_NODEDEL) {
-	  if(requests > 1) {
-	    handle_batch_rpc(rx_sizes, requests - 1);
+	if(!client_ro_state[req->client_id].inflight) { // Only one inflight per client
+	  ptr += sz;
+	  space_left -= sz;
+	  requests++;
+	  if(requests == 1) {
+	    last_batch = mark;
 	  }
-	  memcpy(rx_buffers, ptr - sz, sz);
-	  rx_sizes[0] = sz;
-	  handle_batch_rpc(rx_sizes, 1);
-	  requests = 0;
-	  ptr = rx_buffers;
-	}
-	else if(req->code == RPC_DOORBELL) {
-	  router->ring_doorbell(zmq_context,
-				req->requestor,
-				req->client_id,
-				req->port);
-	  rpc_t *rpc_rep = (rpc_t *)tx_buffer;
-	  rpc_rep->code = RPC_REP_COMPLETE;
-	  rpc_rep->client_id   = req->client_id;
-	  rpc_rep->channel_seq = req->channel_seq;
-	  router->lock_output_socket(req->requestor, req->client_id);
-	  cyclone_tx(router->output_socket(req->requestor, req->client_id), 
-		     tx_buffer, 
-		     sizeof(rpc_t), 
-		     "Doorbell reply");
-	  router->unlock_output_socket(req->requestor, req->client_id);
-	  ptr -= sz;
-	  requests--;
-	}
-	else if(requests == adaptive_batch_size) {
-	  handle_batch_rpc(rx_sizes, requests);
-	  requests = 0;
-	  ptr = rx_buffers;
-	  adaptive_batch_size = adaptive_batch_size*2;
-	  if(adaptive_batch_size > BATCH_SIZE) {
-	    adaptive_batch_size = BATCH_SIZE;
+	  if(req->code == RPC_REQ_NODEADD || req->code == RPC_REQ_NODEDEL) {
+	    if(requests > 1) {
+	      handle_batch_rpc(rx_sizes, requests - 1);
+	    }
+	    memcpy(rx_buffers, ptr - sz, sz);
+	    rx_sizes[0] = sz;
+	    handle_batch_rpc(rx_sizes, 1);
+	    requests = 0;
+	    ptr = rx_buffers;
+	    space_left = BUFSPACE;
+	  }
+	  else if(req->code == RPC_DOORBELL) {
+	    router->ring_doorbell(zmq_context,
+				  req->requestor,
+				  req->client_id,
+				  req->port);
+	    rpc_t *rpc_rep = (rpc_t *)tx_buffer;
+	    rpc_rep->code = RPC_REP_COMPLETE;
+	    rpc_rep->client_id   = req->client_id;
+	    rpc_rep->channel_seq = req->channel_seq;
+	    router->lock_output_socket(req->requestor, req->client_id);
+	    cyclone_tx(router->output_socket(req->requestor, req->client_id), 
+		       tx_buffer, 
+		       sizeof(rpc_t), 
+		       "Doorbell reply");
+	    router->unlock_output_socket(req->requestor, req->client_id);
+	    ptr -= sz;
+	    space_left += sz;
+	    requests--;
+	  }
+	  else if(requests == adaptive_batch_size) {
+	    handle_batch_rpc(rx_sizes, requests);
+	    requests = 0;
+	    ptr = rx_buffers;
+	    space_left = BUFSPACE;
+	    adaptive_batch_size = adaptive_batch_size*2;
+	    if(adaptive_batch_size > MAX_BATCH_SIZE) {
+	      adaptive_batch_size = MAX_BATCH_SIZE;
+	    }
+	  }
+	  else if(space_left < DISP_MAX_MSGSIZE) {
+	    handle_batch_rpc(rx_sizes, requests);
+	    requests = 0;
+	    ptr = rx_buffers;
+	    space_left = BUFSPACE;
+	    // Don't change adaptive batch size
+	  }
+	  else {
+	    client_ro_state[req->client_id].inflight = true;
 	  }
 	}
       }
@@ -981,6 +1004,7 @@ struct dispatcher_loop {
 	handle_batch_rpc(rx_sizes, requests);
 	requests = 0;
 	ptr = rx_buffers;
+	space_left = BUFSPACE;
 	if(adaptive_batch_size > 1) {
 	  adaptive_batch_size = adaptive_batch_size/2;
 	}
@@ -1127,6 +1151,7 @@ void dispatcher_start(const char* config_server_path,
     client_ro_state[i].committed_txid    = 0UL;
     client_ro_state[i].last_return_size  = 0;
     client_ro_state[i].last_return_value = NULL;
+    client_ro_state[i].inflight = false;
   }
   
   execute_rpc = rpc_callback;
