@@ -45,9 +45,6 @@
 #include <libcyclone.hpp>
 
 
-// Make prime to avoid convoying
-#define HASH 191
-
 int main(int argc, const char *argv[]) {
   if(argc != 8) {
     printf("Usage: %s client_id replicas clients sleep_usecs partitions server_config_prefix client_config_prefix\n", argv[0]);

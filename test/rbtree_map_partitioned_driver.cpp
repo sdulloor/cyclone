@@ -45,9 +45,6 @@
 #include <libcyclone.hpp>
 
 
-// Make prime to avoid convoying
-#define KEYS 191
-
 int main(int argc, const char *argv[]) {
   if(argc != 8) {
     printf("Usage: %s client_id replicas clients sleep_usecs partitions server_config_prefix client_config_prefix\n", argv[0]);
@@ -88,76 +85,61 @@ int main(int argc, const char *argv[]) {
     ctr[i] = get_last_txid(handles[i]) + 1;
     BOOST_LOG_TRIVIAL(info) << "Done";
   }
-  
-  for(int i=0;i<KEYS;i++) {
-    prop->fn = FN_INSERT;
-    prop->kv_data.key   = me*KEYS + i;
-    prop->kv_data.value = me*KEYS + i;
-    prop->timestamp = rtc_clock::current_time();
-    prop->src       = me;
-    prop->order     = (order++);
-    unsigned long tx_begin_time = rtc_clock::current_time();
-    int partition = prop->kv_data.key % partitions;
-    sz = make_rpc(handles[partition],
-		  buffer,
-		  sizeof(struct proposal),
-		  &resp,
-		  ctr[partition],
-		  0);
-    ctr[partition]++;
-    total_latency += (rtc_clock::current_time() - tx_begin_time);
-    usleep(sleep_time);
-    tx_block_cnt++;
-    if(rtc_clock::current_time() - tx_block_begin >= 10000) {
-      BOOST_LOG_TRIVIAL(info) << "LOAD = "
-			      << ((double)1000000*tx_block_cnt)/(rtc_clock::current_time() - tx_block_begin)
-			      << " tx/sec "
-			      << "LATENCY = "
-			      << ((double)total_latency)/tx_block_cnt
-			      << " us ";
-      tx_block_begin = rtc_clock::current_time();
-      tx_block_cnt   = 0;
-      total_latency  = 0;
-    }
+
+  unsigned long keys = 10000;
+  const char *keys_env = getenv("RBT_KEYS");
+  if(keys_env != NULL) {
+    keys = atol(keys_env);
   }
+  BOOST_LOG_TRIVIAL(info) << "KEYS = " << keys;
 
-  srand(me);
-
+  double frac_read = 0.5;
+  const char *frac_read_env = getenv("RBT_FRAC_READ");
+  if(frac_read_env != NULL) {
+    frac_read = atof(frac_read_env);
+  }
+  BOOST_LOG_TRIVIAL(info) << "FRAC_READ = " << frac_read;
+  
   total_latency = 0;
   tx_block_cnt  = 0;
   tx_block_begin = rtc_clock::current_time();
   unsigned long tx_begin_time = rtc_clock::current_time();
+  srand(tx_begin_time);
+  int partition;
   while(true) {
-    prop->fn = FN_BUMP;
-    prop->k_data.key = me*KEYS + (int)KEYS*(rand()/(RAND_MAX + 1.0));
-    prop->timestamp = rtc_clock::current_time();
-    prop->src       = me;
-    prop->order     = (order++);
-    int partition = prop->k_data.key % partitions;
-    sz = make_rpc(handles[partition],
-		  buffer,
-		  sizeof(struct proposal),
-		  &resp,
-		  ctr[partition],
-		  0);
-    ctr[partition]++;
-    tx_block_cnt++;
-    /*
-    prop->fn = FN_LOOKUP;
-    prop->k_data.key = me*KEYS + (int)KEYS*(rand()/(RAND_MAX + 1.0));
-    prop->timestamp = rtc_clock::current_time();
-    prop->src       = me;
-    prop->order     = (order++);
-    int partition = prop->k_data.key % partitions;
-    sz = make_rpc(handles[partition],
-		  buffer,
-		  sizeof(struct proposal),
-		  &resp,
-		  ctr[partition],
-		  RPC_FLAG_RO);
-    ctr[partition]++;
-    tx_block_cnt++;
-    */
+    double coin = ((double)rand())/RAND_MAX;
+    if(coin > FRAC_READ) {
+      prop->fn = FN_BUMP;
+      prop->k_data.key = rand() % keys;
+      prop->timestamp = rtc_clock::current_time();
+      prop->src       = me;
+      prop->order     = (order++);
+      partition = prop->k_data.key % partitions;
+      sz = make_rpc(handles[partition],
+		    buffer,
+		    sizeof(struct proposal),
+		    &resp,
+		    ctr[partition],
+		    0);
+      ctr[partition]++;
+      tx_block_cnt++;
+    }
+    else {
+      prop->fn = FN_LOOKUP;
+      prop->k_data.key = rand() % keys;
+      prop->timestamp = rtc_clock::current_time();
+      prop->src       = me;
+      prop->order     = (order++);
+      partition = prop->k_data.key % partitions;
+      sz = make_rpc(handles[partition],
+		    buffer,
+		    sizeof(struct proposal),
+		    &resp,
+		    ctr[partition],
+		    RPC_FLAG_RO);
+      ctr[partition]++;
+      tx_block_cnt++;
+    }
     if(tx_block_cnt > 5000) {
       total_latency = (rtc_clock::current_time() - tx_begin_time);
       BOOST_LOG_TRIVIAL(info) << "LOAD = "
@@ -170,7 +152,6 @@ int main(int argc, const char *argv[]) {
       tx_block_cnt   = 0;
       total_latency  = 0;
     }
-    
   }
   return 0;
 }
