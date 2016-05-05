@@ -711,7 +711,7 @@ void* cyclone_boot(const char *config_path,
   }
 
   /* setup connections */
-  cyclone_handle->zmq_context  = zmq_init(1); // One thread should be enough ?
+  cyclone_handle->zmq_context  = zmq_init(zmq_threads); 
   cyclone_handle->router = new raft_switch(cyclone_handle->zmq_context,
 					   &cyclone_handle->pt,
 					   cyclone_handle->me,

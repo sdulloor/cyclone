@@ -2,16 +2,18 @@
 #define _TUNING_
 
 // Server side timeouts -- usecs
-const int PERIODICITY                = 10; 
-const int RAFT_ELECTION_TIMEOUT      = 10000; 
-const int RAFT_REQUEST_TIMEOUT       = 2000; // this has to be high enough !
+static const int PERIODICITY                = 10; 
+static const int RAFT_ELECTION_TIMEOUT      = 10000; 
+static const int RAFT_REQUEST_TIMEOUT       = 2000; // this has to be high enough !
 
 // Client side timeouts
 static const int timeout_msec  = 30; // Client - failure detect
 
 //Dispatcher batching
-const int BATCH_SIZE = 5;
-const int DISP_BATCHING_INTERVAL     = 50;
+static const int BATCH_SIZE = 5;
+static const int DISP_BATCHING_INTERVAL     = 50;
 
+// ZMQ specific tuning
+static const int zmq_threads = 3;
 
 #endif

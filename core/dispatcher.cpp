@@ -1145,7 +1145,7 @@ void dispatcher_start(const char* config_server_path,
 				replicas,
 				NULL);
   // Listen on port
-  void *zmq_context = zmq_init(1);
+  void *zmq_context = zmq_init(zmq_threads);
   dispatcher_loop_obj    = new dispatcher_loop();
   dispatcher_loop_obj->zmq_context = zmq_context;
   dispatcher_loop_obj->clients  = clients;
