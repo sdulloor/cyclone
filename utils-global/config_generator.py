@@ -40,6 +40,8 @@ coord_filepath=config.get('meta','coord_filepath') + ".cyclone"
 
 
 logsize=config.getint('meta','logsize')
+heapsize=config.getint('meta','heapsize')
+coord_heapsize=config.getint('meta','coord_heapsize')
 server_baseports = {}
 client_baseports = {}
 
@@ -87,6 +89,7 @@ for q in range(0, quorums):
     f.write('server_baseport=' + str(server_baseports[str(q)]) + '\n')
     f.write('client_baseport=' + str(client_baseports[str(q)]) + '\n')
     f.write('filepath=' + str(filepath) + '\n')
+    f.write('heapsize=' + str(heapsize) + '\n')
     f.close()
     for r in range(0, replicas):
         rstring='mc' + str(r)
@@ -123,6 +126,7 @@ f.write('[dispatch]\n')
 f.write('server_baseport='+ str(coord_baseport) + '\n')
 f.write('client_baseport='+ str(coord_client_baseport) + '\n')
 f.write('filepath=' + str(coord_filepath) + '\n')
+f.write('heapsize=' + str(coord_heapsize) + '\n')
 f.close()
 for r in range(0, co_replicas):
     qstring='coord'

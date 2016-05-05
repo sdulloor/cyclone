@@ -1053,6 +1053,7 @@ void dispatcher_start(const char* config_server_path,
   boost::property_tree::read_ini(config_client_path, pt_client);
   // Load/Setup state
   std::string file_path = pt_server.get<std::string>("dispatch.filepath");
+  unsigned long heapsize = pt_server.get<unsigned long>("dispatch.heapsize");
   char me_str[100];
   sprintf(me_str,"%d", me);
   file_path.append(me_str);
@@ -1078,7 +1079,7 @@ void dispatcher_start(const char* config_server_path,
     if(access(file_path.c_str(), F_OK)) {
       state = pmemobj_create(file_path.c_str(),
 			     POBJ_LAYOUT_NAME(disp_state),
-			     sizeof(disp_state_t) + PMEMOBJ_MIN_POOL,
+			     heapsize + PMEMOBJ_MIN_POOL,
 			     0666);
       if(state == NULL) {
 	BOOST_LOG_TRIVIAL(fatal)
