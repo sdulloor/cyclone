@@ -1,7 +1,7 @@
 // Asynchronous fault tolerant pmem log replication with cyclone
 #include "cyclone.hpp"
 #include "cyclone_context.hpp"
-#include "timeouts.hpp"
+#include "tuning.hpp"
 #include "checkpoint.hpp"
 
 void *cyclone_control_socket_out(void *cyclone_handle, 

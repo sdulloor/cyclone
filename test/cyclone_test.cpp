@@ -5,7 +5,7 @@
 #include "../core/cyclone.hpp"
 #include "../core/clock.hpp"
 #include "../core/logging.hpp"
-#include "../core/timeouts.hpp"
+#include "../core/tuning.hpp"
 
 void print(const char *prefix,
 	   void *data,

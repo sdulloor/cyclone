@@ -18,7 +18,7 @@
 #include <boost/bind.hpp>
 #include<libpmemobj.h>
 #include "dispatcher_exec.hpp"
-#include "timeouts.hpp"
+#include "tuning.hpp"
 #include "checkpoint.hpp"
 
 static void *cyclone_handle;
@@ -31,7 +31,6 @@ struct client_ro_state_st {
   int last_return_size;
 } client_ro_state [MAX_CLIENTS];
 
-const int BATCH_SIZE = 5; // Should probably tune this ?
 static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
 static unsigned char *rx_buffer;
 static unsigned char *rx_buffers;
@@ -919,6 +918,7 @@ struct dispatcher_loop {
     unsigned char * ptr;
     int rx_sizes[BATCH_SIZE];
     rpc_t *req;
+    int adaptive_batch_size = BATCH_SIZE;
 
     rx_buffers = (unsigned char *)malloc(BATCH_SIZE * DISP_MAX_MSGSIZE);
     
@@ -966,10 +966,14 @@ struct dispatcher_loop {
 	  ptr -= sz;
 	  requests--;
 	}
-	else if(requests == BATCH_SIZE) {
+	else if(requests == adaptive_batch_size) {
 	  handle_batch_rpc(rx_sizes, requests);
 	  requests = 0;
 	  ptr = rx_buffers;
+	  adaptive_batch_size = adaptive_batch_size*2;
+	  if(adaptive_batch_size > BATCH_SIZE) {
+	    adaptive_batch_size = BATCH_SIZE;
+	  }
 	}
       }
       else if(requests > 0 && 
@@ -977,6 +981,9 @@ struct dispatcher_loop {
 	handle_batch_rpc(rx_sizes, requests);
 	requests = 0;
 	ptr = rx_buffers;
+	if(adaptive_batch_size > 1) {
+	  adaptive_batch_size = adaptive_batch_size/2;
+	}
       }
 
       if((mark - last_gc) >= PERIODICITY) {

@@ -7,7 +7,7 @@
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <unistd.h>
-#include "timeouts.hpp"
+#include "tuning.hpp"
 
 typedef struct rpc_client_st {
   int me;

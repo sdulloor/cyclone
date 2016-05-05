@@ -18,7 +18,7 @@ extern "C" {
 #include "circular_log.h"
 #include "clock.hpp"
 #include "cyclone_comm.hpp"
-#include "timeouts.hpp"
+#include "tuning.hpp"
 
 /* Message types */
 const int  MSG_REQUESTVOTE              = 1;
