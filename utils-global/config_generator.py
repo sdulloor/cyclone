@@ -232,12 +232,12 @@ for m in range(0, machines):
             cmd=cmd + str(quorums) + ' '
             cmd=cmd + 'config config_client &> client_tx_log' + str(c) + '&\n'
             f_tx_client.write(cmd)
-            cmd='./rbtree_map_coordinator_load '
+            cmd='./rbtree_map_partitioned_loader '
             cmd=cmd + str(c) + ' '
             cmd=cmd + str(co_replicas) + ' '
             cmd=cmd + str(clients) + ' 0 '
-            cmd=cmd + 'config_coord.ini '
-            cmd=cmd + 'config_coord_client.ini '
+            cmd=cmd + str(quorums) + ' '
+            cmd=cmd + 'config config_client &> client_log' + str(c) + '&\n'
             f_preload.write(cmd)
             cmd='./rbtree_map_partitioned_driver '
             cmd=cmd + str(c) + ' '
