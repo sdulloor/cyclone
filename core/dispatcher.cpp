@@ -269,7 +269,6 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 {
   while(building_image);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  volatile bool user_tx_aborted = false;
   volatile bool repeat = true;
   volatile int execution_term;
   volatile bool is_leader;
@@ -283,7 +282,6 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
       }
       is_leader = cyclone_is_leader(cyclone_handle);
       have_data = rpc->have_follower_data;
-      user_tx_aborted = false;
       __sync_synchronize();
       if(cyclone_get_term(cyclone_handle) != execution_term) {
 	continue; // Make sure view hasn't changed
@@ -338,7 +336,8 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	mark_done(rpc->rpc, rpc->raft_idx, rpc->raft_term, rpc->ret_value, rpc->sz);
       } TX_ONABORT {
 	if(!repeat) {
-	  user_tx_aborted= true;
+	  BOOST_LOG_TRIVIAL(fatal) << "USER ABORT. Shutting down.";
+	  exit(-1);
 	} 
 	else {
 	  if(rpc->sz > 0) {
@@ -350,15 +349,6 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
       } TX_END
     }
   }
-  if(user_tx_aborted) { // cleanup
-    rpc->sz = 0;
-    TX_BEGIN(state) {
-      mark_done(rpc->rpc, rpc->raft_idx, rpc->raft_term, rpc->ret_value, rpc->sz);
-    } TX_ONABORT {
-      BOOST_LOG_TRIVIAL(fatal) << "Dispatcher tx abort !\n";
-      exit(-1);
-    } TX_END
-  }
   client_response(rpc, (rpc_t *)tx_async_buffer);
   __sync_synchronize();
   rpc->complete = true; // note: rpc will be freed after this
@@ -368,7 +358,6 @@ void exec_rpc_internal(rpc_info_t *rpc)
 {
   while(building_image);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  volatile bool user_tx_aborted = true;
   
   TX_BEGIN(state) {
     if(rpc->rpc->code == RPC_REQ_NODEADD) {
@@ -383,7 +372,6 @@ void exec_rpc_internal(rpc_info_t *rpc)
 			    &rpc->ret_value);
     }
     while(!rpc->rep_success && !rpc->rep_failed);
-    user_tx_aborted = false;
     if(rpc->rep_success) {
       mark_done(rpc->rpc, rpc->raft_idx, rpc->raft_term, rpc->ret_value, rpc->sz);
     }
@@ -392,20 +380,11 @@ void exec_rpc_internal(rpc_info_t *rpc)
     }
   } TX_ONABORT {
     // Wait for replication to finish
-    while(!rpc->rep_success && !rpc->rep_failed);
-    if(rpc->rep_failed) {
-      user_tx_aborted= false;
+    if(!rpc->rep_failed) {
+      BOOST_LOG_TRIVIAL(fatal) << "USER ABORT. Shutting down.";
+      exit(-1);
     }
   } TX_END
-  if(user_tx_aborted) { // cleanup
-    rpc->sz = 0;
-    TX_BEGIN(state) {
-      mark_done(rpc->rpc, rpc->raft_idx, rpc->raft_term, rpc->ret_value, rpc->sz);
-    } TX_ONABORT{
-      BOOST_LOG_TRIVIAL(fatal) << "Dispatcher tx abort !\n";
-      exit(-1);
-    } TX_END
-  }
   client_response(rpc, (rpc_t *)tx_async_buffer);
   __sync_synchronize();
   rpc->complete = true; // note: rpc will be freed after this
