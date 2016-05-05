@@ -935,6 +935,9 @@ struct dispatcher_loop {
 	req = (rpc_t *)ptr;
 	req->timestamp = mark;
 	ptr += sz;
+	if(requests == 1) {
+	  last_batch = mark;
+	}
 	if(req->code == RPC_REQ_NODEADD || req->code == RPC_REQ_NODEDEL) {
 	  if(requests > 1) {
 	    handle_batch_rpc(rx_sizes, requests - 1);
@@ -944,7 +947,6 @@ struct dispatcher_loop {
 	  handle_batch_rpc(rx_sizes, 1);
 	  requests = 0;
 	  ptr = rx_buffers;
-	  last_batch = mark;
 	}
 	else if(req->code == RPC_DOORBELL) {
 	  router->ring_doorbell(zmq_context,
@@ -968,7 +970,6 @@ struct dispatcher_loop {
 	  handle_batch_rpc(rx_sizes, requests);
 	  requests = 0;
 	  ptr = rx_buffers;
-	  last_batch = mark;
 	}
       }
       else if(requests > 0 && 
@@ -976,7 +977,6 @@ struct dispatcher_loop {
 	handle_batch_rpc(rx_sizes, requests);
 	requests = 0;
 	ptr = rx_buffers;
-	last_batch = mark;
       }
 
       if((mark - last_gc) >= PERIODICITY) {
