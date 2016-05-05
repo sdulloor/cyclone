@@ -96,10 +96,10 @@ int main(int argc, const char *argv[]) {
   }
   BOOST_LOG_TRIVIAL(info) << "KEYS = " << keys;
 
-  unsigned long keys_start = me*(KEYS/clients);
-  unsigned long keys_stop = (me + 1)*(KEYS/clients);
+  unsigned long keys_start = me*(keys/clients);
+  unsigned long keys_stop = (me + 1)*(keys/clients);
   if(me == (clients - 1)) {
-    keys_stop = KEYS;
+    keys_stop = keys;
   }
   
   for(unsigned long i=keys_start;i<keys_stop;i++) {
@@ -122,7 +122,9 @@ int main(int argc, const char *argv[]) {
     usleep(sleep_time);
     tx_block_cnt++;
     if(rtc_clock::current_time() - tx_block_begin >= 10000) {
-      BOOST_LOG_TRIVIAL(info) << "LOAD = "
+      BOOST_LOG_TRIVIAL(info) << "INSERTED = "
+			      << (i - keys_start + 1)
+			      << " LOAD = "
 			      << ((double)1000000*tx_block_cnt)/(rtc_clock::current_time() - tx_block_begin)
 			      << " tx/sec "
 			      << "LATENCY = "
@@ -133,5 +135,6 @@ int main(int argc, const char *argv[]) {
       total_latency  = 0;
     }
   }
+  BOOST_LOG_TRIVIAL(info) << "LOADING COMPLETE";
   return 0;
 }
