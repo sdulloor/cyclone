@@ -108,7 +108,7 @@ int main(int argc, const char *argv[]) {
   int partition;
   while(true) {
     double coin = ((double)rand())/RAND_MAX;
-    if(coin > FRAC_READ) {
+    if(coin > frac_read) {
       prop->fn = FN_BUMP;
       prop->k_data.key = rand() % keys;
       prop->timestamp = rtc_clock::current_time();

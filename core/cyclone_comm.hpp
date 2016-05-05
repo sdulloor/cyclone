@@ -361,6 +361,7 @@ public:
 
 class server_switch {
   void **sockets_out;
+  int *socket_out_ports;
   unsigned long* socket_out_locks;
   void *socket_in;
   int client_machines;
@@ -424,6 +425,7 @@ public:
 
     sockets_out = new void *[client_machines*clients];
     socket_out_locks = new unsigned long[client_machines*clients];
+    socket_out_ports = new int[client_machines*clients];
 
     // Input wire
     socket_in   = cyclone_socket_in(context); 
@@ -447,8 +449,12 @@ public:
 
   void ring_doorbell(void *context, int mc, int client, int port)
   {
-    if(sockets_out[index(mc, client)] != NULL) {
+    if(sockets_out[index(mc, client)] != NULL && 
+       socket_out_ports[index(mc, client)] == port) {
       return; // Already setup
+    }
+    if(sockets_out[index(mc, client)] != NULL) {
+      zmq_close(sockets_out[index(mc, client)]);
     }
     std::stringstream key; 
     std::stringstream addr;
@@ -462,6 +468,7 @@ public:
     addr << saved_pt_client->get<std::string>(key.str().c_str());
     addr << ":" << port;
     cyclone_connect_endpoint(socket, addr.str().c_str());
+    socket_out_ports[index(mc, client)] = port;
   }
   
   void * output_socket(int machine, int client)
