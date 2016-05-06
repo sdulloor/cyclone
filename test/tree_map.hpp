@@ -40,13 +40,12 @@
 #include <libpmemobj.h>
 #include <libcyclone.hpp>
 
-const int FN_INSERT = 0;
-const int FN_DELETE = 1;
-const int FN_LOOKUP = 2;
-const int FN_BUMP   = 3;
-const int FN_LOCK   = 4;
-const int FN_GET_VERSION = 5;
-const int FN_UNLOCK = 6;
+const int FN_INSERT  = 0;
+const int FN_DELETE  = 1;
+const int FN_LOOKUP  = 2;
+const int FN_BUMP    = 3;
+const int FN_PREPARE = 4;
+const int FN_COMMIT  = 5;
 
 const int CODE_OK   = 0;
 const int CODE_NOK  = 1;
@@ -57,26 +56,16 @@ struct kv {uint64_t key; uint64_t value;};
 
 typedef struct cookie_st {
   int txnum;
-  int phase;
-  int locks_taken;
-  int success;
   int index;
+  int success;
 } cookie_t;
 
-const int COOKIE_PHASE_LOCK     = 0;
-const int COOKIE_PHASE_VERSION  = 1;
-const int COOKIE_PHASE_INSERT   = 2;
-const int COOKIE_PHASE_DELETE   = 3;
-const int COOKIE_PHASE_UNLOCK   = 4;
 
 struct proposal {
   union {
     int fn;
     int code;
   };
-  unsigned long timestamp;
-  unsigned long src;
-  unsigned long order;
   union {
     struct kv kv_data;
     struct k k_data;
@@ -84,5 +73,36 @@ struct proposal {
   cookie_t cookie;
 };
 
+static uint64_t get_key(struct proposal *p)
+{
+  if(p->fn == FN_INSERT) {
+    return p->kv_data.key;
+  }
+  else if(p->fn == FN_DELETE) {
+    return p->k_data.key;
+  }
+  else if(p->fn == FN_LOOKUP) {
+    return p->k_data.key;
+  }
+  else if(p->fn == FN_BUMP) {
+    return p->k_data.key; 
+  }
+  else if(p->fn == FN_PREPARE) {
+    return p->kv_data.key;
+  }
+  else if(p->fn == FN_COMMIT) {
+    return p->k_data.key;
+  }
+  return 0; // Unknown !
+}
+
+bool is_stable(uint64_t value)
+{
+  return (value %2 == 0)
+}
+
+typedef struct rbtree_tx_st {
+  int steps;
+} rbtree_tx_t; // Followed by steps*proposal_t 
 
 #endif /* TREE_MAP_H */

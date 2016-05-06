@@ -49,19 +49,11 @@ TOID_DECLARE(uint64_t, TOID_NUM_BASE);
 static unsigned long server_id;
 static TOID(struct rbtree_map) the_tree;
 static PMEMobjpool *pop;
-static TOID(uint64_t) version_table;
 
 typedef struct heap_root_st {
-  TOID(uint64_t) version_table;
   TOID(struct rbtree_map) the_tree;
 }heap_root_t;
 
-const unsigned long version_table_size = (1UL  << 20);
-const unsigned long version_table_mask = (version_table_size - 1);						  
-unsigned long key_to_vtable_index(uint64_t key)
-{
-  return (key & (version_table_size - 1));
-}
 
 TOID(uint64_t) new_store_item(uint64_t val)
 {
@@ -100,36 +92,7 @@ int callback(const unsigned char *data,
   *return_value  = malloc(sizeof(struct proposal));
   struct proposal *rep  = (struct proposal *)*return_value;
   memcpy(&rep->cookie, &req->cookie, sizeof(cookie_t));
-
-  if(code == FN_LOCK) {
-    uint64_t *vptr = D_RW(version_table) +
-      key_to_vtable_index(req->kv_data.key);
-    uint64_t version = *vptr;
-    rep->code = version;
-    if(version == req->kv_data.value) { // UNLOCKED ?
-      pmemobj_tx_add_range_direct(vptr, sizeof(uint64_t));
-      *vptr = *vptr + 1; // LOCK
-    }
-  }
-  else if(code == FN_GET_VERSION) {
-    uint64_t *vptr = D_RW(version_table) +
-      key_to_vtable_index(req->k_data.key);
-    struct proposal *rep  = (struct proposal *)*return_value;
-    uint64_t version = *vptr;
-    rep->code = version;
-  }
-  else if(code == FN_UNLOCK) {
-    uint64_t *vptr = D_RW(version_table) +
-      key_to_vtable_index(req->kv_data.key);
-    struct proposal *rep  = (struct proposal *)*return_value;
-    uint64_t version = *vptr;
-    rep->code = version;
-    if(version == req->kv_data.value) { // LOCKED ?
-      pmemobj_tx_add_range_direct(vptr, sizeof(uint64_t));
-      *vptr = *vptr + 1; // UNLOCK
-    }
-  }
-  else if(code == FN_INSERT) {
+  if(code == FN_INSERT) {
     PMEMoid item = rbtree_map_get(pop, the_tree, req->kv_data.key);
     rep->code = CODE_OK;
     rep->kv_data.key = req->kv_data.key;
@@ -137,7 +100,12 @@ int callback(const unsigned char *data,
       pmemobj_tx_add_range(item, 0, sizeof(uint64_t));
       uint64_t *ptr = (uint64_t *)pmemobj_direct(item);
       rep->kv_data.value = *ptr;
-      *ptr = req->kv_data.value;
+      if(is_stable(*ptr)) {
+	*ptr = req->kv_data.value;
+      }
+      else {
+	rep->code = CODE_NOK;
+      }
     }
     else {
       rbtree_map_insert(pop, 
@@ -148,42 +116,80 @@ int callback(const unsigned char *data,
     }
   }
   else if(code == FN_DELETE) {
-    PMEMoid item = rbtree_map_remove(pop,
-				   the_tree, 
-				   req->k_data.key);
+    PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);
+    rep->kv_data.key = req->kv_data.key;
     if(OID_IS_NULL(item)) {
-      rep->code = CODE_NOK;
+	rep->code = CODE_NOK;
     }
     else {
+      uint64_t value = *(uint64_t *)pmemobj_direct(item);
       rep->code = CODE_OK;
-      rep->kv_data.key   = req->k_data.key;
-      rep->kv_data.value = *(uint64_t *)pmemobj_direct(item);
-      pmemobj_tx_free(item);
+      rep->kv_data.value = value;
+      if(is_stable(value)) {
+	item = rbtree_map_remove(pop,
+				 the_tree, 
+				 req->k_data.key);
+	pmemobj_tx_free(item);
+      }
     }
   }
   else if(code == FN_LOOKUP) {
     PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);
+    rep->kv_data.key     = req->k_data.key;
     if(OID_IS_NULL(item)) {
       rep->code = CODE_NOK;
     }
     else {
-      rep->code = CODE_OK;
-      rep->kv_data.key     = req->k_data.key;
       rep->kv_data.value = *(uint64_t *)pmemobj_direct(item);
     }
   }
   else if(code == FN_BUMP) {
     PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);
+    rep->kv_data.key     = req->k_data.key;
     if(OID_IS_NULL(item)) {
       rep->code = CODE_NOK;
     }
     else {
-      rep->code = CODE_OK;
-      rep->kv_data.key     = req->k_data.key;
+      uint64_t *ptr = (uint64_t *)pmemobj_direct(item);
+      rep->kv_data.value = *ptr;
+      if(is_stable(*ptr)) {
+	pmemobj_tx_add_range(item, 0, sizeof(uint64_t));
+	(*ptr) = (*ptr) + 2;
+      }
+    }
+  }
+  else if(code == FN_PREPARE) {
+    PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);
+    rep->code = CODE_OK;
+    rep->kv_data.key     = req->k_data.key;
+    if(OID_IS_NULL(item)) {
+      rep->cookie.success = 0; // FAIL
+    }
+    else {
       pmemobj_tx_add_range(item, 0, sizeof(uint64_t));
       uint64_t *ptr = (uint64_t *)pmemobj_direct(item);
-      (*ptr)++;
       rep->kv_data.value = *ptr;
+      if(rep->kv_data.value != req->kv_data.value) {
+	rep->cookie.success = 0;
+      }
+      (*ptr) = (*ptr) + 1;
+    }
+  }
+  else if(code == FN_COMMIT) {
+    PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);
+    rep->code = CODE_OK;
+    rep->kv_data.key     = req->k_data.key;
+    if(!OID_IS_NULL(item)) {
+      uint64_t *ptr = (uint64_t *)pmemobj_direct(item);
+      if(!is_stable(*ptr)) {
+	pmemobj_tx_add_range(item, 0, sizeof(uint64_t));
+	if(cookie.success) {
+	  (*ptr) = (*ptr) + 1;
+	}
+	else {
+	  (*ptr) = (*ptr) - 1;
+	}
+      }
     }
   }
   else {

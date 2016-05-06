@@ -1,5 +1,5 @@
 // Implement a distrbuted transaction co-ordinator for the red black tree
-#include "rbtree_map_coordinator.hpp"
+#include "tree_map.hpp"
 #include <stdio.h>
 
 
@@ -29,277 +29,6 @@ TOID(char) nvheap_setup(TOID(char) recovered,
 }
 
 
-int leader_callback_recovery(const unsigned char *data,
-			     const int len,
-			     unsigned char **follower_data,
-			     int *follower_data_size,
-			     void **return_value)
-{
-  int *ctr_recovery;
-  rbtree_tx_t * tx = (rbtree_tx_t *)data;
-  costat *rep;
-  rep = (costat *)malloc(sizeof(costat));
-  *follower_data = (unsigned char *)rep;
-  *follower_data_size = sizeof(costat);
-  rep->tx_status  = 1;
-  struct kv *info;
-  struct k* del_info;
-  tx_client_response *client_resp;
-  *return_value = malloc(sizeof(tx_client_response));
-  client_resp = (tx_client_response *)*return_value;
-
-  /* run a recovery pass to determing ctr values and state */
-  int current_phase = COOKIE_PHASE_LOCK;
-  int locks_taken   = 0;
-  int index         = 0; 
-  client_resp->tx_status = 1;
-
-  for(int i=0;i<quorums;i++) {
-    struct proposal *response;
-    int txid = get_last_txid(quorum_handles[i]);
-    if(ctr[i] != (txid + 1)) {
-      ctr[i] = txid + 1;
-      int sz = get_response(quorum_handles[i], (void **)&response, txid);
-      if(sz == RPC_EOLD) {
-	free(rep);
-	free(client_resp);
-	return -1;
-      }
-      if(response->cookie.phase > current_phase) {
-	current_phase = response->cookie.phase;
-      }
-      if(response->cookie.phase == current_phase &&
-	 response->cookie.index >= index) {
-	index = response->cookie.index + 1;
-      }
-      if(response->cookie.locks_taken > locks_taken) {
-	locks_taken = response->cookie.locks_taken;
-      }
-      /* Determine the state of the transaction */
-      if(!response->cookie.success) {
-	client_resp->tx_status = 0;
-      }
-      if(response->cookie.phase == COOKIE_PHASE_LOCK) {
-	info = locks_list(tx, response->cookie.index);
-	if(info->value != response->kv_data.value) {
-	  client_resp->tx_status = 0;
-	}
-      }
-      else if(response->cookie.phase == COOKIE_PHASE_VERSION) {
-	info = versions_list(tx, response->cookie.index);
-	if(info->value != response->kv_data.value) {
-	  client_resp->tx_status = 0;
-	}
-      }
-      if(response->cookie.txnum != *D_RO(txnum)) {
-	pmemobj_tx_abort(-1);
-      }
-    }
-  }
-
-  if(current_phase == COOKIE_PHASE_LOCK) {
-    goto phase_locks;
-  }
-  else if(current_phase == COOKIE_PHASE_VERSION) {
-    goto phase_versions;
-  }
-  else if(current_phase == COOKIE_PHASE_INSERT) {
-    goto phase_inserts;
-  }
-  else if(current_phase == COOKIE_PHASE_DELETE) {
-    goto phase_deletes;
-  }
-  else if(current_phase == COOKIE_PHASE_UNLOCK) {
-    goto phase_unlocks;
-  }
-  else {
-    fprintf(stderr, "Unknown phase in cookie %d\n", current_phase);
-    exit(-1);
-  }
-  
- phase_locks:
-  
-  // Acquire locks
-  for(int i=index;i<tx->num_locks;i++) {
-    info = locks_list(tx, i);
-    int partition = info->key % quorums;
-    struct proposal req;
-    struct proposal *resp;
-    req.fn = FN_LOCK;
-    req.kv_data = *info;
-    req.src       = clients - 1;
-    req.order     = 0;
-    req.cookie.phase       = COOKIE_PHASE_LOCK;
-    req.cookie.locks_taken = i;
-    req.cookie.index       = i;
-    req.cookie.success     = client_resp->tx_status;
-    req.cookie.txnum       = *D_RO(txnum);
-
-    int sz = make_rpc(quorum_handles[partition],
-		      &req,
-		      sizeof(struct proposal),
-		      (void **)&resp,
-		      ctr[partition],
-		      0);
-    if(sz == RPC_EOLD) {
-      free(rep),
-      free(client_resp);
-      return -1;
-    }
-    ctr[partition]++;
-
-    if(resp->code != req.kv_data.value) {
-      // Cleanup and fail
-      client_resp->tx_status = 0;
-      tx->num_locks = i;
-      break;
-    }
-    info->value = resp->code + 1;
-  }
-
-  if(client_resp->tx_status == 0) {
-    goto cleanup;
-  }
-
- phase_versions:
-  
-  for(int i=index;i<tx->num_versions;i++) {
-    info = versions_list(tx, i);
-    int partition = info->key % quorums;
-    struct proposal req;
-    struct proposal *resp;
-    req.fn = FN_GET_VERSION;
-    req.k_data.key = info->key;
-    req.src       = clients - 1;
-    req.order     = 0;
-    req.cookie.phase       = COOKIE_PHASE_VERSION;
-    req.cookie.locks_taken = tx->num_locks;
-    req.cookie.index       = i;
-    req.cookie.success     = client_resp->tx_status;
-    req.cookie.txnum       = *D_RO(txnum);
-
-
-    int sz = make_rpc(quorum_handles[partition],
-		      &req,
-		      sizeof(struct proposal),
-		      (void **)&resp,
-		      ctr[partition],
-		      0);
-    if(sz == RPC_EOLD) {
-      free(rep);
-      free(client_resp);
-      return -1;
-    }
-    ctr[partition]++;
-    if(resp->code != req.kv_data.value) {
-      // Cleanup and fail
-      client_resp->tx_status = 0;
-      break;
-    }
-  }
-
-  if(client_resp->tx_status == 0) {
-    goto cleanup;
-  }
-
- phase_inserts:
-  
-  for(int i=index;i<tx->num_inserts;i++) {
-    info = inserts_list(tx, i);
-    int partition = info->key % quorums;
-    struct proposal req;
-    struct proposal *resp;
-    req.fn = FN_INSERT;
-    req.kv_data = *info;
-    req.src       = clients - 1;
-    req.order     = 0;
-    req.cookie.phase       = COOKIE_PHASE_INSERT;
-    req.cookie.locks_taken = tx->num_locks;
-    req.cookie.index       = i;
-    req.cookie.success     = client_resp->tx_status;
-    req.cookie.txnum       = *D_RO(txnum);
-
-
-    int sz = make_rpc(quorum_handles[partition],
-		      &req,
-		      sizeof(struct proposal),
-		      (void **)&resp,
-		      ctr[partition],
-		      0);
-    if(sz == RPC_EOLD) {
-      free(rep);
-      free(client_resp);
-      return -1;
-    }
-    ctr[partition]++;
-  }
-
- phase_deletes:
-  
-  for(int i=index;i<tx->num_deletes;i++) {
-    del_info = deletes_list(tx, i);
-    int partition = del_info->key % quorums;
-    struct proposal req;
-    struct proposal *resp;
-    req.fn = FN_DELETE;
-    req.kv_data = *info;
-    req.src       = clients - 1;
-    req.order     = 0;
-    req.cookie.phase       = COOKIE_PHASE_DELETE;
-    req.cookie.locks_taken = tx->num_locks;
-    req.cookie.index       = i;
-    req.cookie.success     = client_resp->tx_status;
-    req.cookie.txnum       = *D_RO(txnum);
-
-    int sz = make_rpc(quorum_handles[partition],
-		      &req,
-		      sizeof(struct proposal),
-		      (void **)&resp,
-		      ctr[partition],
-		      0);
-    if(sz == RPC_EOLD) {
-      free(rep);
-      free(client_resp);
-      return -1;
-    }
-    ctr[partition]++;
-  }
-
- cleanup:
- phase_unlocks:
-  
-  for(int i=index;i<tx->num_locks;i++) {
-    info = locks_list(tx, i);
-    int partition = info->key % quorums;
-    struct proposal req;
-    struct proposal *resp;
-    req.fn = FN_UNLOCK;
-    req.kv_data = *info;
-    req.src       = clients - 1;
-    req.order     = 0;
-    req.cookie.phase       = COOKIE_PHASE_UNLOCK;
-    req.cookie.locks_taken = tx->num_locks;
-    req.cookie.index       = i;
-    req.cookie.success     = client_resp->tx_status;
-    req.cookie.txnum       = *D_RO(txnum);
-
-    int sz = make_rpc(quorum_handles[partition],
-		      &req,
-		      sizeof(struct proposal),
-		      (void **)&resp,
-		      ctr[partition],
-		      0);
-    if(sz == RPC_EOLD) {
-      free(rep);
-      free(client_resp);
-      return -1;
-    }
-    ctr[partition]++;
-  }
-
-  return sizeof(tx_client_response);
-}
-
 int leader_callback(const unsigned char *data,
 		    const int len,
 		    unsigned char **follower_data,
@@ -307,249 +36,56 @@ int leader_callback(const unsigned char *data,
 		    void **return_value)
 {
   rbtree_tx_t * tx = (rbtree_tx_t *)data;
-  costat *rep;
-  rep = (costat *)malloc(sizeof(costat) + quorums*sizeof(int));
-  for(int i=0;i<quorums;i++) {
-    rep->delta_txid[i] = 0;
-  }
-  *follower_data = (unsigned char *)rep;
-  *follower_data_size = sizeof(costat) + quorums*sizeof(int);
-  rep->tx_status  = 1;
-  struct kv *info;
-  struct k* del_info;
+  *follower_data = (int *)malloc(sizeof(int));
+  *follower_data_size = sizeof(int);
+  *return_value = (int *)malloc(sizeof(int));
 
-  tx_client_response *client_resp;
-  *return_value = malloc(sizeof(tx_client_response));
-  client_resp = (tx_client_response *)*return_value;
-  client_resp->tx_status = 1;
-
-  // Acquire locks
-  for(int i=0;i<tx->num_locks;i++) {
-    info = locks_list(tx, i);
-    int partition = info->key % quorums;
-    struct proposal req;
-    struct proposal *resp;
-    req.fn = FN_LOCK;
-    req.kv_data = *info;
-    req.src       = clients - 1;
-    req.order     = 0;
-    req.cookie.phase       = COOKIE_PHASE_LOCK;
-    req.cookie.locks_taken = i;
-    req.cookie.index       = i;
-    req.cookie.success     = client_resp->tx_status;
-    req.cookie.txnum       = *D_RO(txnum);
-    
+  struct proposal *p = (proposal *)(tx + 1);
+  struct proposal resp;
+  cookie_t cookie;
+  cookie.txnum   = *D_RO(txnum);
+  cookie.index   = 0;
+  cookie.success = 1; // Assume success
+  for(int i=0;i<tx->steps;) {
+    int partition = get_key(p) % partitions;
+    cookie.index = i;
+    memcpy(&p->cookie, &cookie, sizeof(cookie_t));
     int sz = make_rpc(quorum_handles[partition],
-		      &req,
+		      p,
 		      sizeof(struct proposal),
 		      (void **)&resp,
 		      ctr[partition],
 		      0);
     if(sz == RPC_EOLD) {
-      free(rep);
-      free(*return_value);
-      while(true) {
-	int recovery_sz = leader_callback_recovery(data,
-						   len,
-						   follower_data,
-						   follower_data_size,
-						   return_value);
-	if(recovery_sz != -1) {
-	  return recovery_sz;
+      for(partition=0;partition<partitions;partition++) {
+	int txid = get_last_txid(quorum_handles[partition]);
+	if(txid >= ctr[partition]) {
+	  sz = get_response(quorum_handles[partition],
+			    (void **)&resp,
+			    txid);
+	  if(resp.txnum != *D_RO(txnum)) {
+	    pmemobj_tx_abort(-1);
+	  }
+	  if(!resp.success) {
+	    cookie.success = 0;
+	  }
+	  if(resp.index > i) {
+	    i = resp.index + 1;
+	  }
+	  ctr[partition] = txid + 1;
 	}
       }
+      continue;
     }
-
+    memcpy(&cookie, &resp.cookie, sizeof(cookie_t));
     ctr[partition]++;
-    rep->delta_txid[partition]++;
-    if(resp->code != req.kv_data.value) {
-      // Cleanup and fail
-      client_resp->tx_status = 0;
-      rep->tx_status = 0;
-      tx->num_locks = i;
-      break;
-    }
-    info->value = resp->code + 1;
+    i++;
+    p++;
   }
-
-  if(client_resp->tx_status == 0) {
-    goto cleanup;
-  }
-  
-  for(int i=0;i<tx->num_versions;i++) {
-    info = versions_list(tx, i);
-    int partition = info->key % quorums;
-    struct proposal req;
-    struct proposal *resp;
-    req.fn = FN_GET_VERSION;
-    req.k_data.key = info->key;
-    req.src       = clients - 1;
-    req.order     = 0;
-    req.cookie.phase       = COOKIE_PHASE_VERSION;
-    req.cookie.locks_taken = tx->num_locks;
-    req.cookie.index       = i;
-    req.cookie.success     = client_resp->tx_status;
-    req.cookie.txnum       = *D_RO(txnum);
-    
-    int sz = make_rpc(quorum_handles[partition],
-		      &req,
-		      sizeof(struct proposal),
-		      (void **)&resp,
-		      ctr[partition],
-		      0);
-
-    if(sz == RPC_EOLD) {
-      free(rep);
-      free(*return_value);
-      while(true) {
-
-	int recovery_sz = leader_callback_recovery(data,
-						   len,
-						   follower_data,
-						   follower_data_size,
-						   return_value);
-	if(recovery_sz != -1) {
-	  return recovery_sz;
-	}
-      }
-    }
-    ctr[partition]++;
-    rep->delta_txid[partition]++;
-    if(resp->code != req.kv_data.value) {
-      // Cleanup and fail
-      client_resp->tx_status = 0;
-      rep->tx_status = 0;
-      break;
-    }
-  }
-
-  if(client_resp->tx_status == 0) {
-    goto cleanup;
-  }
-  
-  for(int i=0;i<tx->num_inserts;i++) {
-    info = inserts_list(tx, i);
-    int partition = info->key % quorums;
-    struct proposal req;
-    struct proposal *resp;
-    req.fn = FN_INSERT;
-    req.kv_data = *info;
-    req.src       = clients - 1;
-    req.order     = 0;
-    req.cookie.phase       = COOKIE_PHASE_INSERT;
-    req.cookie.locks_taken = tx->num_locks;
-    req.cookie.index       = i;
-    req.cookie.success     = client_resp->tx_status;
-    req.cookie.txnum       = *D_RO(txnum);
-    
-    int sz = make_rpc(quorum_handles[partition],
-		      &req,
-		      sizeof(struct proposal),
-		      (void **)&resp,
-		      ctr[partition],
-		      0);
-    if(sz == RPC_EOLD) {
-      free(rep);
-      free(*return_value);
-      while(true) {
-	int recovery_sz = leader_callback_recovery(data,
-						   len,
-						   follower_data,
-						   follower_data_size,
-						   return_value);
-	if(recovery_sz != -1) {
-	  return recovery_sz;
-	}
-      }
-    }
-    rep->delta_txid[partition]++;
-    ctr[partition]++;
-  }
-
-  for(int i=0;i<tx->num_deletes;i++) {
-    del_info = deletes_list(tx, i);
-    int partition = del_info->key % quorums;
-    struct proposal req;
-    struct proposal *resp;
-    req.fn = FN_DELETE;
-    req.kv_data = *info;
-    req.src       = clients - 1;
-    req.order     = 0;
-    req.cookie.phase       = COOKIE_PHASE_DELETE;
-    req.cookie.locks_taken = tx->num_locks;
-    req.cookie.index       = i;
-    req.cookie.success     = client_resp->tx_status;
-    req.cookie.txnum       = *D_RO(txnum);
-    
-    int sz = make_rpc(quorum_handles[partition],
-		      &req,
-		      sizeof(struct proposal),
-		      (void **)&resp,
-		      ctr[partition],
-		      0);
-    if(sz == RPC_EOLD) {
-      free(rep);
-      free(*return_value);
-      while(true) {
-	int recovery_sz = leader_callback_recovery(data,
-						   len,
-						   follower_data,
-						   follower_data_size,
-						   return_value);
-	if(recovery_sz != -1) {
-	  return recovery_sz;
-	}
-      }
-    }
-    rep->delta_txid[partition]++;
-    ctr[partition]++;
-  }
-
- cleanup:
-  
-  for(int i=0;i<tx->num_locks;i++) {
-    info = locks_list(tx, i);
-    int partition = info->key % quorums;
-    struct proposal req;
-    struct proposal *resp;
-    req.fn = FN_UNLOCK;
-    req.kv_data = *info;
-    req.src       = clients - 1;
-    req.order     = 0;
-    req.cookie.phase       = COOKIE_PHASE_UNLOCK;
-    req.cookie.locks_taken = tx->num_locks;
-    req.cookie.index       = i;
-    req.cookie.success     = client_resp->tx_status;
-    req.cookie.txnum       = *D_RO(txnum);
-
-    int sz = make_rpc(quorum_handles[partition],
-		  &req,
-		  sizeof(struct proposal),
-		  (void **)&resp,
-		  ctr[partition],
-		  0);
-    if(sz == RPC_EOLD) {
-      free(rep);
-      free(*return_value);
-      while(true) {
-	int recovery_sz = leader_callback_recovery(data,
-						   len,
-						   follower_data,
-						   follower_data_size,
-						   return_value);
-	if(recovery_sz != -1) {
-	  return recovery_sz;
-	}
-      }
-    }
-    ctr[partition]++;
-    rep->delta_txid[partition]++;
-  }
-
-  TX_ADD(txnum);
-  *D_RW(txnum) = *D_RO(txnum) + 1;
-  return sizeof(tx_client_response);
-}
+  *(int *)*follower_data = cookie.success;
+  *(int *)*return_value  = cookie.success;
+  return sizeof(int);
+}  
 
 int follower_callback(const unsigned char *data,
 		      const int len,
@@ -557,16 +93,16 @@ int follower_callback(const unsigned char *data,
 		      int follower_data_size, 
 		      void **return_value)
 {
-  struct coordinator_status *stat =
-    (struct coordinator_status *)follower_data;
-  for(int i=0;i<quorums;i++) {
-    ctr[i] += stat->delta_txid[i];
-  }
-  *return_value = malloc(sizeof(tx_client_response));
-  ((tx_client_response *)*return_value)->tx_status = stat->tx_status;
+  *return_value = malloc(sizeof(int));
+  *(int *)*return_value = *(int *)follower_data;
   TX_ADD(txnum);
   *D_RW(txnum) = *D_RO(txnum) + 1;
-  return sizeof(tx_client_response);
+  struct proposal *p = (proposal *)(tx + 1);
+  for(int i=0;i<tx->steps;) {
+    int partition = get_key(p) % partitions;
+    ctr[partition]++;
+  }
+  return sizeof(int);
 }
 
 

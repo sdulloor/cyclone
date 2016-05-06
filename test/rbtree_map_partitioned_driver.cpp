@@ -73,7 +73,7 @@ int main(int argc, const char *argv[]) {
   struct proposal *prop = (struct proposal *)buffer;
   srand(time(NULL));
   int sz;
-  void *resp;
+  struct proposal *resp;
   unsigned long order = 0;
   unsigned long tx_block_cnt   = 0;
   unsigned long tx_block_begin = rtc_clock::current_time();
@@ -109,36 +109,58 @@ int main(int argc, const char *argv[]) {
   while(true) {
     double coin = ((double)rand())/RAND_MAX;
     if(coin > frac_read) {
-      prop->fn = FN_BUMP;
-      prop->k_data.key = rand() % keys;
-      prop->timestamp = rtc_clock::current_time();
-      prop->src       = me;
-      prop->order     = (order++);
-      partition = prop->k_data.key % partitions;
-      sz = make_rpc(handles[partition],
-		    buffer,
-		    sizeof(struct proposal),
-		    &resp,
-		    ctr[partition],
-		    0);
-      ctr[partition]++;
-      tx_block_cnt++;
+      while(true) {
+	prop->fn = FN_BUMP;
+	prop->k_data.key = rand() % keys;
+	prop->timestamp = rtc_clock::current_time();
+	prop->src       = me;
+	prop->order     = (order++);
+	partition = prop->k_data.key % partitions;
+	sz = make_rpc(handles[partition],
+		      buffer,
+		      sizeof(struct proposal),
+		      (void **)&resp,
+		      ctr[partition],
+		      0);
+	ctr[partition]++;
+	tx_block_cnt++;
+	if(sz != sizeof(struct proposal)) {
+	  BOOST_LOG_TRIVIAL(fatal) << "Invalid response";
+	  exit(-1);
+	}
+	if(is_stable(resp->kv_data.value)) {
+	  break;
+	}
+      }
     }
     else {
-      prop->fn = FN_LOOKUP;
-      prop->k_data.key = rand() % keys;
-      prop->timestamp = rtc_clock::current_time();
-      prop->src       = me;
-      prop->order     = (order++);
-      partition = prop->k_data.key % partitions;
-      sz = make_rpc(handles[partition],
-		    buffer,
-		    sizeof(struct proposal),
-		    &resp,
-		    ctr[partition],
-		    RPC_FLAG_RO);
-      ctr[partition]++;
-      tx_block_cnt++;
+      while(true) {
+	prop->fn = FN_LOOKUP;
+	prop->k_data.key = rand() % keys;
+	prop->timestamp = rtc_clock::current_time();
+	prop->src       = me;
+	prop->order     = (order++);
+	partition = prop->k_data.key % partitions;
+	sz = make_rpc(handles[partition],
+		      buffer,
+		      sizeof(struct proposal),
+		      (void **)&resp,
+		      ctr[partition],
+		      RPC_FLAG_RO);
+	ctr[partition]++;
+	tx_block_cnt++;
+	if(sz != sizeof(struct proposal)) {
+	  BOOST_LOG_TRIVIAL(fatal) << "Invalid response";
+	  exit(-1);
+	}
+	if(resp->code != CODE_OK) {
+	  BOOST_LOG_TRIVIAL(fatal) << "Key not found";
+	  exit(-1);
+	}
+	if(is_stable(rep->kv_data.value)) {
+	  break;
+	}
+      }
     }
     if(tx_block_cnt > 5000) {
       total_latency = (rtc_clock::current_time() - tx_begin_time);
