@@ -39,8 +39,8 @@ do
 done
 
 clush -w ${GROUP} 'rm -rf /dev/shm/*.cyclone*'
-clush -w ${GROUP} cp ${deploy_dir}/cyclone.git/test/rbtree_map_server ${deploy_dir}
-clush -w ${GROUP} cp ${deploy_dir}/cyclone.git/test/rbtree_map_coordinator ${deploy_dir}
+clush -w ${GROUP} cp ${deploy_dir}/cyclone.git/test/counter_server ${deploy_dir}
+clush -w ${GROUP} cp ${deploy_dir}/cyclone.git/test/counter_coordinator ${deploy_dir}
 clush -w ${GROUP} ./exec_servers.sh
 echo "Deployed servers sleeping 10 sec ..."
 sleep 10

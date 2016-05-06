@@ -73,7 +73,7 @@ int main(int argc, const char *argv[]) {
   struct proposal *prop = (struct proposal *)buffer;
   srand(time(NULL));
   int sz;
-  void *resp;
+  struct proposal *resp;
   unsigned long order = 0;
   unsigned long tx_block_cnt   = 0;
   unsigned long tx_block_begin = rtc_clock::current_time();
@@ -108,10 +108,18 @@ int main(int argc, const char *argv[]) {
     sz = make_rpc(handles[partition],
 		  buffer,
 		  sizeof(struct proposal),
-		  &resp,
+		  (void **)&resp,
 		  ctr[partition],
 		  0);
     ctr[partition]++;
+    if(sz != sizeof(struct proposal)) {
+      BOOST_LOG_TRIVIAL(fatal) << "Invalid response";
+      exit(-1);
+    }
+    if(resp->code != CODE_OK) {
+      BOOST_LOG_TRIVIAL(fatal) << "Insert failed";
+      exit(-1);
+    }
     total_latency += (rtc_clock::current_time() - tx_begin_time);
     usleep(sleep_time);
     tx_block_cnt++;
@@ -127,6 +135,25 @@ int main(int argc, const char *argv[]) {
       tx_block_begin = rtc_clock::current_time();
       tx_block_cnt   = 0;
       total_latency  = 0;
+    }
+    struct proposal *rr;
+    prop->fn = FN_LOOKUP;
+    prop->k_data.key = i;
+    partition = prop->k_data.key % partitions;
+    sz = make_rpc(handles[partition],
+		  buffer,
+		  sizeof(struct proposal),
+		  (void **)&rr,
+		  ctr[partition],
+		  RPC_FLAG_RO);
+    ctr[partition]++;
+    if(sz != sizeof(struct proposal)) {
+      BOOST_LOG_TRIVIAL(fatal) << "Invalid response";
+      exit(-1);
+    }
+    if(rr->code != CODE_OK) {
+      BOOST_LOG_TRIVIAL(fatal) << "Key not found";
+      exit(-1);
     }
   }
   BOOST_LOG_TRIVIAL(info) << "LOADING COMPLETE";

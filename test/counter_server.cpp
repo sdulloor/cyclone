@@ -140,6 +140,7 @@ int callback(const unsigned char *data,
       rep->code = CODE_NOK;
     }
     else {
+      rep->code = CODE_OK;
       rep->kv_data.value = *(uint64_t *)pmemobj_direct(item);
     }
   }

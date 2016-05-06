@@ -19,9 +19,9 @@ chmod u+x exec_preload.sh
 echo 'source launch_preload' >> exec_preload.sh
 echo 'source launch_client'  >> exec_client.sh
 echo 'source launch_tx_client' >> exec_tx_client.sh
-clush -w ${GROUP} cp ${deploy_dir}/cyclone.git/test/rbtree_map_partitioned_loader ${deploy_dir}
-clush -w ${GROUP} cp ${deploy_dir}/cyclone.git/test/rbtree_map_coordinator_driver ${deploy_dir}
-clush -w ${GROUP} cp ${deploy_dir}/cyclone.git/test/rbtree_map_partitioned_driver ${deploy_dir}
+clush -w ${GROUP} cp ${deploy_dir}/cyclone.git/test/counter_loader ${deploy_dir}
+clush -w ${GROUP} cp ${deploy_dir}/cyclone.git/test/counter_coordinator_driver ${deploy_dir}
+clush -w ${GROUP} cp ${deploy_dir}/cyclone.git/test/counter_driver ${deploy_dir}
 clush -w ${GROUP} --copy exec_tx_client.sh --dest ${deploy_dir}
 clush -w ${GROUP} --copy exec_client.sh --dest ${deploy_dir}
 clush -w ${GROUP} --copy exec_preload.sh --dest ${deploy_dir}

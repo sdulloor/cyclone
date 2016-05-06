@@ -149,7 +149,7 @@ for q in range(0, quorums):
             f=open(dname + '/' + 'launch_servers','w')
         else:
             f=open(dname + '/' + 'launch_inactive_servers','w')
-        cmd='./rbtree_map_server '
+        cmd='./counter_server '
         cmd=cmd + str(r) + ' '
         cmd=cmd + str(replicas) + ' '
         cmd=cmd + str(clients) + ' '
@@ -164,7 +164,7 @@ for r in range(0, co_replicas):
     m=mc_config.get('machines','addr' + config.get(qstring, rstring))
     dname=output + '/' + m
     f=open(dname + '/' + 'launch_coord','w')
-    cmd='./rbtree_map_coordinator '
+    cmd='./counter_coordinator '
     cmd=cmd + str(r) + ' '
     cmd=cmd + str(co_replicas) + ' '
     cmd=cmd + str(clients) + ' '
@@ -227,7 +227,7 @@ for m in range(0, machines):
     for c in range(0, clients - 1):
         mc=c%machines
         if mc==m:
-            cmd='./rbtree_map_coordinator_driver '
+            cmd='./counter_coordinator_driver '
             cmd=cmd + str(c) + ' '
             cmd=cmd + str(co_replicas) + ' '
             cmd=cmd + str(clients) + ' 0 '
@@ -236,17 +236,17 @@ for m in range(0, machines):
             cmd=cmd + str(quorums) + ' '
             cmd=cmd + 'config config_client &> client_tx_log' + str(c) + '&\n'
             f_tx_client.write(cmd)
-            cmd='./rbtree_map_partitioned_loader '
+            cmd='./counter_loader '
             cmd=cmd + str(c) + ' '
             cmd=cmd + str(co_replicas) + ' '
-            cmd=cmd + str(clients) + ' 0 '
+            cmd=cmd + str(clients - 1) + ' 0 '
             cmd=cmd + str(quorums) + ' '
             cmd=cmd + 'config config_client &> client_log' + str(c) + '&\n'
             f_preload.write(cmd)
-            cmd='./rbtree_map_partitioned_driver '
+            cmd='./counter_driver '
             cmd=cmd + str(c) + ' '
             cmd=cmd + str(co_replicas) + ' '
-            cmd=cmd + str(clients) + ' 0 '
+            cmd=cmd + str(clients - 1) + ' 0 '
             cmd=cmd + str(quorums) + ' '
             cmd=cmd + 'config config_client &> client_log' + str(c) + '&\n'
             f_driver.write(cmd)
