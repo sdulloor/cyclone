@@ -3,8 +3,8 @@ all: libcyclone.so
 CXXFLAGS = -O3 -fPIC -DBOOST_LOG_DYN_LINK
 #CXXFLAGS = -O1 -fno-omit-frame-pointer -g -fPIC -DBOOST_LOG_DYN_LINK
 
-#BOOST_THREAD_LIB=-lboost_thread-mt
-BOOST_THREAD_LIB=-lboost_thread
+BOOST_THREAD_LIB=-lboost_thread-mt
+#BOOST_THREAD_LIB=-lboost_thread
 
 libcyclone.so: libcyclone.o dispatcher.o dispatcher_exec.o dispatch_client.o \
 	checkpoint.o checkpoint_savepage.o

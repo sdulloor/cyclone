@@ -30,79 +30,42 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/*
- * tree_map.c -- TreeMap sorted collection implementation
- */
-
-#ifndef	TREE_MAP_HPP
-#define	TREE_MAP_HPP
-
-#include <libpmemobj.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <time.h>
+#include <assert.h>
+#include <boost/property_tree/ini_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
+#include "counter.hpp"
+#include "../core/clock.hpp"
+#include "../core/logging.hpp"
 #include <libcyclone.hpp>
 
-const int FN_INSERT  = 0;
-const int FN_DELETE  = 1;
-const int FN_LOOKUP  = 2;
-const int FN_BUMP    = 3;
-const int FN_PREPARE = 4;
-const int FN_COMMIT  = 5;
 
-const int CODE_OK   = 0;
-const int CODE_NOK  = 1;
-
-struct k {uint64_t key;};
-struct kv {uint64_t key; uint64_t value;};
-
-
-typedef struct cookie_st {
-  int txnum;
-  int index;
-  int success;
-} cookie_t;
-
-
-struct proposal {
-  union {
-    int fn;
-    int code;
-  };
-  union {
-    struct kv kv_data;
-    struct k k_data;
-  };
-  cookie_t cookie;
-};
-
-static uint64_t get_key(struct proposal *p)
-{
-  if(p->fn == FN_INSERT) {
-    return p->kv_data.key;
+int main(int argc, const char *argv[]) {
+  if(argc != 9) {
+    printf("Usage: %s client_id mc_id replicas clients server_prefix client_prefix partition replica\n", argv[0]); 
+    exit(-1);
   }
-  else if(p->fn == FN_DELETE) {
-    return p->k_data.key;
-  }
-  else if(p->fn == FN_LOOKUP) {
-    return p->k_data.key;
-  }
-  else if(p->fn == FN_BUMP) {
-    return p->k_data.key; 
-  }
-  else if(p->fn == FN_PREPARE) {
-    return p->kv_data.key;
-  }
-  else if(p->fn == FN_COMMIT) {
-    return p->k_data.key;
-  }
-  return 0; // Unknown !
+  int me = atoi(argv[1]);
+  int replicas = atoi(argv[3]);
+  int clients  = atoi(argv[4]);
+  char fname_server[50];
+  char fname_client[50];
+  sprintf(fname_server, "%s%s.ini", argv[5], argv[7]);
+  sprintf(fname_client, "%s%s.ini", argv[6], argv[7]);
+  boost::property_tree::ptree pt_client;
+  boost::property_tree::read_ini(fname_client, pt_client);
+  void* handle = cyclone_client_init(me,
+				     atoi(argv[2]),
+				     replicas,
+				     fname_server,
+				     fname_client);
+  int ctr = get_last_txid(handle) + 1;
+  int sz  = add_node(handle, ctr, atoi(argv[8])); 
+  BOOST_LOG_TRIVIAL(info) << "Done, code = " << sz;
+  return 0;
 }
-
-bool is_stable(uint64_t value)
-{
-  return (value %2 == 0)
-}
-
-typedef struct rbtree_tx_st {
-  int steps;
-} rbtree_tx_t; // Followed by steps*proposal_t 
-
-#endif /* TREE_MAP_H */

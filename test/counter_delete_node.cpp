@@ -39,7 +39,7 @@
 #include <assert.h>
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
-#include "tree_map.hpp"
+#include "counter.hpp"
 #include "../core/clock.hpp"
 #include "../core/logging.hpp"
 #include <libcyclone.hpp>
@@ -65,7 +65,7 @@ int main(int argc, const char *argv[]) {
 				     fname_server,
 				     fname_client);
   int ctr = get_last_txid(handle) + 1;
-  int sz  = add_node(handle, ctr, atoi(argv[8])); 
+  int sz  = delete_node(handle, ctr, atoi(argv[8])); 
   BOOST_LOG_TRIVIAL(info) << "Done, code = " << sz;
   return 0;
 }

@@ -1,6 +1,7 @@
 // Implement a distrbuted transaction co-ordinator for the red black tree
-#include "tree_map.hpp"
+#include "counter.hpp"
 #include <stdio.h>
+#include <stdlib.h>
 
 
 TOID_DECLARE(uint64_t, TOID_NUM_BASE);
@@ -36,7 +37,7 @@ int leader_callback(const unsigned char *data,
 		    void **return_value)
 {
   rbtree_tx_t * tx = (rbtree_tx_t *)data;
-  *follower_data = (int *)malloc(sizeof(int));
+  *follower_data = (unsigned char *)malloc(sizeof(int));
   *follower_data_size = sizeof(int);
   *return_value = (int *)malloc(sizeof(int));
 
@@ -47,7 +48,7 @@ int leader_callback(const unsigned char *data,
   cookie.index   = 0;
   cookie.success = 1; // Assume success
   for(int i=0;i<tx->steps;) {
-    int partition = get_key(p) % partitions;
+    int partition = get_key(p) % quorums;
     cookie.index = i;
     memcpy(&p->cookie, &cookie, sizeof(cookie_t));
     int sz = make_rpc(quorum_handles[partition],
@@ -57,20 +58,20 @@ int leader_callback(const unsigned char *data,
 		      ctr[partition],
 		      0);
     if(sz == RPC_EOLD) {
-      for(partition=0;partition<partitions;partition++) {
+      for(partition=0;partition<quorums;partition++) {
 	int txid = get_last_txid(quorum_handles[partition]);
 	if(txid >= ctr[partition]) {
 	  sz = get_response(quorum_handles[partition],
 			    (void **)&resp,
 			    txid);
-	  if(resp.txnum != *D_RO(txnum)) {
+	  if(resp.cookie.txnum != *D_RO(txnum)) {
 	    pmemobj_tx_abort(-1);
 	  }
-	  if(!resp.success) {
+	  if(!resp.cookie.success) {
 	    cookie.success = 0;
 	  }
-	  if(resp.index > i) {
-	    i = resp.index + 1;
+	  if(resp.cookie.index > i) {
+	    i = resp.cookie.index + 1;
 	  }
 	  ctr[partition] = txid + 1;
 	}
@@ -97,9 +98,10 @@ int follower_callback(const unsigned char *data,
   *(int *)*return_value = *(int *)follower_data;
   TX_ADD(txnum);
   *D_RW(txnum) = *D_RO(txnum) + 1;
+  rbtree_tx_t *tx = (rbtree_tx_t *)data;
   struct proposal *p = (proposal *)(tx + 1);
-  for(int i=0;i<tx->steps;) {
-    int partition = get_key(p) % partitions;
+  for(int i=0;i<tx->steps;i++,p++) {
+    int partition = get_key(p) % quorums;
     ctr[partition]++;
   }
   return sizeof(int);

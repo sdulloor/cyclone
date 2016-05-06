@@ -42,7 +42,7 @@
 extern "C" {
 #include "../nvml.git/src/examples/libpmemobj/tree_map/rbtree_map.h"
 }
-#include "tree_map.hpp"
+#include "counter.hpp"
 
 TOID_DECLARE(uint64_t, TOID_NUM_BASE);
 
@@ -183,7 +183,7 @@ int callback(const unsigned char *data,
       uint64_t *ptr = (uint64_t *)pmemobj_direct(item);
       if(!is_stable(*ptr)) {
 	pmemobj_tx_add_range(item, 0, sizeof(uint64_t));
-	if(cookie.success) {
+	if(req->cookie.success) {
 	  (*ptr) = (*ptr) + 1;
 	}
 	else {
@@ -200,91 +200,6 @@ int callback(const unsigned char *data,
   return sizeof(struct proposal);
 }
 
-int callback_leader(const unsigned char *data,
-		    const int len,
-		    unsigned char **follower_data,
-		    int * follower_data_size, 
-		    void **return_value)
-{
-  int sz = callback(data, len, return_value);
-  *follower_data_size = sz;
-  if(sz > 0) {
-    *follower_data = (unsigned char *)malloc(sz);
-    memcpy(*follower_data, *return_value, sz);
-  }
-  else {
-    *follower_data = NULL;
-  }
-  return sz;
-}
-
-bool cmp_return_values(int req_code, struct proposal *rep1, struct proposal *rep2)
-{
-  if(req_code == FN_LOCK) {
-    return rep1->code == rep2->code;
-  }
-  else if(req_code == FN_GET_VERSION) {
-    return rep1->code == rep2->code;
-  }
-  else if(req_code == FN_UNLOCK) {
-    return rep1->code == rep2->code;
-  }
-  else if(req_code == FN_DELETE) {
-    return rep1->code == rep2->code &&
-      rep1->kv_data.key == rep2->kv_data.key &&
-      rep1->kv_data.value == rep2->kv_data.value;
-  }
-  else if(req_code == FN_LOOKUP) {
-    if(rep1->code == CODE_NOK) {
-      return rep2->code == CODE_NOK;
-    }
-    return rep2->code == CODE_NOK &&
-      rep2->kv_data.key == rep1->kv_data.key &&
-      rep2->kv_data.value == rep1->kv_data.value;
-  }
-  else if(req_code == FN_BUMP) {
-    if(rep1->code == CODE_NOK) {
-      return rep2->code == CODE_NOK;
-    }
-    return rep2->code == CODE_OK &&
-      rep2->kv_data.key == rep1->kv_data.key &&
-      rep2->kv_data.value == rep1->kv_data.value;
-  }
-
-  return true;
-}
-
-int callback_follower(const unsigned char *data,
-		      const int len,
-		      unsigned char *follower_data,
-		      int follower_data_size, 
-		      void **return_value)
-{
-  int sz = callback(data, len, return_value);
-  if(sz != 0 ||  follower_data_size != 0) {
-    if(sz != follower_data_size) {
-      BOOST_LOG_TRIVIAL(fatal) << "Divergence in return size !";
-      exit(-1);
-    }
-    struct proposal *req = (struct proposal *)data;
-    struct proposal *rep1 = (struct proposal *)*return_value;
-    struct proposal *rep2 = (struct proposal *)follower_data;
-    if(!cmp_return_values(req->code, rep1, rep2)) {
-      BOOST_LOG_TRIVIAL(fatal) << "Divergence in return contents code = "
-			       << req->fn << " "
-			       << " sizes = " << len << " " << follower_data_size << " "
-			       << rep1->kv_data.key << ":"
-			       << rep1->kv_data.value << " "
-			       << rep2->kv_data.key << ":"
-			       << rep2->kv_data.value << " ";
-      
-      exit(-1);
-    }
-  }
-  return sz;
-}
-
-
 TOID(char) nvheap_setup(TOID(char) recovered,
 			PMEMobjpool *state)
 {
@@ -293,11 +208,9 @@ TOID(char) nvheap_setup(TOID(char) recovered,
   heap_root_t *heap_root;
   pop = state;
   if(TOID_IS_NULL(recovered)) {
-    version_table = TX_ZALLOC(uint64_t, version_table_size);
     store = TX_ALLOC(char, sizeof(heap_root_t));
     heap_root = (heap_root_t *)D_RW(store);
     pmemobj_tx_add_range_direct(heap_root, sizeof(heap_root_t));
-    heap_root->version_table = version_table;
     rbtree_map_new(state, &heap_root->the_tree, NULL);
     the_tree = heap_root->the_tree;
     return store;
@@ -305,7 +218,6 @@ TOID(char) nvheap_setup(TOID(char) recovered,
   else {
     heap_root = (heap_root_t *)D_RW(recovered);
     the_tree = heap_root->the_tree;
-    version_table = heap_root->version_table;
     return recovered;
   }
 }
@@ -329,12 +241,12 @@ int main(int argc, char *argv[])
   int clients  = atoi(argv[3]);
   if(argc == 4) {
     dispatcher_start("cyclone_test.ini", "cyclone_test.ini", callback, 
-		     callback_leader, callback_follower, 
+		     NULL, NULL, 
 		     gc, nvheap_setup, server_id, replicas, clients);
   }
   else {
       dispatcher_start(argv[4], argv[5], callback, 
-		       callback_leader, callback_follower, 
+		       NULL, NULL, 
 		       gc, nvheap_setup, server_id, replicas, clients);
   }
 }

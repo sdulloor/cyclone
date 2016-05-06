@@ -39,7 +39,7 @@
 #include <assert.h>
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
-#include "tree_map.hpp"
+#include "counter.hpp"
 #include "../core/clock.hpp"
 #include "../core/logging.hpp"
 #include <libcyclone.hpp>
@@ -103,9 +103,6 @@ int main(int argc, const char *argv[]) {
     prop->fn = FN_INSERT;
     prop->kv_data.key   = i;
     prop->kv_data.value = 0;
-    prop->timestamp = rtc_clock::current_time();
-    prop->src       = me;
-    prop->order     = (order++);
     unsigned long tx_begin_time = rtc_clock::current_time();
     int partition = prop->kv_data.key % partitions;
     sz = make_rpc(handles[partition],

@@ -39,7 +39,7 @@
 #include <assert.h>
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
-#include "tree_map.hpp"
+#include "counter.hpp"
 #include "../core/clock.hpp"
 #include "../core/logging.hpp"
 #include <libcyclone.hpp>
@@ -112,9 +112,6 @@ int main(int argc, const char *argv[]) {
       while(true) {
 	prop->fn = FN_BUMP;
 	prop->k_data.key = rand() % keys;
-	prop->timestamp = rtc_clock::current_time();
-	prop->src       = me;
-	prop->order     = (order++);
 	partition = prop->k_data.key % partitions;
 	sz = make_rpc(handles[partition],
 		      buffer,
@@ -137,9 +134,6 @@ int main(int argc, const char *argv[]) {
       while(true) {
 	prop->fn = FN_LOOKUP;
 	prop->k_data.key = rand() % keys;
-	prop->timestamp = rtc_clock::current_time();
-	prop->src       = me;
-	prop->order     = (order++);
 	partition = prop->k_data.key % partitions;
 	sz = make_rpc(handles[partition],
 		      buffer,
@@ -157,7 +151,7 @@ int main(int argc, const char *argv[]) {
 	  BOOST_LOG_TRIVIAL(fatal) << "Key not found";
 	  exit(-1);
 	}
-	if(is_stable(rep->kv_data.value)) {
+	if(is_stable(resp->kv_data.value)) {
 	  break;
 	}
       }
