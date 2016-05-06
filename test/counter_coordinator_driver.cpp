@@ -47,14 +47,15 @@
 
 int main(int argc, const char *argv[]) {
   if(argc != 8) {
-    printf("Usage: %s client_id replicas clients sleep_usecs partitions server_config_prefix client_config_prefix\n", argv[0]);
+    printf("Usage: %s client_id co_replicas clients sleep_usecs
+  config_coord_server config_coord_client partitions server_config_prefix client_config_prefix\n", argv[0]);
     exit(-1);
   }
   int me = atoi(argv[1]);
   int replicas = atoi(argv[2]);
   int clients  = atoi(argv[3]);
   unsigned long sleep_time = atol(argv[4]);
-  int partitions = atoi(argv[5]);
+  int partitions = atoi(argv[7]);
   void **handles = new void *[partitions];
   char fname_server[50];
   char fname_client[50];
@@ -69,23 +70,35 @@ int main(int argc, const char *argv[]) {
 				     fname_server,
 				     fname_client);
   }
-  char *buffer = new char[CLIENT_MAXPAYLOAD];
-  struct proposal *prop = (struct proposal *)buffer;
-  srand(time(NULL));
-  int sz;
-  struct proposal *resp;
-  unsigned long order = 0;
-  unsigned long tx_block_cnt   = 0;
-  unsigned long tx_block_begin = rtc_clock::current_time();
-  unsigned long total_latency  = 0;
-  
+  void * coord_handle =
+    cyclone_client_init(me,
+			me % pt_client.get<int>("machines.machines"),
+			replicas,
+			argv[5],
+			argv[6]);
+					    
   int ctr[partitions];
+  int ctr_coord;
   for(int i=0;i<partitions;i++) {
     BOOST_LOG_TRIVIAL(info) << "Connecting to quorum " << i;
     ctr[i] = get_last_txid(handles[i]) + 1;
     BOOST_LOG_TRIVIAL(info) << "Done";
   }
 
+  BOOST_LOG_TRIVIAL(info) << "Connecting to coordinator " << i;
+  ctr_coord = get_last_txid(coord_handle) + 1;
+  BOOST_LOG_TRIVIAL(info) << "Done";
+  
+  char *buffer = new char[CLIENT_MAXPAYLOAD];
+  struct proposal *prop = (struct proposal *)buffer;
+  int sz;
+  struct proposal *resp;
+  int partition;
+  rbtree_tx_t* tx = (rbtree_tx_t *)malloc(sizeof(rbtree_tx_t) +
+					  2*partitions*sizeof(struct proposal));
+  struct proposal *tx_proposals = (struct proposal *)(tx + 1);
+  uint64_t *keys = (uint64_t *)malloc(partitions*sizeof(uint64_t));
+  
   unsigned long keys = 10000;
   const char *keys_env = getenv("RBT_KEYS");
   if(keys_env != NULL) {
@@ -100,41 +113,22 @@ int main(int argc, const char *argv[]) {
   }
   BOOST_LOG_TRIVIAL(info) << "FRAC_READ = " << frac_read;
   
-  total_latency = 0;
-  tx_block_cnt  = 0;
-  tx_block_begin = rtc_clock::current_time();
+  unsigned long total_latency = 0;
+  unsigned long tx_block_cnt  = 0;
+  unsigned long tx_block_begin = rtc_clock::current_time();
   unsigned long tx_begin_time = rtc_clock::current_time();
+  unsigned long failed_tx = 0;
+
   srand(tx_begin_time);
-  int partition;
   while(true) {
-    double coin = ((double)rand())/RAND_MAX;
-    if(coin > frac_read) {
+    for(int i=0;i<partitions;i++) {
       while(true) {
-	prop->fn = FN_BUMP;
-	prop->k_data.key = rand() % keys;
-	partition = prop->k_data.key % partitions;
-	sz = make_rpc(handles[partition],
-		      buffer,
-		      sizeof(struct proposal),
-		      (void **)&resp,
-		      ctr[partition],
-		      0);
-	ctr[partition]++;
-	tx_block_cnt++;
-	if(sz != sizeof(struct proposal)) {
-	  BOOST_LOG_TRIVIAL(fatal) << "Invalid response";
-	  exit(-1);
+	keys[i] =rand() % keys;
+	if(keys[i] % partitions != i) {
+	  continue;
 	}
-	if(resp->code != CODE_OK) {
-	  BOOST_LOG_TRIVIAL(fatal) << "Key not found in bump";
-	  exit(-1);
-	}
-	if(is_stable(resp->kv_data.value)) {
-	  break;
-	}
+	break;
       }
-    }
-    else {
       while(true) {
 	prop->fn = FN_LOOKUP;
 	prop->k_data.key = rand() % keys;
@@ -159,7 +153,28 @@ int main(int argc, const char *argv[]) {
 	  break;
 	}
       }
+      tx_proposals[i].fn = FN_PREPARE;
+      tx_proposals[i].kv_data.key   = resp->kv_data.key;
+      tx_proposals[i].kv_data.value = resp->kv_data.value;
+      tx_proposals[i + partitions].fn = FN_COMMIT;
+      tx_proposals[i + partitions].k_data.key  = resp->kv_data.key;
     }
+
+    sz = make_rpc(handles[partition],
+		  buffer,
+		  sizeof(struct proposal),
+		  (void **)&resp,
+		  ctr[partition],
+		  RPC_FLAG_SYNCHRONOUS);
+
+    if(sz != sizeof(int)) {
+      BOOST_LOG_TRIVIAL(fatal) << "Invalid response size to tx";
+      exit(-1);
+    }
+    if(*(int *)resp != 1) {
+      failed_tx++;
+    }
+    
     if(tx_block_cnt > 5000) {
       total_latency = (rtc_clock::current_time() - tx_begin_time);
       BOOST_LOG_TRIVIAL(info) << "LOAD = "
@@ -167,10 +182,13 @@ int main(int argc, const char *argv[]) {
 			      << " tx/sec "
 			      << "LATENCY = "
 			      << ((double)total_latency)/tx_block_cnt
-			      << " us ";
+			      << " us "
+			      << "FRAC_FAILED = "
+			      << ((double)failed_tx)/tx_block_cnt;
       tx_begin_time = rtc_clock::current_time();
       tx_block_cnt   = 0;
       total_latency  = 0;
+      failed_tx = 0;
     }
   }
   return 0;

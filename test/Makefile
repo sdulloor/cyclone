@@ -1,5 +1,6 @@
 all: counter_server counter_driver counter_coordinator\
-counter_loader counter_add_node counter_delete_node
+counter_loader counter_add_node counter_delete_node\
+counter_coordinator_driver
 
 CXXFLAGS = -O3 -DBOOST_LOG_DYN_LINK
 #CXXFLAGS = -O1 -g -fno-omit-frame-pointer -DBOOST_LOG_DYN_LINK
@@ -19,6 +20,9 @@ counter_loader:counter_loader.cpp
 	$(CXX) $(CXXFLAGS) counter_loader.cpp  $(BOOST_THREAD_LIB) $(LIBS) -o $@
 
 counter_driver:counter_driver.cpp 
+	$(CXX) $(CXXFLAGS) counter_driver.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
+
+counter_coordinator_driver:counter_driver.cpp 
 	$(CXX) $(CXXFLAGS) counter_driver.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
 
 counter_delete_node:counter_delete_node.cpp 

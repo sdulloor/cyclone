@@ -151,6 +151,7 @@ int callback(const unsigned char *data,
       rep->code = CODE_NOK;
     }
     else {
+      rep->code = CODE_OK;
       uint64_t *ptr = (uint64_t *)pmemobj_direct(item);
       rep->kv_data.value = *ptr;
       if(is_stable(*ptr)) {
