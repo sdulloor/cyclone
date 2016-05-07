@@ -46,9 +46,8 @@
 
 
 int main(int argc, const char *argv[]) {
-  if(argc != 8) {
-    printf("Usage: %s client_id co_replicas clients sleep_usecs
-  config_coord_server config_coord_client partitions server_config_prefix client_config_prefix\n", argv[0]);
+  if(argc != 10) {
+    printf("Usage: %s client_id co_replicas clients sleep_usecs config_coord_server config_coord_client partitions server_config_prefix client_config_prefix\n", argv[0]);
     exit(-1);
   }
   int me = atoi(argv[1]);
@@ -60,8 +59,8 @@ int main(int argc, const char *argv[]) {
   char fname_server[50];
   char fname_client[50];
   for(int i=0;i<partitions;i++) {
-    sprintf(fname_server, "%s%d.ini", argv[6], i);
-    sprintf(fname_client, "%s%d.ini", argv[7], i);
+    sprintf(fname_server, "%s%d.ini", argv[8], i);
+    sprintf(fname_client, "%s%d.ini", argv[9], i);
     boost::property_tree::ptree pt_client;
     boost::property_tree::read_ini(fname_client, pt_client);
     handles[i] = cyclone_client_init(me,
@@ -70,9 +69,11 @@ int main(int argc, const char *argv[]) {
 				     fname_server,
 				     fname_client);
   }
+  boost::property_tree::ptree pt_co_client;
+  boost::property_tree::read_ini(fname_client, pt_co_client);
   void * coord_handle =
     cyclone_client_init(me,
-			me % pt_client.get<int>("machines.machines"),
+			me % pt_co_client.get<int>("machines.machines"),
 			replicas,
 			argv[5],
 			argv[6]);
@@ -85,7 +86,7 @@ int main(int argc, const char *argv[]) {
     BOOST_LOG_TRIVIAL(info) << "Done";
   }
 
-  BOOST_LOG_TRIVIAL(info) << "Connecting to coordinator " << i;
+  BOOST_LOG_TRIVIAL(info) << "Connecting to coordinator ";
   ctr_coord = get_last_txid(coord_handle) + 1;
   BOOST_LOG_TRIVIAL(info) << "Done";
   
@@ -97,7 +98,7 @@ int main(int argc, const char *argv[]) {
   rbtree_tx_t* tx = (rbtree_tx_t *)malloc(sizeof(rbtree_tx_t) +
 					  2*partitions*sizeof(struct proposal));
   struct proposal *tx_proposals = (struct proposal *)(tx + 1);
-  uint64_t *keys = (uint64_t *)malloc(partitions*sizeof(uint64_t));
+  uint64_t *keysa = (uint64_t *)malloc(partitions*sizeof(uint64_t));
   
   unsigned long keys = 10000;
   const char *keys_env = getenv("RBT_KEYS");
@@ -123,15 +124,15 @@ int main(int argc, const char *argv[]) {
   while(true) {
     for(int i=0;i<partitions;i++) {
       while(true) {
-	keys[i] =rand() % keys;
-	if(keys[i] % partitions != i) {
+	keysa[i] =rand() % keys;
+	if(keysa[i] % partitions != i) {
 	  continue;
 	}
 	break;
       }
       while(true) {
 	prop->fn = FN_LOOKUP;
-	prop->k_data.key = rand() % keys;
+	prop->k_data.key = keysa[i];
 	partition = prop->k_data.key % partitions;
 	sz = make_rpc(handles[partition],
 		      buffer,
@@ -160,13 +161,16 @@ int main(int argc, const char *argv[]) {
       tx_proposals[i + partitions].k_data.key  = resp->kv_data.key;
     }
 
-    sz = make_rpc(handles[partition],
-		  buffer,
-		  sizeof(struct proposal),
+    tx->steps = 2*partitions;
+    sz = make_rpc(coord_handle,
+		  tx,
+		  sizeof(rbtree_tx_t) +
+		  2*partitions*sizeof(struct proposal),
 		  (void **)&resp,
-		  ctr[partition],
+		  ctr_coord,
 		  RPC_FLAG_SYNCHRONOUS);
 
+    ctr_coord++;
     if(sz != sizeof(int)) {
       BOOST_LOG_TRIVIAL(fatal) << "Invalid response size to tx";
       exit(-1);

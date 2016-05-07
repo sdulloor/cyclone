@@ -22,8 +22,8 @@ counter_loader:counter_loader.cpp
 counter_driver:counter_driver.cpp 
 	$(CXX) $(CXXFLAGS) counter_driver.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
 
-counter_coordinator_driver:counter_driver.cpp 
-	$(CXX) $(CXXFLAGS) counter_driver.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
+counter_coordinator_driver:counter_coordinator_driver.cpp 
+	$(CXX) $(CXXFLAGS) counter_coordinator_driver.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
 
 counter_delete_node:counter_delete_node.cpp 
 	$(CXX) $(CXXFLAGS) counter_delete_node.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@

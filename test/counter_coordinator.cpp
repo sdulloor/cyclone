@@ -2,7 +2,7 @@
 #include "counter.hpp"
 #include <stdio.h>
 #include <stdlib.h>
-
+#include "../core/logging.hpp"
 
 TOID_DECLARE(uint64_t, TOID_NUM_BASE);
 
@@ -42,14 +42,15 @@ int leader_callback(const unsigned char *data,
   *return_value = (int *)malloc(sizeof(int));
 
   struct proposal *p = (proposal *)(tx + 1);
-  struct proposal resp;
+  struct proposal* resp;
   cookie_t cookie;
   cookie.txnum   = *D_RO(txnum);
   cookie.index   = 0;
   cookie.success = 1; // Assume success
   for(int i=0;i<tx->steps;) {
-    int partition = get_key(p) % quorums;
     cookie.index = i;
+    p = ((proposal *)(tx + 1)) + i;
+    int partition = get_key(p) % quorums;
     memcpy(&p->cookie, &cookie, sizeof(cookie_t));
     int sz = make_rpc(quorum_handles[partition],
 		      p,
@@ -64,24 +65,23 @@ int leader_callback(const unsigned char *data,
 	  sz = get_response(quorum_handles[partition],
 			    (void **)&resp,
 			    txid);
-	  if(resp.cookie.txnum != *D_RO(txnum)) {
+	  if(resp->cookie.txnum != *D_RO(txnum)) {
 	    pmemobj_tx_abort(-1);
 	  }
-	  if(!resp.cookie.success) {
+	  if(resp->cookie.success == 0) {
 	    cookie.success = 0;
 	  }
-	  if(resp.cookie.index > i) {
-	    i = resp.cookie.index + 1;
+	  if(resp->cookie.index > i) {
+	    i = resp->cookie.index + 1;
 	  }
 	  ctr[partition] = txid + 1;
 	}
       }
       continue;
     }
-    memcpy(&cookie, &resp.cookie, sizeof(cookie_t));
+    memcpy(&cookie, &resp->cookie, sizeof(cookie_t));
     ctr[partition]++;
     i++;
-    p++;
   }
   *(int *)*follower_data = cookie.success;
   *(int *)*return_value  = cookie.success;

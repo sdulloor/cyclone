@@ -161,9 +161,9 @@ int callback(const unsigned char *data,
     }
   }
   else if(code == FN_PREPARE) {
-    PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);
+    PMEMoid item = rbtree_map_get(pop, the_tree, req->kv_data.key);
     rep->code = CODE_OK;
-    rep->kv_data.key     = req->k_data.key;
+    rep->kv_data.key     = req->kv_data.key;
     if(OID_IS_NULL(item)) {
       rep->cookie.success = 0; // FAIL
     }
