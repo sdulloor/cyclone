@@ -52,7 +52,7 @@ mc_config=ConfigParser.RawConfigParser()
 mc_config.read(cluster)
 machines=mc_config.getint('machines','count')
 
-ports=2*max(replicas,co_replicas)*machines*(clients + 1)
+ports=5
 
 # Generate server configs
 for q in range(0, quorums):
