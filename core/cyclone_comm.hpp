@@ -411,10 +411,6 @@ public:
     int server_baseport =  pt_server->get<int>(key.str().c_str());
 
     key.str("");key.clear();
-    key << "dispatch.client_baseport";
-    int client_baseport =  pt_client->get<int>(key.str().c_str());
-
-    key.str("");key.clear();
     key << "machines.machines";
     client_machines =  pt_client->get<int>(key.str().c_str());
     server_machines =  pt_server->get<int>(key.str().c_str());
