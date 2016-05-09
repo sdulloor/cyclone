@@ -1,6 +1,6 @@
 \documentclass[twocolumn]{article}
 \usepackage{times}
-
+\usepackage{parskip}
 \begin{document}
 \title{Cyclone: Fault Tolerance Middleware for NVM Clusters}
 \author{Amitabha Roy et al. \\ amitabha.roy@intel.com}
@@ -31,18 +31,22 @@ added. In addition linearizable reads can be directly executed without the need 
 combine pending updates from a log.
 \end{abstract}  
 
-\section{Introduction}
+%\section{Introduction}
 
 \section{Single Node Programming Model}
 Cyclone provides users with a replicated and durable heap that can be
-manipulated via a set of library routines. The library provides special
-functions to allocate and free persistent memory as well as fat pointers that
-wrap pointers to persistent memory to ensure that they do not change across
-restarts - since the virtual memory ranges into which persistent memory is
-mapped may change.
+manipulated via a set of library routines. Cyclone builds on top of Intel's Non
+Volatile Memory Library (NVML) and provides transparent replication to programs
+written to use NVML for persistence on a single node. This section therefore
+describes NVML's programming model.
+
+NVML provides special functions to allocate and free persistent memory as well
+as fat pointers to persistent memory to ensure that referential integrity in the
+heap is maintained across restarts - since the virtual memory ranges into which
+persistent memory is mapped may change.
 
 \begin{figure}
-{ \scriptsize
+{\scriptsize
 \begin{verbatim}
 
 struct ll_node {
@@ -50,7 +54,8 @@ struct ll_node {
   TOID(ll_node) next;
 };
 
-void insert_after(TOID(ll_node) prev, TOID(ll_node) new_node)
+void insert_after(TOID(ll_node) prev, 
+                  TOID(ll_node) new_node)
 {
   D_RW(new_node)->next = D_RO(prev)->next;
   D_RW(prev)->next = new_node;
@@ -66,7 +71,7 @@ Figure~\ref{fig:example} shows the example of a linked list node and a function
 for inserting a new node after a given one. The {\tt TOID} declaration wraps the
 linked list node type to produce a fat pointer to it. A {\tt TOID(ll\_node)}
 type therefore is a pointer to a linked list node stored in persistent memory.
-The {\tt insert\_after} function used the {\tt D\_RO} and {\tt D\_RW} calls to
+The {\tt insert\_after} function uses the {\tt D\_RO} and {\tt D\_RW} calls to
 convert fat pointers into directly accessible read-only and read-write pointers
 respectively. Other than the mechanics of using fat pointers the code entirely
 resembles that which a programmer might write for a standard linked list in
@@ -83,23 +88,23 @@ Figure~\ref{fig:example}. If either of the two updates to the next fields of the
 previous and new node fail to be persisted, the linked list is left in a
 disconnected state with one or more connected nodes inaccessible.
 
-Cyclone provides tools for programmers to write code that is failure
-atomic. Portions of the code are delimited as transactions that are either
-completely executed in terms of its effects on persistent memory or not executed
-at all. Under the hood, Cyclone tracks all updates to persistent memory in a
-persistent undo log - the log entries are persisted before the update to the
-actual memory is allowed. On a failure, the undo log is used to roll back
-incomplete transactions. A transaction is considered complete when it completes
-execution and the updated objects are flushed (automatically by Cyclone) to
-persistent memory. The log entries for the transaction are then immediately
-deleted. The only burden placed on a programmer for failure atomicity is that
-they must inform the Cyclone runtime about objects that are
-updated. Figure~\ref{fig:example_fatomic} shows how to convert the function for
-adding a node to a linked list into a failure atomic one. The only additions are
-the transaction delimiters and the {\tt TX\_ADD} calls to mark the objects being
-updated \emph{before} the actual updates to them. Figure~\ref{fig:undo_log}
-shows how Cyclone maintains the undo-log of objects.
-
+NVML provides tools for programmers to write code that is failure
+atomic by allowing a block of code to be delimited as a transaction. A
+transaction is either completely executed in terms of its effects on
+persistent memory or not executed at all. Under the hood, NVML tracks all
+updates to persistent memory in a persistent undo log - the log entries are
+persisted before the update to the actual memory is allowed. On a failure, the
+undo log is used to roll back incomplete transactions. A transaction is
+considered complete when it completes execution and the updated objects are
+flushed (automatically by NVML) to persistent memory. The log entries for the
+transaction are then immediately deleted. The only burden placed on a programmer
+for failure atomicity is to delimit transactions and that they must inform NVML
+about objects that are updated. Figure~\ref{fig:example_fatomic} shows how to
+convert the function for adding a node to a linked list into a failure atomic
+one. The only additions are the transaction delimiters and the {\tt TX\_ADD}
+calls to mark the objects being updated \emph{before} the actual updates to
+them. Figure~\ref{fig:undo_log} shows how Cyclone maintains the undo-log of
+objects.
 
 \begin{figure}
 { \scriptsize
@@ -122,7 +127,7 @@ void insert_after(TOID(ll_node) prev, TOID(ll_node) new_node)
 
 \end{verbatim}
 }
-\caption{A Persistent Linked List of Integers}
+\caption{Failure Atomic Peristent Linked List}
 \label{fig:example_fatomic}
 \end{figure}
 
@@ -163,65 +168,67 @@ Recover()
 \label{fig:undo_log}
 \end{figure}
 
-A crucial feature of Cyclone is that it abstracts the details of the persistence
+A crucial feature of NVML is that it abstracts the details of the persistence
 mechanism away from programmers. This allows the same code to be deployed on
-clusters with a persistent storage medium such as 3D XPoint or on clusters with
-battery backed NVDIMMs for example. In the former case, explicit {\tt PCOMMIT}
-instructions are necessary for persistence [ref PMFS paper], while in the latter
-case no such instructions are necessary as on failure the CPU caches and DRAM
-are flushed to stable storage under battery (or capacitor) power. Even in the
-NVDIMM case however, the undo log can be desirable to protect against OS or
-application crashes to ensure that the persistent memory is always left in a
-consistent state. Cyclone's programmer visible features are designed to enable
-the construction of applications that work regardless of the underlying
-persistence mechancisms.
-
+clusters with a range of persistence mechanisms - mapping pages from secondary
+storage such as SSDs, using battery backed NVDIMMs, using an onboard battery to
+save DRAM state to SSD on failure [FARM] or using directly accessed persistent
+memory [PMFS]. Each of these options has different requirements. For example the
+NVM used in PMFS requires explicit cache flush (CLFLUSH) and PCOMMIT
+instructions. NVDIMMs would conceivably require only a CLFLUSH to flush the
+cacheline and ensure that the line enters the asynchronous data refresh
+domain. Using secondary storage is also an option with faster 3DXPoint storage
+behind an NVMe interface - this would require an {\tt msync} and OS pagecache
+intervention to persist data to secondary storage. NVML seamlessly uses the
+right persistence mechanism without requiring code using the library to be aware
+of these details.
 
 \section{Replication}
-Cyclone replicates the state of the NVM heap across multiple machines in a
+Cyclone replicates the state of the NVML heap across multiple machines in a
 cluster. Cyclone provides strong consistency - a majority of machines in the
 quorum of replicas always agrees on the current state of the NVM heap. Unlike
 traditional approaches to strong replication however, Cyclone is designed to
 decouple replication from execution of user code modifying NVM. It does so by
-encapsulating changes to the NVM heap in RPC calls driven by client requests.
-We chose this model since it closely reflects the use cases most suitable for
-NVM-based clusters.
+encapsulating changes to the NVM heap in server side code driven by client RPC
+requests. We chose this model since it closely reflects the use cases most
+suitable for NVM-based clusters.
 
 Cyclone replicates state \emph{by executing the same sequence of RPC calls on
   all members of the quorum}. By executing the same sequence of RPC calls on all
 machines we end up with the same state\footnote{We discuss how to handle
   non-determinism in Section~\ref{sec:synch}}. Cyclone uses RAFT [cite usenix
-  raft paper] under the hood for consensus on the contents of the log of RPC
-calls - although any other similar state machine replication protocol such as
-Paxos is also suitable. Cyclone provides the means to achieve exactly once
-semantics to clients by numbering RPC calls and remembering the result of the
-last executed RPC call.
+  raft paper] under the hood for consensus on the log of RPC calls - although
+any other similar state machine replication protocol such as
+Paxos is also suitable. Cyclone provides the means to clients to achieve exactly
+once semantics for the RPC calls they make by numbering RPC calls and
+remembering the number and result of the last executed RPC call at the server end.
 
 \subsection{RPC Call Numbering}
 Cyclone is preconfigured for a fixed (large) number of clients. All RPC calls
-from a client are numbered and Cyclone remembers the results of the last RPC
-call made by a client. A particular client can exist on any machine - cyclone
-treats all instances of the client as a single client. Cyclone rejects RPC calls
-that are not in sequence. Any RPC call is executed exactly once across the
-quorum - regardless of failure and reconfigurations. This provides the means for
-clients to easily achieve exactly once semantics, provided the client does not
-crash. Cyclone can supply the last executed RPC call number and its result to
-assist recovering and stateless clients.
+from a client are numbered and Cyclone remembers (in a persistent manner) the
+number and result of the last RPC call made by a client. A particular client can
+exist on any machine - cyclone treats all instances of the client as a single
+client. Cyclone rejects RPC calls that are not in sequence. Any RPC call is
+executed exactly once across the quorum - regardless of failure and
+reconfigurations. This provides the means for clients to easily achieve exactly
+once semantics, provided the client does not crash. Cyclone can supply the last
+executed RPC call number and its result to assist recovering and stateless
+clients.
 
 \subsection{Asynchronous Replication}
 By default, Cyclone decouples execution of the RPC call on any replica from its
 replication. This is particularly beneficial to performance since it allows
 overlapping the update of non-volatile state with the network I/O associated
-with replication. Persisting RAFT log entries, making the upcall to the
-application and executing the RPC call in a failure atomic transaction takes a
+with replication. Making the call to the application and executing the it in a
+failure atomic transaction takes a
 significant amount of time and therefore it makes sense to overlap this with the
 round-trip delay on the network for replication. This is possible in Cyclone
 since we use failure atomic transactions that can be rolled back. Replication
 can fail due to various reasons such as failure of nodes, a network partition or
 a new leader getting elected in the underlying replication protocol
-(RAFT). Since failure atomic transactions can be rolled back, we are able to
-speculatively apply the changes to NVM without waiting for replication to
-finish.
+(we refer to this as a view change). Since failure atomic transactions can be
+rolled back, we are able to speculatively apply the changes to NVM without
+waiting for replication to finish.
 
 The runtime steps for asynchronous replication are shown in
 Figure~\ref{fig:async_rep}.
@@ -232,7 +239,7 @@ Figure~\ref{fig:async_rep}.
 Initiate replication of RPC call and arguments
 TX_BEGIN {
   Execute RPC call and modify local NVM
-  // Block till replication result known
+  Block till replication result known
   if(replication failed) {
     TX_ABORT;
   }
@@ -246,13 +253,14 @@ TX_BEGIN {
 \subsection{Synchronous Replication}
 \label{sec:synch}
 Asynchronous replication provides good performance but lacks guarantees
-occasionally necessary for distributed systems paradigms such as output commit and
-the ability to integrate code that has non-deterministic execution paths or side
-effects - such as reading the time. Cyclone therefore provides programmers the
-ability to closely synchronize execution across the replicas using synchronous
+occasionally necessary for distributed systems paradigms such as output commit
+and the ability to integrate code that has non-deterministic execution paths
+(such as being dependent on the current time) or side effects - such as making
+further requests. Cyclone therefore provides programmers the ability to closely
+synchronize execution across the replicas using synchronous
 replication. Synchronous replication extends the programming model provided by
-cyclone - but neccessitates some awareness on the part of the user about
-the difference between the leader and follower replicas. We show later
+cyclone - but neccessitates some awareness on the part of the user about the
+difference between the leader and follower replicas. We show later
 (Sec~\ref{sec:examples}) how this awareness enables the crafting of efficient
 fault tolerant applications with little effort on the part of the programmer.
 
@@ -262,48 +270,56 @@ of the RPC call \emph{waits until the call and its arguments have been
 that any externally visible side effects of the RPC such as calls to other
 machines only happen after it is guaranteed that the effects of the RPC call
 will be committed to the replicas. This provides the output commit property
-necessary for some fault tolerance features in applications. Next the RPC call
-is executed on the leader and the result of the RPC call is replicated to the
-followers. The followers then proceed to execute the RPC call locally taking
-into account the result from the leader. This result can include data to
-synchronize non-deterministic steps such as reading the time on the replica.
+necessary in some applications.
+
+Next, the RPC call is executed on the leader and the result of the RPC call is
+replicated to the followers. The followers then proceed to execute the RPC call
+locally taking into account the result from the leader. This result can include
+data to synchronize non-deterministic steps such as reading the time on the
+replica.
 
 This process is made conditional on the view (current configuration of
 replicas and choice of leader) staying unchanged. To successfully complete
 execution, the leader must be able to execute the RPC call and replicate the
 result within the current view. This ensures that in the event of a network
-partition and later repair an old execution of a previous leader cannot commit a
+partition and later repair, an old execution of a previous leader cannot commit a
 log record with results from a synchronously executed RPC call.
 
 \begin{figure*}
+\centering
+\begin{minipage}{0.7\textwidth}  
 { \scriptsize
 \begin{verbatim}
 Initiate replication of RPC call and arguments
-while(true) {
-  TX_BEGIN {
-    // Block till replication result known
-    if(replication failed) {
-      TX_ABORT;
-    }  
-    if(is_leader && !have_execution_result) {
-      Execute RPC call and modify local NVM
-      replicate rpc call result in current view;
-      // Block till replication result known
-      if(result replication failed) {
-        TX_ABORT;
+Block till replication of RPC call returns
+if(replication success) {  
+  while (true) { // Must complete 
+    view = current RAFT view (term)
+    TX_BEGIN {
+      if(is_leader && !have_execution_result) {
+        Execute RPC call and modify local NVM
+        replicate result in view;
+        Block till result replication returns
+        if(result replication failed) {
+          TX_ABORT;
+        }
       }
-    }
-    else {
-      // Block till replication done or view changes
-      if(!result replication complete) {
-        TX_ABORT;
+      else {
+        Block till committed result replication or view changes
+        if(!committed result replication) {
+          TX_ABORT;
+        }
+        Execute RPC call to modify local NVM with result from leader
       }
-      Execute RPC call to modify local NVM with result from leader
-    }
+    } TX_ONABORT {
+      continue; // Try again
+    } TX_END
+    break; // All done
   }
-} TX_END
+}
 \end{verbatim}
 }
+\end{minipage}
 \caption{Synchronous Replication}
 \label{fig:sync_rep}
 \end{figure*}
