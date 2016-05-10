@@ -24,6 +24,7 @@ typedef struct rpc_info_st {
   volatile unsigned long pending_lock;
   volatile int client_blocked;
   struct rpc_info_st *next;
+  struct rpc_info_st *volatile next_issue;
 } rpc_info_t;
 
 
@@ -33,4 +34,21 @@ extern void exec_rpc_internal(rpc_info_t *rpc);
 extern void exec_rpc_internal_synchronous(rpc_info_t *rpc);
 extern void exec_rpc_internal_ro(rpc_info_t *rpc);
 extern void exec_send_checkpoint(void *socket, void *handle);
+
+static void lock(volatile unsigned long *lockp)
+{
+  // TEST + TEST&SET
+  do {
+    while((*lockp) != 0);
+  } while(!__sync_bool_compare_and_swap(lockp, 0, 1));
+  __sync_synchronize();
+}
+
+static void unlock(volatile unsigned long *lockp)
+{
+  __sync_synchronize();
+  __sync_bool_compare_and_swap(lockp, 1, 0);
+  __sync_synchronize();
+}
+
 #endif
