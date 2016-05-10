@@ -40,7 +40,7 @@ rpc_info_t * get_from_runqueue()
 }
 
 static struct executor_st {
-  void operator()
+  void operator() ()
   {
     while(true) {
       rpc_info_t *rpc = get_from_runqueue();
@@ -58,7 +58,7 @@ static struct executor_st {
 } executor;
 
 boost::thread_group threadpool;
-boost::thread executor_thread;
+boost::thread *executor_thread;
 void dispatcher_exec_startup()
 {
   executor_thread = new boost::thread(boost::ref(executor));
