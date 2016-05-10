@@ -43,7 +43,6 @@ logsize=config.getint('meta','logsize')
 heapsize=config.getint('meta','heapsize')
 coord_heapsize=config.getint('meta','coord_heapsize')
 server_baseports = {}
-client_baseports = {}
 
 cond_abs_dir(output)
 
@@ -58,8 +57,6 @@ ports=5
 for q in range(0, quorums):
     qstring='quorum' + str(q)
     server_baseports[str(q)] = baseport
-    baseport = baseport + ports
-    client_baseports[str(q)] = baseport
     baseport = baseport + ports
     config_name=output + '/' + 'config' + str(q) + '.ini'
     f=open(config_name, 'w')
@@ -87,7 +84,6 @@ for q in range(0, quorums):
             index=index+1
     f.write('[dispatch]\n')
     f.write('server_baseport=' + str(server_baseports[str(q)]) + '\n')
-    f.write('client_baseport=' + str(client_baseports[str(q)]) + '\n')
     f.write('filepath=' + str(filepath) + '\n')
     f.write('heapsize=' + str(heapsize) + '\n')
     f.close()
@@ -187,7 +183,6 @@ for q in range(0, quorums):
         f.write('iface' + str(i) + '=' + iface + '\n')
     f.write('[dispatch]\n')
     f.write('server_baseport=' + str(server_baseports[str(q)]) + '\n')
-    f.write('client_baseport=' + str(client_baseports[str(q)]) + '\n')
     f.close()
 
 
@@ -241,7 +236,7 @@ for m in range(0, machines):
             cmd=cmd + str(co_replicas) + ' '
             cmd=cmd + str(clients - 1) + ' 0 '
             cmd=cmd + str(quorums) + ' '
-            cmd=cmd + 'config config_client &> client_log' + str(c) + '&\n'
+            cmd=cmd + 'config config_client &> client_log' + str(c) + '\n'
             f_preload.write(cmd)
             cmd='./counter_driver '
             cmd=cmd + str(c) + ' '
