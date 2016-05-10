@@ -334,6 +334,58 @@ increment, decrement and an atomic set increment. The atomic set increment takes
 as input a set of counter indexes and their current value and atomically
 increments the counters from the the given values. 
 
+Figure~\ref{fig:counter_set} shows a linearizable implementation executing on
+servers. Odd counter values are considered unstable and even values stable.
+Clients make RPC calls to servers the trigger the execution of the
+appropriate function. Any client can make calls for the get and increment
+operations shown on the left hand side. A client retries an operation until it
+finds a stable counter value.
+
+A single distinguished client called the co-ordinator runs any atomic increment
+set operations on behalf of other clients - shown on the right hand side of
+Figure~\ref{fig:counter_set}. We chose to have a single
+distinguished co-ordinator to avoid making the example complex by introducting
+concurrency.
+
+The operations in Figure~\ref{fig:counter_set} do not comprehend failures.
+Cyclone includes a client library to automatically sequence RPC calls at the client
+side, retry them, connect to a new quorum leader on a view change and finally
+take care of unrealiable networks. At the server side the results of increment,
+prepare and commit RPC calls are always persisted and replicated before the
+response to the client. For individual get, increment, prepare and commit
+operations therefore persistence, replication and failover is transparently
+handled.
+
+The AtomicIncrementSet operation presents a special case however. Clients can
+fail and therefore a client executing the steps of the operation can fail midway
+leaving some counters in an unstable state forever. The solution is the
+replicate the distinguished co-ordinator client too. The co-ordinator therefore
+becomes both a server, receiving AtomicIncrementSet operations from clients as
+well as a client, making individual Prepare and Commit calls to the quorum
+leader. The implementation of the AtomicIncrementSet however requires guarantees
+beyond that of simple asynchronous replication
+
+\begin{itemize}
+  \item Output Commit: AtomicIncrementSet has externally visible side effects at
+    other servers when execting. It should therefore be guaranteed to finish
+    executing once it starts
+  \item Exactly once: Regardless of restarts AtomicIncrementSet should be
+    preceived to have executed exactly once by an external observer.
+\end{itemize}
+
+The solution is to simply run AtomicIncrementSet in synchronous replication
+mode. This guarantees the first property. It also guarantees that exactly once
+execution will succced in ``leader'' mode with followers simply remembering the
+success status of a transaction. To ensure that due to a failover we do not
+prepare or commit a counter more than once, we use exactly once RPCs that
+prevent RPC calls from executing more than once. Finally, since only
+one AtomicIncrementSet is executed at a time, we include the current step (the
+place in the for loop) in RPC calls to the quorum leader and have it reflect the
+information back in the response (a cookie of sorts). By querying the results of
+the last made call, the co-ordinator can simply fast forward to the correct
+index in the for loop during recovery and use the value of the ``success'' field
+in the response to update its own local success variable.
+
 
 \begin{figure*}
 \begin{tabular}{cc}    
@@ -376,7 +428,9 @@ Increment(uint64_t index)
 \begin{minipage}{0.5\textwidth}  
 { \scriptsize
 \begin{verbatim}
-Prepare(uint64_t index, uint64_t value, bool success)
+Prepare(uint64_t index, 
+        uint64_t value, 
+        bool success)
 {
   if(counters[index] == value) {
     success = success AND TRUE
@@ -413,6 +467,7 @@ AtomicIncrementSet(uint64_t indices[],
                 success)
   for i = 1 to count
     Commit(indices[i], success)       
+  return success
 }
 \end{verbatim}
 }
