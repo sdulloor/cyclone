@@ -435,10 +435,7 @@ typedef struct cyclone_st {
     msg->ae.entries = (msg_entry_t *)payload;
     ptr = (char *)(payload + msg->ae.n_entries*sizeof(msg_entry_t));
     for(int i=0;i<msg->ae.n_entries;i++) {
-      msg->ae.entries[i].data.buf = malloc(msg->ae.entries[i].data.len);
-      memcpy(msg->ae.entries[i].data.buf, 
-	     ptr, 
-	     msg->ae.entries[i].data.len);
+      msg->ae.entries[i].data.buf = ptr;
       ptr += msg->ae.entries[i].data.len;
     }
     e = raft_recv_appendentries(raft_handle, 
@@ -465,10 +462,7 @@ typedef struct cyclone_st {
       }
       else {
 	client_req.id = rand();
-	client_req.data.buf = malloc(msg->client.size);
-	memcpy(client_req.data.buf, 
-	       msg->client.ptr, 
-	       msg->client.size);
+	client_req.data.buf = msg->client.ptr;
 	client_req.data.len = msg->client.size;
 	client_req.type = RAFT_LOGTYPE_NORMAL;
 	// TBD: Handle error
@@ -497,10 +491,7 @@ typedef struct cyclone_st {
 	for(int i=0;i<msg->client.size;i++) {
 	  int msg_size = msg->client.batch_sizes[i];
 	  messages[i].id = rand();
-	  messages[i].data.buf = malloc(msg_size); 
-	  memcpy(messages[i].data.buf, 
-		 ptr, 
-		 msg_size);
+	  messages[i].data.buf = ptr;
 	  messages[i].data.len = msg_size;
 	  ptr = ptr + msg_size;
 	  messages[i].type = RAFT_LOGTYPE_NORMAL;
@@ -529,10 +520,7 @@ typedef struct cyclone_st {
       }
       else {
 	client_req.id = rand();
-	client_req.data.buf = malloc(msg->client.size);
-	memcpy(client_req.data.buf, 
-	       msg->client.ptr, 
-	       msg->client.size);
+	client_req.data.buf = msg->client.ptr;
 	client_req.data.len = msg->client.size;
 	client_req.type = msg->client.type;
 	// TBD: Handle error
@@ -563,10 +551,7 @@ typedef struct cyclone_st {
       }
       else {
 	client_req.id = rand();
-	client_req.data.buf = malloc(msg->client.size);
-	memcpy(client_req.data.buf, 
-	       msg->client.ptr, 
-	       msg->client.size);
+	client_req.data.buf = msg->client.ptr;
 	client_req.data.len = msg->client.size;
 	client_req.type = RAFT_LOGTYPE_NORMAL;
 	// TBD: Handle error
