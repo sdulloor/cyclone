@@ -325,18 +325,102 @@ if(replication success) {
 \end{figure*}
 
 
-\section{Example Applications}
+\section{Example Application}
 \label{sec:examples}
+We now demonstrate how Cyclone can be used in practise by putting together an
+example of a linearizable set of counters. The problem is to construct a sparse
+set of counters indexed by a 64 bit key and support \emph{linearizable}
+increment, decrement and an atomic set increment. The atomic set increment takes
+as input a set of counter indexes and their current value and atomically
+increments the counters from the the given values. 
 
-\section{Evauation}
 
-\subsection{Baseline}
+\begin{figure*}
+\begin{tabular}{cc}    
+\begin{minipage}{0.5\textwidth}  
+{ \scriptsize
+\begin{verbatim}
+bool is_stable(uint64_t value)
+{
+  if(value is even) {
+    return true
+  }
+  else {
+    return false
+  }
+}
 
-\subsection{Configuration Management}
+Get(uint64_t index)
+{
+  if(not is_stable(counters[index]) {
+    return EUNSTABLE
+  }
+  else {
+    return counters[index]
+  }
+}
 
-\subsection{Transaction Processing}
+Increment(uint64_t index)
+{
+  if(not is_stable(counters[index]) {
+    return EUNSTABLE
+  }
+  else {
+    counters[index] = counters[index] + 2
+    return SUCCESS
+  }
+}
+\end{verbatim}
+}
+\end{minipage} &
+\begin{minipage}{0.5\textwidth}  
+{ \scriptsize
+\begin{verbatim}
+Prepare(uint64_t index, uint64_t value, bool success)
+{
+  if(counters[index] == value) {
+    success = success AND TRUE
+  }
+  else {
+    success = success AND FALSE
+  }
+  // Make unstable
+  counters[index] = counters[index] + 1
+}
 
-\subsection{Network Function Virtualization}
+Commit(uint64_t index, bool success)
+{
+  if(success == TRUE) {
+    // Update
+    counters[index] = counters[index] + 1
+  }
+  else {
+    // Rollback
+    counters[index] = counters[index] - 1
+  }
+}
+
+AtomicIncrementSet(uint64_t indices[],
+                   uint64_t pre_values[],
+                   int count)
+{
+  bool success = TRUE
+  for i = 1 to count
+    success =
+      success AND
+        Prepare(indices[i],
+                pre_values[i],
+                success)
+  for i = 1 to count
+    Commit(indices[i], success)       
+}
+\end{verbatim}
+}
+\end{minipage}
+\end{tabular}
+\caption{Counter Set}
+\label{fig:counter_set}
+\end{figure*}
 
 \section{Related Work}
 
