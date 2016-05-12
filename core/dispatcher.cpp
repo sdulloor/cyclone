@@ -462,8 +462,8 @@ static void gc_pending_rpc_list(bool is_master)
     if(tmp->follower_data != NULL) {
       free(tmp->follower_data);
     }
-    delete tmp->rpc;
-    delete tmp;
+    free(tmp->rpc);
+    free(tmp);
   }
 }
 
@@ -473,14 +473,14 @@ static void issue_rpc(const rpc_t *rpc,
 		      int raft_term,
 		      bool mark_resp)
 {
-  rpc_info_t *rpc_info = new rpc_info_t;
+  rpc_info_t *rpc_info = (rpc_info_t *)malloc(sizeof(rpc_info_t));
   rpc_info->raft_idx    = raft_idx;
   rpc_info->raft_term   = raft_term;
   rpc_info->rep_success = false;
   rpc_info->rep_failed  = false;
   rpc_info->complete    = false;
   rpc_info->len = len;
-  rpc_info->rpc = (rpc_t *)(new char[len]);
+  rpc_info->rpc = (rpc_t *)malloc(len);
   memcpy(rpc_info->rpc, rpc, len);
   rpc_info->rep_follower_success = false;
   rpc_info->follower_data = NULL;
