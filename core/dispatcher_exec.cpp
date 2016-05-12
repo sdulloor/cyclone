@@ -40,9 +40,10 @@ rpc_info_t * get_from_runqueue()
 }
 
 static struct executor_st {
+  volatile bool terminate_now;
   void operator() ()
   {
-    while(true) {
+    while(!terminate_now) {
       rpc_info_t *rpc = get_from_runqueue();
       if(rpc->rpc->flags & RPC_FLAG_RO) {
 	exec_rpc_internal_ro(rpc);
@@ -59,11 +60,23 @@ static struct executor_st {
 
 boost::thread_group threadpool;
 boost::thread *executor_thread;
+
+void disp_exec_cleanup()
+{
+  executor.terminate_now =  true;
+  __sync_synchronize();
+  executor_thread->join();
+  ioService2.stop();
+  threadpool.join_all();
+}
+
 void dispatcher_exec_startup()
 {
+  executor.terminate_now = false;
   executor_thread = new boost::thread(boost::ref(executor));
   threadpool.create_thread
     (boost::bind(&boost::asio::io_service::run, &ioService2));
+  atexit(disp_exec_cleanup);
 }
 
 void exec_rpc(rpc_info_t *rpc)
