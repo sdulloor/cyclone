@@ -28,7 +28,9 @@ void add_to_runqueue(rpc_info_t *work)
 rpc_info_t * get_from_runqueue()
 {
   rpc_info_t *work;
-  while(run_queue_head == NULL);
+  if(run_queue_head == NULL) {
+    return NULL;
+  }
   lock(&runqueue_lock);
   work = run_queue_head;
   run_queue_head = work->next_issue;
@@ -45,6 +47,9 @@ static struct executor_st {
   {
     while(!terminate_now) {
       rpc_info_t *rpc = get_from_runqueue();
+      if(rpc == NULL) {
+	continue;
+      }
       if(rpc->rpc->flags & RPC_FLAG_RO) {
 	exec_rpc_internal_ro(rpc);
       }
