@@ -24,6 +24,8 @@
 static void *cyclone_handle;
 static boost::property_tree::ptree pt_server;
 static boost::property_tree::ptree pt_client;
+volatile bool bail_out = false;
+
 
 struct client_ro_state_st {
   volatile unsigned long committed_txid;
@@ -257,7 +259,11 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
   volatile int execution_term;
   volatile bool is_leader;
   volatile bool have_data;
-  while(!rpc->rep_success && !rpc->rep_failed);
+  while(!rpc->rep_success && !rpc->rep_failed) {
+    if(bail_out) {
+      return;
+    }
+  }
   if(rpc->rep_success) {
     while(repeat) {
       execution_term = cyclone_get_term(cyclone_handle); // get current view
@@ -297,7 +303,11 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	  while(rpc->req_follower_data_active);
 	  free(follower_data);
 	  while(!rpc->rep_follower_success &&
-		cyclone_get_term(cyclone_handle) == execution_term);
+		cyclone_get_term(cyclone_handle) == execution_term) {
+	    if(bail_out) {
+	      return;
+	    }
+	  }
 	  if(!rpc->rep_follower_success) {
 	    repeat = true;
 	    pmemobj_tx_abort(-1);
@@ -305,7 +315,11 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	}
 	else {
 	  while(!rpc->rep_follower_success &&
-		cyclone_get_term(cyclone_handle) == execution_term);
+		cyclone_get_term(cyclone_handle) == execution_term) {
+	    if(bail_out) {
+	      return;
+	    }
+	  }
 	  if(!rpc->rep_follower_success) {
 	    repeat = true;
 	    pmemobj_tx_abort(-1);
@@ -355,7 +369,11 @@ void exec_rpc_internal(rpc_info_t *rpc)
 			    rpc->len - sizeof(rpc_t),
 			    &rpc->ret_value);
     }
-    while(!rpc->rep_success && !rpc->rep_failed);
+    while(!rpc->rep_success && !rpc->rep_failed) {
+      if(bail_out) {
+	return;
+      }
+    }
     if(rpc->rep_success) {
       mark_done(rpc->rpc, rpc->raft_idx, rpc->raft_term, rpc->ret_value, rpc->sz);
     }

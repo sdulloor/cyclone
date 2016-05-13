@@ -60,9 +60,11 @@ static struct executor_st {
 
 boost::thread_group threadpool;
 boost::thread *executor_thread;
+extern volatile bool bail_out;
 
 void disp_exec_cleanup()
 {
+  bail_out = true;
   executor.terminate_now =  true;
   __sync_synchronize();
   executor_thread->join();
