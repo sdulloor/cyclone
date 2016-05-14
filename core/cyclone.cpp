@@ -412,8 +412,7 @@ int cyclone_is_leader(void *cyclone_handle)
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
   if(handle->replicas == 1)
     return 1;
-  int leader = raft_get_current_leader(handle->raft_handle);
-  return (leader == handle->me) ? 1:0;
+  return raft_is_leader(handle->raft_handle);
 }
 
 int cyclone_get_leader(void *cyclone_handle)

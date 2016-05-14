@@ -412,6 +412,7 @@ typedef struct cyclone_st {
     char *ptr;
     msg_entry_t client_req;
     msg_entry_response_t *client_rep;
+    msg_entry_t *messages; 
     
     switch (msg->msg_type) {
     case MSG_REQUESTVOTE:
@@ -453,96 +454,71 @@ typedef struct cyclone_st {
 					   &msg->aer);
       break;
     case MSG_CLIENT_REQ:
-      if(!cyclone_is_leader(this)) {
+      client_req.id = rand();
+      client_req.data.buf = msg->client.ptr;
+      client_req.data.len = msg->client.size;
+      client_req.type = RAFT_LOGTYPE_NORMAL;
+      client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
+      e = raft_recv_entry(raft_handle, 
+			  &client_req, 
+			  client_rep);
+      if(e != 0) {
+	free(client_rep);
 	client_rep = NULL;
-	cyclone_tx(router->request_in(),
-		    (unsigned char *)&client_rep,
-		    sizeof(void *),
-		    "CLIENT COOKIE SEND");
       }
-      else {
-	client_req.id = rand();
-	client_req.data.buf = msg->client.ptr;
-	client_req.data.len = msg->client.size;
-	client_req.type = RAFT_LOGTYPE_NORMAL;
-	// TBD: Handle error
-	client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
-	(void)raft_recv_entry(raft_handle, 
-			      &client_req, 
-			      client_rep);
-	cyclone_tx(router->request_in(),
-		    (unsigned char *)&client_rep,
-		    sizeof(void *),
-		    "CLIENT COOKIE SEND");
-      }
+      cyclone_tx(router->request_in(),
+		 (unsigned char *)&client_rep,
+		 sizeof(void *),
+		 "CLIENT COOKIE SEND");
       break;
-     case MSG_CLIENT_REQ_BATCH:
-      if(!cyclone_is_leader(this)) {
-	void * cookies = NULL;
-	cyclone_tx(router->request_in(),
-		   (unsigned char *)&cookies,
-		   sizeof(void *),
-		   "CLIENT COOKIE SEND");
+    case MSG_CLIENT_REQ_BATCH:
+      messages = 
+	(msg_entry_t *)malloc(msg->client.size*sizeof(msg_entry_t));
+      ptr = (char *)msg->client.ptr;
+      for(int i=0;i<msg->client.size;i++) {
+	int msg_size = msg->client.batch_sizes[i];
+	messages[i].id = rand();
+	messages[i].data.buf = ptr;
+	messages[i].data.len = msg_size;
+	ptr = ptr + msg_size;
+	messages[i].type = RAFT_LOGTYPE_NORMAL;
       }
-      else {
-	msg_entry_t *messages = 
-	  (msg_entry_t *)malloc(msg->client.size*sizeof(msg_entry_t));
-	char *ptr = (char *)msg->client.ptr;
-	for(int i=0;i<msg->client.size;i++) {
-	  int msg_size = msg->client.batch_sizes[i];
-	  messages[i].id = rand();
-	  messages[i].data.buf = ptr;
-	  messages[i].data.len = msg_size;
-	  ptr = ptr + msg_size;
-	  messages[i].type = RAFT_LOGTYPE_NORMAL;
-	}
-	// TBD: Handle error
-	client_rep = (msg_entry_response_t *)
-	  malloc(msg->client.size*sizeof(msg_entry_response_t));
-	(void)raft_recv_entry_batch(raft_handle, 
-				    messages, 
-				    client_rep,
-				    msg->client.size);
-	free(messages);
-	cyclone_tx(router->request_in(),
-		    (unsigned char *)&client_rep,
-		    sizeof(void *),
-		    "CLIENT COOKIE SEND");
+      client_rep = (msg_entry_response_t *)
+	malloc(msg->client.size*sizeof(msg_entry_response_t));
+      e = raft_recv_entry_batch(raft_handle, 
+				messages, 
+				client_rep,
+				msg->client.size);
+      if(e != 0) {
+	free(client_rep);
+	client_rep = NULL;
       }
+      free(messages);
+      cyclone_tx(router->request_in(),
+		 (unsigned char *)&client_rep,
+		 sizeof(void *),
+		 "CLIENT COOKIE SEND");
       break;
     case MSG_CLIENT_REQ_CFG:
-      if(!cyclone_is_leader(this)) {
+      client_req.id = rand();
+      client_req.data.buf = msg->client.ptr;
+      client_req.data.len = msg->client.size;
+      client_req.type = msg->client.type;
+      client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
+      e = raft_recv_entry(raft_handle, 
+			  &client_req, 
+			  client_rep);
+      if(e != 0) {
+	free(client_rep);
 	client_rep = NULL;
-	cyclone_tx(router->request_in(),
+      }
+      cyclone_tx(router->request_in(),
 		    (unsigned char *)&client_rep,
 		    sizeof(void *),
 		    "CLIENT COOKIE SEND");
-      }
-      else {
-	client_req.id = rand();
-	client_req.data.buf = msg->client.ptr;
-	client_req.data.len = msg->client.size;
-	client_req.type = msg->client.type;
-	// TBD: Handle error
-	client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
-	(void)raft_recv_entry(raft_handle, 
-			      &client_req, 
-			      client_rep);
-	cyclone_tx(router->request_in(),
-		    (unsigned char *)&client_rep,
-		    sizeof(void *),
-		    "CLIENT COOKIE SEND");
-      }
       break;
     case MSG_CLIENT_REQ_TERM:
-      if(!cyclone_is_leader(this)) {
-	client_rep = NULL;
-	cyclone_tx(router->request_in(),
-		    (unsigned char *)&client_rep,
-		    sizeof(void *),
-		    "CLIENT COOKIE SEND");
-      }
-      else if(raft_get_current_term(raft_handle) != msg->client.term) {
+      if(raft_get_current_term(raft_handle) != msg->client.term) {
 	client_rep = NULL;
 	cyclone_tx(router->request_in(),
 		   (unsigned char *)&client_rep,
@@ -554,11 +530,14 @@ typedef struct cyclone_st {
 	client_req.data.buf = msg->client.ptr;
 	client_req.data.len = msg->client.size;
 	client_req.type = RAFT_LOGTYPE_NORMAL;
-	// TBD: Handle error
 	client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
-	(void)raft_recv_entry(raft_handle, 
+	e = raft_recv_entry(raft_handle, 
 			      &client_req, 
 			      client_rep);
+	if(e != 0) {
+	  free(client_rep);
+	  client_rep = NULL;
+	}
 	cyclone_tx(router->request_in(),
 		    (unsigned char *)&client_rep,
 		    sizeof(void *),
