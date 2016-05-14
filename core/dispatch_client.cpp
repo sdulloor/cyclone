@@ -63,7 +63,7 @@ typedef struct rpc_client_st {
       if(resp_sz == -1) {
 	BOOST_LOG_TRIVIAL(info) << "Timeout doorbell";
 	server = (server + 1)%replicas;
-	BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
+	BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW LEADER " << server;
 	continue;
       }
 
@@ -74,12 +74,12 @@ typedef struct rpc_client_st {
   void update_server(const char *context)
   {
     BOOST_LOG_TRIVIAL(info) 
-      << "CLIENT DETECTED POSSIBLE FAILED MASTER: "
+      << "CLIENT DETECTED POSSIBLE FAILED LEADER: "
       << server
       << " Reason " 
       << context;
     server = (server + 1)%replicas;
-    BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
+    BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW LEADER " << server;
     if(!rung_doorbell[server]) {
       ring_doorbell();
     }
@@ -87,7 +87,7 @@ typedef struct rpc_client_st {
 
   void set_server()
   {
-    BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING MASTER " << server;
+    BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING LEADER " << server;
     if(!rung_doorbell[server]) {
       ring_doorbell();
     }
@@ -133,14 +133,7 @@ typedef struct rpc_client_st {
 	continue;
       }
       if(packet_in->code == RPC_REP_INVSRV) {
-	if(packet_in->master == -1) {
-	  BOOST_LOG_TRIVIAL(info) << "Unknown master !";
-	  update_server("unknown master");
-	}
-	else {
-	  server = packet_in->master;
-	  set_server();
-	}
+	update_server("Server not leader");
 	continue;
       }
       break;
@@ -189,14 +182,7 @@ typedef struct rpc_client_st {
 	continue;
       }
       if(packet_in->code == RPC_REP_INVSRV) {
-	if(packet_in->master == -1) {
-	  BOOST_LOG_TRIVIAL(info) << "Unknown master !";
-	  update_server("unknown master");
-	}
-	else {
-	  server = packet_in->master;
-	  set_server();
-	}
+	update_server("Server not leader");
 	continue;
       }
       break;
@@ -246,14 +232,7 @@ typedef struct rpc_client_st {
 	continue;
       }
       if(packet_in->code == RPC_REP_INVSRV) {
-	if(packet_in->master == -1) {
-	  BOOST_LOG_TRIVIAL(info) << "Unknown master !";
-	  update_server("unknown master");
-	}
-	else {
-	  server = packet_in->master;
-	  set_server();
-	}
+	update_server("Server not leader");
 	continue;
       }
       break;
@@ -301,14 +280,7 @@ typedef struct rpc_client_st {
 	continue;
       }
       if(packet_in->code == RPC_REP_INVSRV) {
-	if(packet_in->master == -1) {
-	  BOOST_LOG_TRIVIAL(info) << "Unknown master !";
-	  update_server("unknown master");
-	}
-	else {
-	  server = packet_in->master;
-	  set_server();
-	}
+	update_server("Server not leader");
 	continue;
       }
       break;
@@ -366,14 +338,7 @@ typedef struct rpc_client_st {
 	continue;
       }
       if(packet_in->code == RPC_REP_INVSRV) {
-	if(packet_in->master == -1) {
-	  BOOST_LOG_TRIVIAL(info) << "Unknown master !";
-	  update_server("unknown master");
-	}
-	else {
-	  server = packet_in->master;
-	  set_server();
-	}
+	update_server("Server not leader");
 	continue;
       }
       if(packet_in->code == RPC_REP_UNKNOWN) {
