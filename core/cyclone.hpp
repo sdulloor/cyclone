@@ -29,17 +29,12 @@ extern void *cyclone_unset_img_build(void *cyclone_handle);
 
 // Returns 0:pending 1:success -1:failed
 extern int cyclone_check_status(void *cyclone_handle, void *cookie);
-// Callback to add or remove a log entry
+// Callback to add, remove or commit a log entry
 typedef void (*cyclone_callback_t)(void *user_arg,
 				   const unsigned char *data,
 				   const int len,
 				   const int raft_idx,
 				   const int raft_term);
-//Callback to commit a log entry
-typedef void (*cyclone_commit_t)(void *user_arg,
-				 const unsigned char *data,
-				 const int len);
-
 // Callback to build image
 typedef void (*cyclone_build_image_t)(void *socket);
 					    
@@ -47,7 +42,7 @@ typedef void (*cyclone_build_image_t)(void *socket);
 extern void* cyclone_boot(const char *config_path,
 			  cyclone_callback_t cyclone_rep_callback,
 			  cyclone_callback_t cyclone_pop_callback,
-			  cyclone_commit_t cyclone_commit_callback,
+			  cyclone_callback_t cyclone_commit_callback,
 			  cyclone_build_image_t cyclone_build_image_callback,
 			  int me,
 			  int replicas,

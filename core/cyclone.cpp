@@ -170,7 +170,8 @@ static int __persist_term(raft_server_t* raft,
 
 static int __applylog(raft_server_t* raft,
 		      void *udata,
-		      raft_entry_t *ety)
+		      raft_entry_t *ety,
+		      int ety_idx)
 {
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   unsigned char *chunk = (unsigned char *)malloc(ety->data.len);
@@ -178,7 +179,11 @@ static int __applylog(raft_server_t* raft,
   (void)cyclone_handle->read_from_log(chunk, (unsigned long)ety->data.buf);
   if(ety->type != RAFT_LOGTYPE_ADD_NODE &&
      cyclone_handle->cyclone_commit_cb != NULL) {    
-    cyclone_handle->cyclone_commit_cb(cyclone_handle->user_arg, chunk, ety->data.len);
+    cyclone_handle->cyclone_commit_cb(cyclone_handle->user_arg, 
+				      chunk, 
+				      ety->data.len,
+				      ety_idx,
+				      ety->term);
   }
   if(ety->type == RAFT_LOGTYPE_REMOVE_NODE) {
     cfg_change_t *cfg = (cfg_change_t *)(chunk + sizeof(rpc_t));
@@ -592,7 +597,7 @@ static struct cyclone_img_load_st {
 void* cyclone_boot(const char *config_path,
 		   cyclone_callback_t cyclone_rep_callback,
 		   cyclone_callback_t cyclone_pop_callback,
-		   cyclone_commit_t cyclone_commit_callback,
+		   cyclone_callback_t cyclone_commit_callback,
 		   cyclone_build_image_t cyclone_build_image_callback,
 		   int me,
 		   int replicas,

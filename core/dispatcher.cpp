@@ -132,27 +132,6 @@ static rpc_info_t * locate_rpc_internal(int raft_idx,
   return hit;
 }
 
-static rpc_info_t * locate_rpc_next_commit(bool keep_lock = false)
-{
-  rpc_info_t *rpc_info;
-  rpc_info_t *hit = NULL;
-  lock_rpc_list();
-  rpc_info = pending_rpc_head;
-  while(rpc_info != NULL) {
-    if((rpc_info->rpc->flags & RPC_FLAG_RO) == 0) {
-      if(!rpc_info->rep_failed && !rpc_info->rep_success) {
-	hit = rpc_info;
-	break;
-      }
-    }
-    rpc_info = rpc_info->next;
-  }
-  if(!keep_lock) {
-    unlock_rpc_list(); 
-  }
-  return hit;
-}
-
 static void dump_active_list()
 {
   rpc_info_t *rpc_info;
@@ -528,7 +507,11 @@ static void issue_rpc(const rpc_t *rpc,
   __sync_synchronize();
 }
 
-void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
+void cyclone_commit_cb(void *user_arg, 
+		       const unsigned char *data, 
+		       const int len,
+		       const int raft_idx,
+		       const int raft_term)
 {
   const rpc_t *rpc = (const rpc_t *)data;
   rpc_info_t *rpc_info;
@@ -555,10 +538,13 @@ void cyclone_commit_cb(void *user_arg, const unsigned char *data, const int len)
     rpc_info->rep_follower_success = true;
     return;
   }
-  rpc_info = locate_rpc_next_commit(true);
+  rpc_info = locate_rpc_internal(raft_idx, raft_term, true);
   if(rpc_info == NULL) {
     BOOST_LOG_TRIVIAL(fatal)
-      << "Unable to locate any replicated RPC for commit";
+      << "Unable to locate any replicated RPC for commit "
+      << raft_idx 
+      << ":"
+      << raft_term;
     dump_active_list();
     exit(-1);
   }
