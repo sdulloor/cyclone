@@ -69,6 +69,8 @@ extern volatile bool bail_out;
 
 void disp_exec_cleanup()
 {
+  fprintf(stderr, "Cleaning up execution thread\n");
+  fflush(stderr);
   bail_out = true;
   executor.terminate_now =  true;
   __sync_synchronize();
