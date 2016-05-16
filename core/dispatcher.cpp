@@ -24,8 +24,6 @@
 static void *cyclone_handle;
 static boost::property_tree::ptree pt_server;
 static boost::property_tree::ptree pt_client;
-volatile bool bail_out = false;
-
 
 struct client_ro_state_st {
   volatile unsigned long committed_txid;
@@ -50,6 +48,7 @@ static int me;
 // Linked list of RPCs yet to be completed
 static rpc_info_t * volatile pending_rpc_head;
 static rpc_info_t * volatile pending_rpc_tail;
+static volatile int committed_raft_log_idx;
 
 static volatile unsigned long list_lock   = 0;
 static volatile unsigned long result_lock = 0;
@@ -238,11 +237,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
   volatile int execution_term;
   volatile bool is_leader;
   volatile bool have_data;
-  while(!rpc->rep_success && !rpc->rep_failed) {
-    if(bail_out) {
-      return;
-    }
-  }
+  while(!rpc->rep_success && !rpc->rep_failed);
   if(rpc->rep_success) {
     while(repeat) {
       execution_term = cyclone_get_term(cyclone_handle); // get current view
@@ -282,11 +277,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	  while(rpc->req_follower_data_active);
 	  free(follower_data);
 	  while(!rpc->rep_follower_success &&
-		cyclone_get_term(cyclone_handle) == execution_term) {
-	    if(bail_out) {
-	      return;
-	    }
-	  }
+		cyclone_get_term(cyclone_handle) == execution_term);
 	  if(!rpc->rep_follower_success) {
 	    repeat = true;
 	    pmemobj_tx_abort(-1);
@@ -294,11 +285,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	}
 	else {
 	  while(!rpc->rep_follower_success &&
-		cyclone_get_term(cyclone_handle) == execution_term) {
-	    if(bail_out) {
-	      return;
-	    }
-	  }
+		cyclone_get_term(cyclone_handle) == execution_term);
 	  if(!rpc->rep_follower_success) {
 	    repeat = true;
 	    pmemobj_tx_abort(-1);
@@ -348,11 +335,7 @@ void exec_rpc_internal(rpc_info_t *rpc)
 			    rpc->len - sizeof(rpc_t),
 			    &rpc->ret_value);
     }
-    while(!rpc->rep_success && !rpc->rep_failed) {
-      if(bail_out) {
-	return;
-      }
-    }
+    while(!rpc->rep_success && !rpc->rep_failed);
     if(rpc->rep_success) {
       mark_done(rpc->rpc, rpc->raft_idx, rpc->raft_term, rpc->ret_value, rpc->sz);
     }
@@ -517,6 +500,18 @@ void cyclone_commit_cb(void *user_arg,
   rpc_info_t *rpc_info;
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   int applied_raft_idx  = D_RO(root)->applied_raft_idx;
+  if(committed_raft_log_idx >=  raft_idx) {
+    BOOST_LOG_TRIVIAL(fatal)
+      << "Error in commit idx "
+      << raft_idx 
+      << ":"
+      << raft_term;
+    BOOST_LOG_TRIVIAL(fatal)
+      << " Committed so far "
+      << committed_raft_log_idx;
+    dump_active_list();
+    exit(-1);
+  }
   if(rpc->code == RPC_REQ_MARKER) {
     return;
   }
@@ -553,6 +548,7 @@ void cyclone_commit_cb(void *user_arg,
   }
   __sync_synchronize();
   unlock_rpc_list();
+  committed_raft_log_idx = raft_idx;
 }
 
 // Note: node cannot become master while this function is in progress
@@ -566,6 +562,19 @@ void cyclone_rep_cb(void *user_arg,
   rpc_info_t *match;
   TOID(disp_state_t) root;
   int applied_raft_idx;
+
+  if(committed_raft_log_idx >=  raft_idx) {
+    BOOST_LOG_TRIVIAL(fatal)
+      << "Error in commit idx "
+      << raft_idx 
+      << ":"
+      << raft_term;
+    BOOST_LOG_TRIVIAL(fatal)
+      << " Committed so far "
+      << committed_raft_log_idx;
+    dump_active_list();
+    exit(-1);
+  }
 
   if(!building_image) {
     root = POBJ_ROOT(state, disp_state_t);
@@ -1121,6 +1130,8 @@ void dispatcher_start(const char* config_server_path,
     client_ro_state[i].last_return_value = NULL;
     client_ro_state[i].inflight = false;
   }
+
+  committed_raft_log_idx = -1;
   
   execute_rpc = rpc_callback;
   execute_rpc_follower = rpc_follower_callback;
