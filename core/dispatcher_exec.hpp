@@ -8,8 +8,8 @@ typedef struct rpc_info_st {
   int raft_idx;
   int raft_term;
   int len;
-  int sz;
-  void *ret_value;
+  volatile int sz;
+  void * volatile ret_value;
   void *follower_data;
   int follower_data_size;
   volatile bool have_follower_data;

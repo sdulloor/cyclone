@@ -34,7 +34,7 @@ int leader_callback(const unsigned char *data,
 		    const int len,
 		    unsigned char **follower_data,
 		    int *follower_data_size, 
-		    void **return_value)
+		    void * volatile *return_value)
 {
   rbtree_tx_t * tx = (rbtree_tx_t *)data;
   *follower_data = (unsigned char *)malloc(sizeof(int));
@@ -92,7 +92,7 @@ int follower_callback(const unsigned char *data,
 		      const int len,
 		      unsigned char *follower_data,
 		      int follower_data_size, 
-		      void **return_value)
+		      void * volatile *return_value)
 {
   *return_value = malloc(sizeof(int));
   *(int *)*return_value = *(int *)follower_data;
