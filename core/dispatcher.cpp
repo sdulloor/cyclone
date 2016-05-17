@@ -140,7 +140,11 @@ static void dump_active_list()
   while(rpc_info != NULL) {
     BOOST_LOG_TRIVIAL(info) << "ACTIVE  "
 			    << rpc_info->raft_idx << ":"
-			    << rpc_info->raft_term;
+			    << rpc_info->raft_term 
+			    << " success = "
+			    << rpc_info->rep_success
+			    << " failed = "
+			    << rpc_info->rep_failed;
     rpc_info = rpc_info->next;
   }
 }
@@ -503,7 +507,7 @@ void cyclone_commit_cb(void *user_arg,
   int applied_raft_idx  = D_RO(root)->applied_raft_idx;
   if(committed_raft_log_idx >=  raft_idx) {
     BOOST_LOG_TRIVIAL(fatal)
-      << "Error in commit idx "
+      << "Error in commit idx (cyclone_commit_cb) "
       << raft_idx 
       << ":"
       << raft_term;
@@ -566,7 +570,7 @@ void cyclone_rep_cb(void *user_arg,
 
   if(committed_raft_log_idx >=  raft_idx) {
     BOOST_LOG_TRIVIAL(fatal)
-      << "Error in commit idx "
+      << "Error in commit idx (cyclone_rep_cb) "
       << raft_idx 
       << ":"
       << raft_term;
@@ -645,6 +649,15 @@ void cyclone_pop_cb(void *user_arg,
   rpc_info = locate_rpc_internal(raft_idx, raft_term, true);
   if(rpc_info == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Unable to locate failed replication RPC !";
+    exit(-1);
+  }
+  if(rpc_info->rep_success) {
+    BOOST_LOG_TRIVIAL(fatal)
+      << "Rolling back successful RPC ! (cyclone_pop_cb) "
+      << raft_idx 
+      << ":"
+      << raft_term;
+    dump_active_list();
     exit(-1);
   }
   rpc_info->rep_failed = true;
