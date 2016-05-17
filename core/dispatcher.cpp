@@ -119,7 +119,8 @@ static rpc_info_t * locate_rpc_internal(int raft_idx,
   rpc_info = pending_rpc_head;
   while(rpc_info != NULL) {
     if(rpc_info->raft_idx == raft_idx &&
-       rpc_info->raft_term == raft_term) {
+       rpc_info->raft_term == raft_term &&
+       !rpc_info->rep_failed) {
       hit = rpc_info;
       break;
     } 
