@@ -403,6 +403,7 @@ static void gc_pending_rpc_list(bool is_master)
   void *cookie;
   deleted = NULL;
   tmp = pending_rpc_head;
+  lock_rpc_list();
   while(tmp) {
     if(tmp->req_follower_data_active) {
       cookie = cyclone_add_entry_term(cyclone_handle,
@@ -417,7 +418,6 @@ static void gc_pending_rpc_list(bool is_master)
     }
     tmp = tmp->next;
   }
-  lock_rpc_list();
   while(pending_rpc_head != NULL) {
     if(!pending_rpc_head->complete) {
       break;
