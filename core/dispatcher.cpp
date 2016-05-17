@@ -543,7 +543,7 @@ void cyclone_commit_cb(void *user_arg,
     dump_active_list();
     exit(-1);
   }
-  else if(rpc_info != NULL) {
+  else {
     rpc_info->rep_success = true;
   }
   __sync_synchronize();
