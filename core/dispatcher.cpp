@@ -949,6 +949,7 @@ struct dispatcher_loop {
 	    space_left = BUFSPACE;
 	  }
 	  else if(req->code == RPC_DOORBELL) {
+	    router->lock_output_socket(req->requestor, req->client_id);
 	    router->ring_doorbell(zmq_context,
 				  req->requestor,
 				  req->client_id,
@@ -957,7 +958,6 @@ struct dispatcher_loop {
 	    rpc_rep->code = RPC_REP_COMPLETE;
 	    rpc_rep->client_id   = req->client_id;
 	    rpc_rep->channel_seq = req->channel_seq;
-	    router->lock_output_socket(req->requestor, req->client_id);
 	    cyclone_tx(router->output_socket(req->requestor, req->client_id), 
 		       tx_buffer, 
 		       sizeof(rpc_t), 
