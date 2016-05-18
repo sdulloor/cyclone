@@ -397,8 +397,8 @@ public:
 		boost::property_tree::ptree *pt_client,
 		int me,
 		int clients_in,
-		int mux_port_cnt,
-		bool use_hwm)
+		bool use_hwm,
+		int mux_port_cnt)
     :saved_context(context)
     
   {

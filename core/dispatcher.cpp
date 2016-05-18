@@ -660,6 +660,7 @@ struct dispatcher_loop {
   void *zmq_context;
   int clients;
   int machines;
+  boost::thread *tx_thread;
 
   void send_kicker()
   {
@@ -1162,5 +1163,7 @@ void dispatcher_start(const char* config_server_path,
 			     clients,
 			     false,
 			     2);
+  dispatcher_loop_obj->tx_thread = 
+    new boost::thread(boost::ref(*router));
   (*dispatcher_loop_obj)();
 }
