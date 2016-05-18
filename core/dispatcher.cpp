@@ -65,7 +65,9 @@ static void unlock_rpc_list()
 }
 
 
-static void client_response(rpc_info_t *rpc, rpc_t *rpc_rep)
+static void client_response(rpc_info_t *rpc, 
+			    rpc_t *rpc_rep,
+			    int mux_index)
 {
   lock(&rpc->pending_lock);
   if(rpc->client_blocked == -1) {
@@ -90,8 +92,9 @@ static void client_response(rpc_info_t *rpc, rpc_t *rpc_rep)
   }
   router->send_data(rpc->client_blocked,
 		    rpc->rpc->client_id,
-		    (unsigned char *)rpc_rep, 
-		    rep_sz); 
+		    (void *)rpc_rep, 
+		    rep_sz,
+		    mux_index); 
   rpc->client_blocked = -1;
   unlock(&rpc->pending_lock);
 }
@@ -305,7 +308,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
       } TX_END
     }
   }
-  client_response(rpc, (rpc_t *)tx_async_buffer);
+  client_response(rpc, (rpc_t *)tx_async_buffer, 1);
   __sync_synchronize();
   rpc->complete = true; // note: rpc will be freed after this
 }
@@ -341,7 +344,7 @@ void exec_rpc_internal(rpc_info_t *rpc)
       exit(-1);
     }
   } TX_END
-  client_response(rpc, (rpc_t *)tx_async_buffer);
+  client_response(rpc, (rpc_t *)tx_async_buffer, 1);
   __sync_synchronize();
   rpc->complete = true; // note: rpc will be freed after this
 }
@@ -370,7 +373,7 @@ void exec_rpc_internal_ro(rpc_info_t *rpc)
   }
   cstate->committed_txid = rpc->rpc->client_txid;
   unlock(&result_lock);
-  client_response(rpc, (rpc_t *)tx_async_buffer);
+  client_response(rpc, (rpc_t *)tx_async_buffer, 1);
   __sync_synchronize();
   rpc->complete = true; // note: rpc will be freed after this
 }
@@ -427,7 +430,7 @@ static void gc_pending_rpc_list(bool is_master)
   while(deleted) {
     tmp = deleted;
     deleted = deleted->next;    
-    client_response(tmp, rpc_rep);
+    client_response(tmp, rpc_rep, 0);
     if(tmp->sz != 0) {
       gc_rpc(tmp->ret_value);
     }
@@ -823,8 +826,9 @@ struct dispatcher_loop {
     if(rep_sz > 0) {
       router->send_data(requestor,
 			rpc_req->client_id, 
-			tx_buffer, 
-			rep_sz); 
+			(void *)tx_buffer, 
+			rep_sz,
+			0); 
     }
     return batch_issue;
   }
@@ -843,8 +847,9 @@ struct dispatcher_loop {
 	rpc_rep->master = cyclone_get_leader(cyclone_handle);
 	router->send_data(rpc_req->requestor,
 			  rpc_req->client_id,
-			  tx_buffer, 
-			  sizeof(rpc_t));
+			  (void *)tx_buffer, 
+			  sizeof(rpc_t),
+			  0);
 	ptr = ptr + sizes[i];
       }
     }
@@ -931,10 +936,10 @@ struct dispatcher_loop {
 	    space_left = BUFSPACE;
 	  }
 	  else if(req->code == RPC_DOORBELL) {
-	    router->ring_doorbell(zmq_context,
-				  req->requestor,
+	    router->ring_doorbell(req->requestor,
 				  req->client_id,
-				  req->port);
+				  req->port,
+				  0);
 	    rpc_t *rpc_rep = (rpc_t *)tx_buffer;
 	    rpc_rep->code = RPC_REP_COMPLETE;
 	    rpc_rep->client_id   = req->client_id;
@@ -942,7 +947,8 @@ struct dispatcher_loop {
 	    router->send_data(req->requestor,
 			      req->client_id, 
 			      tx_buffer, 
-			      sizeof(rpc_t));
+			      sizeof(rpc_t),
+			      0);
 	    ptr -= sz;
 	    space_left += sz;
 	    requests--;
@@ -1154,6 +1160,7 @@ void dispatcher_start(const char* config_server_path,
 			     &pt_client,
 			     me,
 			     clients,
-			     false);
+			     false,
+			     2);
   (*dispatcher_loop_obj)();
 }

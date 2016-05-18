@@ -362,19 +362,17 @@ const int RING_DOORBELL = 0;
 const int SEND_DATA     = 1;
 typedef struct mux_state_st{
   int op;
-  // Doorbell
-  void *context;
   int mc;
   int client;
+  // Doorbell
   int port;
   // Send data
-  int mc;
-  int client;
   void *data;
   int size;
 } mux_state_t;
 
 class server_switch {
+  void *saved_context;
   void **sockets_out;
   int *socket_out_ports;
   void *socket_in;
@@ -401,6 +399,7 @@ public:
 		int clients_in,
 		int mux_port_cnt,
 		bool use_hwm)
+    :saved_context(context)
     
   {
     std::stringstream key; 
@@ -440,15 +439,14 @@ public:
     }
     mux_ports = new void *[mux_port_cnt];
     for(int i=0;i<mux_port_cnt;i++) {
-      mux_ports[i] =
-	cyclone_socket_out_loopback("inproc://MUXDEMUX");
+      mux_ports[i] = cyclone_socket_out_loopback(context);
+      cyclone_connect_endpoint(mux_ports[i], "inproc://MUXDEMUX");
     }
   }
 
   
   
-  void ring_doorbell_backend(void *context,
-			     int mc,
+  void ring_doorbell_backend(int mc,
 			     int client,
 			     int port)
   {
@@ -462,7 +460,7 @@ public:
     std::stringstream key; 
     std::stringstream addr;
     // output wire to client
-    void *socket = cyclone_socket_out(context, saved_use_hwm);
+    void *socket = cyclone_socket_out(saved_context, saved_use_hwm);
     sockets_out[index(mc, client)] = socket;
     key.str("");key.clear();
     addr.str("");addr.clear();
@@ -488,33 +486,35 @@ public:
     cmd.data = data;
     cmd.size = size;
     cyclone_tx(mux_ports[mux_index],
-	       &cmd,
-	       sizeof(mux_state_t));
+	       (const unsigned char *)&cmd,
+	       sizeof(mux_state_t),
+	       "mux");
     cyclone_rx(mux_ports[mux_index],
-	       &ok,
-	       sizeof(int));
+	       (unsigned char *)&ok,
+	       sizeof(int),
+	       "demux");
   }
 
-  void ring_doorbell(void *context,
-		     int mc,
+  void ring_doorbell(int mc,
 		     int client,
 		     int port,
-		     int index)
+		     int mux_index)
   {
     mux_state_t cmd;
     int ok;
     cmd.op = RING_DOORBELL;
-    cmd.context = context;
     cmd.mc = mc;
     cmd.client = client;
     cmd.port = port;
     
     cyclone_tx(mux_ports[mux_index],
-	       &cmd,
-	       sizeof(mux_state_t));
+	       (const unsigned char *)&cmd,
+	       sizeof(mux_state_t),
+	       "mux");
     cyclone_rx(mux_ports[mux_index],
-	       &ok,
-	       sizeof(int));
+	       (unsigned char *)&ok,
+	       sizeof(int),
+	       "demux");
   }
 
   void *input_socket()
@@ -527,12 +527,15 @@ public:
     mux_state_t cmd;
     int ok = 0;
     demux_port =
-      cyclone_socket_in_loopback("inproc://MUXDEMUX");
+      cyclone_socket_in_loopback(saved_context);
+    cyclone_bind_endpoint(demux_port, "inproc://MUXDEMUX");
     while(true) {
-      cyclone_rx(demux_port, &cmd, sizeof(mux_state_t));
+      cyclone_rx(demux_port, 
+		 (unsigned char *)&cmd, 
+		 sizeof(mux_state_t),
+		 "demux");
       if(cmd.op == RING_DOORBELL) {
-	ring_doorbell_backend(cmd.context,
-			      cmd.mc,
+	ring_doorbell_backend(cmd.mc,
 			      cmd.client,
 			      cmd.port);
       }
@@ -544,10 +547,14 @@ public:
 	  exit(-1);
 	}
 	cyclone_tx(sockets_out[index(cmd.mc, cmd.client)],
-		   cmd.data,
-		   cmd.size);
+		   (const unsigned char *)cmd.data,
+		   cmd.size,
+		   "demux");
       }
-      cyclone_tx(demux_port, &ok, sizeof(int));
+      cyclone_tx(demux_port, 
+		 (unsigned char *)&ok, 
+		 sizeof(int),
+		 "demux");
     }
   }
   
