@@ -358,11 +358,25 @@ public:
 
 // A replica on each machine
 // A version of every client on every machine
+const int RING_DOORBELL = 0;
+const int SEND_DATA     = 1;
+typedef struct mux_state_st{
+  int op;
+  // Doorbell
+  void *context;
+  int mc;
+  int client;
+  int port;
+  // Send data
+  int mc;
+  int client;
+  void *data;
+  int size;
+} mux_state_t;
 
 class server_switch {
   void **sockets_out;
   int *socket_out_ports;
-  unsigned long* socket_out_locks;
   void *socket_in;
   int client_machines;
   int server_machines;
@@ -375,30 +389,17 @@ class server_switch {
     return mc*clients + client;
   }
 
+  void **mux_ports;
+  void *demux_port;
 
-  void lock(volatile unsigned long *lockp)
-  {
-    // TEST + TEST&SET
-    do {
-      while((*lockp) != 0);
-    } while(!__sync_bool_compare_and_swap(lockp, 0, 1));
-    __sync_synchronize();
-  }
-
-  void unlock(volatile unsigned long *lockp)
-  {
-    __sync_synchronize();
-    __sync_bool_compare_and_swap(lockp, 1, 0);
-    __sync_synchronize();
-  }
-
-  
 public:
+
   server_switch(void *context, 
 		boost::property_tree::ptree *pt_server,
 		boost::property_tree::ptree *pt_client,
 		int me,
 		int clients_in,
+		int mux_port_cnt,
 		bool use_hwm)
     
   {
@@ -420,7 +421,6 @@ public:
     saved_pt_client = pt_client;
 
     sockets_out = new void *[client_machines*clients];
-    socket_out_locks = new unsigned long[client_machines*clients];
     socket_out_ports = new int[client_machines*clients];
 
     // Input wire
@@ -433,17 +433,24 @@ public:
     port = server_baseport + me;
     addr << ":" << port;
     cyclone_bind_endpoint(socket_in, addr.str().c_str());
-
-
     for(int i=0;i<client_machines;i++) {
       for(int j=0;j<clients;j++) {
 	sockets_out[index(i,j)] = NULL;
-	socket_out_locks[index(i,j)] = 0;
       }
+    }
+    mux_ports = new void *[mux_port_cnt];
+    for(int i=0;i<mux_port_cnt;i++) {
+      mux_ports[i] =
+	cyclone_socket_out_loopback("inproc://MUXDEMUX");
     }
   }
 
-  void ring_doorbell(void *context, int mc, int client, int port)
+  
+  
+  void ring_doorbell_backend(void *context,
+			     int mc,
+			     int client,
+			     int port)
   {
     if(sockets_out[index(mc, client)] != NULL && 
        socket_out_ports[index(mc, client)] == port) {
@@ -467,19 +474,47 @@ public:
     socket_out_ports[index(mc, client)] = port;
   }
   
-  void * output_socket(int machine, int client)
+  void send_data(int mc,
+		 int client,
+		 void *data,
+		 int size,
+		 int mux_index)
   {
-    return sockets_out[index(machine, client)];
+    mux_state_t cmd;
+    int ok;
+    cmd.op = SEND_DATA;
+    cmd.mc = mc;
+    cmd.client = client;
+    cmd.data = data;
+    cmd.size = size;
+    cyclone_tx(mux_ports[mux_index],
+	       &cmd,
+	       sizeof(mux_state_t));
+    cyclone_rx(mux_ports[mux_index],
+	       &ok,
+	       sizeof(int));
   }
 
-  void lock_output_socket(int machine, int client)
+  void ring_doorbell(void *context,
+		     int mc,
+		     int client,
+		     int port,
+		     int index)
   {
-    lock(&socket_out_locks[index(machine, client)]);
-  }
-
-  void unlock_output_socket(int machine, int client)
-  {
-    unlock(&socket_out_locks[index(machine, client)]);
+    mux_state_t cmd;
+    int ok;
+    cmd.op = RING_DOORBELL;
+    cmd.context = context;
+    cmd.mc = mc;
+    cmd.client = client;
+    cmd.port = port;
+    
+    cyclone_tx(mux_ports[mux_index],
+	       &cmd,
+	       sizeof(mux_state_t));
+    cyclone_rx(mux_ports[mux_index],
+	       &ok,
+	       sizeof(int));
   }
 
   void *input_socket()
@@ -487,12 +522,41 @@ public:
     return socket_in;
   }
 
+  void operator() ()
+  {
+    mux_state_t cmd;
+    int ok = 0;
+    demux_port =
+      cyclone_socket_in_loopback("inproc://MUXDEMUX");
+    while(true) {
+      cyclone_rx(demux_port, &cmd, sizeof(mux_state_t));
+      if(cmd.op == RING_DOORBELL) {
+	ring_doorbell_backend(cmd.context,
+			      cmd.mc,
+			      cmd.client,
+			      cmd.port);
+      }
+      else {
+	if(sockets_out[index(cmd.mc, cmd.client)] == NULL) {
+	  BOOST_LOG_TRIVIAL(info) << "received rpc req without doorbell "
+				  << " mc = " << cmd.mc
+				  << " client = " << cmd.client;
+	  exit(-1);
+	}
+	cyclone_tx(sockets_out[index(cmd.mc, cmd.client)],
+		   cmd.data,
+		   cmd.size);
+      }
+      cyclone_tx(demux_port, &ok, sizeof(int));
+    }
+  }
+  
   ~server_switch()
   {
     for(int i=0;i<client_machines;i++) {
       for(int j=0;j<clients;j++) {
-	if(output_socket(i, j) != NULL) {
-	  zmq_close(output_socket(i, j));
+	if(sockets_out[index(i, j)] != NULL) {
+	  zmq_close(sockets_out[index(i, j)]);
 	}
       }
     }

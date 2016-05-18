@@ -88,23 +88,10 @@ static void client_response(rpc_info_t *rpc, rpc_t *rpc_rep)
       rep_sz += rpc->sz;
     }
   }
-  router->lock_output_socket(rpc->client_blocked,
-			     rpc->rpc->client_id);
-  if(router->output_socket(rpc->client_blocked, rpc->rpc->client_id) == NULL) {
-    BOOST_LOG_TRIVIAL(info) << "received rpc req without doorbell "
-			    << " mc = " << rpc->client_blocked
-			    << " client = " << rpc->rpc->client_id
-			    << " code  = " << rpc->rpc->code;
-    exit(-1);
-  }
-
-  cyclone_tx(router->output_socket(rpc->client_blocked,
-				   rpc->rpc->client_id), 
-	     (unsigned char *)rpc_rep, 
-	     rep_sz, 
-	     "Dispatch reply -- client response");
-  router->unlock_output_socket(rpc->client_blocked,
-			       rpc->rpc->client_id);
+  router->send_data(rpc->client_blocked,
+		    rpc->rpc->client_id,
+		    (unsigned char *)rpc_rep, 
+		    rep_sz); 
   rpc->client_blocked = -1;
   unlock(&rpc->pending_lock);
 }
@@ -834,12 +821,10 @@ struct dispatcher_loop {
       rep_sz = 0;
     }
     if(rep_sz > 0) {
-      router->lock_output_socket(requestor, rpc_req->client_id);
-      cyclone_tx(router->output_socket(requestor, rpc_req->client_id), 
-		 tx_buffer, 
-		 rep_sz, 
-		 "Dispatch reply -- handle rpc");
-      router->unlock_output_socket(requestor, rpc_req->client_id);
+      router->send_data(requestor,
+			rpc_req->client_id, 
+			tx_buffer, 
+			rep_sz); 
     }
     return batch_issue;
   }
@@ -856,13 +841,10 @@ struct dispatcher_loop {
 	rpc_t *rpc_rep = (rpc_t *)tx_buffer;
 	rpc_rep->code = RPC_REP_INVSRV;
 	rpc_rep->master = cyclone_get_leader(cyclone_handle);
-	router->lock_output_socket(rpc_req->requestor, rpc_req->client_id);
-	cyclone_tx(router->output_socket(rpc_req->requestor,
-					 rpc_req->client_id), 
-		   tx_buffer, 
-		   sizeof(rpc_t), 
-		   "Dispatch reply -- batch issue rpc");
-	router->unlock_output_socket(rpc_req->requestor, rpc_req->client_id);
+	router->send_data(rpc_req->requestor,
+			  rpc_req->client_id,
+			  tx_buffer, 
+			  sizeof(rpc_t));
 	ptr = ptr + sizes[i];
       }
     }
@@ -949,7 +931,6 @@ struct dispatcher_loop {
 	    space_left = BUFSPACE;
 	  }
 	  else if(req->code == RPC_DOORBELL) {
-	    router->lock_output_socket(req->requestor, req->client_id);
 	    router->ring_doorbell(zmq_context,
 				  req->requestor,
 				  req->client_id,
@@ -958,11 +939,10 @@ struct dispatcher_loop {
 	    rpc_rep->code = RPC_REP_COMPLETE;
 	    rpc_rep->client_id   = req->client_id;
 	    rpc_rep->channel_seq = req->channel_seq;
-	    cyclone_tx(router->output_socket(req->requestor, req->client_id), 
-		       tx_buffer, 
-		       sizeof(rpc_t), 
-		       "Doorbell reply");
-	    router->unlock_output_socket(req->requestor, req->client_id);
+	    router->send_data(req->requestor,
+			      req->client_id, 
+			      tx_buffer, 
+			      sizeof(rpc_t));
 	    ptr -= sz;
 	    space_left += sz;
 	    requests--;
