@@ -391,6 +391,14 @@ void __raft_log(raft_server_t* raft,
   //BOOST_LOG_TRIVIAL(debug) << "CYCLONE::RAFT " << buf;
 }
 
+/** Raft callback for displaying debugging information (elections)*/
+void __raft_log_election(raft_server_t* raft, 
+			 raft_node_t *node,
+			 void *udata, 
+			 const char *buf)
+{
+  //BOOST_LOG_TRIVIAL(debug) << "CYCLONE::RAFT::ELECTION " << buf;
+}
 
 
 raft_cbs_t raft_funcs = {
@@ -405,6 +413,7 @@ raft_cbs_t raft_funcs = {
   __raft_logentry_pop,
   __raft_has_sufficient_logs,
   __raft_log,
+  __raft_log_election
 };
 
 int cyclone_is_leader(void *cyclone_handle)
