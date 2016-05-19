@@ -1161,7 +1161,6 @@ void dispatcher_start(const char* config_server_path,
 			     &pt_client,
 			     me,
 			     clients,
-			     false,
 			     2);
   dispatcher_loop_obj->tx_thread = 
     new boost::thread(boost::ref(*router));

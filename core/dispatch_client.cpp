@@ -33,17 +33,10 @@ typedef struct rpc_client_st {
       packet_out_doorbell->channel_seq = channel_seq++;
       packet_out_doorbell->requestor   = me_mc;
       packet_out_doorbell->port      = router->input_port(server);
-      int retcode = cyclone_tx_timeout(router->output_socket(server), 
-				       (unsigned char *)packet_out_doorbell, 
-				       sizeof(rpc_t), 
-				       timeout_msec*1000,
-				       "PROPOSE");
-      if(retcode == -1) {
-	BOOST_LOG_TRIVIAL(info) << "Unable to tx doorbell";
-	server = (server + 1)%replicas;
-	BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW MASTER " << server;
-	continue;
-      }
+      cyclone_tx(router->output_socket(server), 
+		 (unsigned char *)packet_out_doorbell, 
+		 sizeof(rpc_t), 
+		 "PROPOSE");
       int resp_sz;
       while(true) {
 	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
@@ -103,15 +96,10 @@ typedef struct rpc_client_st {
       packet_out->client_txid = (int)packet_out->timestamp;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
-      retcode = cyclone_tx_timeout(router->output_socket(server), 
-				   (unsigned char *)packet_out, 
-				   sizeof(rpc_t), 
-				   timeout_msec*1000,
-				   "PROPOSE");
-      if(retcode == -1) {
-	update_server("tx timeout");
-	continue;
-      }
+      retcode = cyclone_tx(router->output_socket(server), 
+			   (unsigned char *)packet_out, 
+			   sizeof(rpc_t), 
+			   "PROPOSE");
       while(true) {
 	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
 				     (unsigned char *)packet_in, 
@@ -153,15 +141,10 @@ typedef struct rpc_client_st {
       packet_out->requestor   = me_mc;
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
       cfg->node = nodeid;
-      retcode = cyclone_tx_timeout(router->output_socket(server), 
-				   (unsigned char *)packet_out, 
-				   sizeof(rpc_t) + sizeof(cfg_change_t), 
-				   timeout_msec*1000,
-				   "PROPOSE");
-      if(retcode == -1) {
-	update_server("tx timeout");
-	continue;
-      }
+      retcode = cyclone_tx(router->output_socket(server), 
+			   (unsigned char *)packet_out, 
+			   sizeof(rpc_t) + sizeof(cfg_change_t), 
+			   "PROPOSE");
       while(true) {
 	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
 				     (unsigned char *)packet_in, 
@@ -203,15 +186,10 @@ typedef struct rpc_client_st {
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
       cfg->node      = nodeid;
 
-      retcode = cyclone_tx_timeout(router->output_socket(server), 
-				   (unsigned char *)packet_out, 
-				   sizeof(rpc_t) + sizeof(cfg_change_t), 
-				   timeout_msec*1000,
-				   "PROPOSE");
-      if(retcode == -1) {
-	update_server("tx timeout");
-	continue;
-      }
+      retcode = cyclone_tx(router->output_socket(server), 
+			   (unsigned char *)packet_out, 
+			   sizeof(rpc_t) + sizeof(cfg_change_t), 
+			   "PROPOSE");
       while(true) {
 	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
 				     (unsigned char *)packet_in, 
@@ -250,15 +228,10 @@ typedef struct rpc_client_st {
     packet_out->requestor   = me_mc;
     while(true) {
       packet_out->code        = RPC_REQ_STATUS;
-      retcode = cyclone_tx_timeout(router->output_socket(server), 
-				   (unsigned char *)packet_out, 
-				   sizeof(rpc_t), 
-				   timeout_msec*1000,
-				   "PROPOSE");
-      if(retcode == -1) {
-	update_server("tx timeout");
-	continue;
-      }
+      retcode = cyclone_tx(router->output_socket(server), 
+			   (unsigned char *)packet_out, 
+			   sizeof(rpc_t), 
+			   "PROPOSE");
 
       while(true) {
 	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
@@ -308,16 +281,10 @@ typedef struct rpc_client_st {
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
       memcpy(packet_out + 1, payload, sz);
-      retcode = cyclone_tx_timeout(router->output_socket(server), 
-				   (unsigned char *)packet_out, 
-				   sizeof(rpc_t) + sz, 
-				   timeout_msec*1000,
-				   "PROPOSE");
-      if(retcode == -1) {
-	update_server("tx timeout");
-	continue;
-      }
-      
+      retcode = cyclone_tx(router->output_socket(server), 
+			   (unsigned char *)packet_out, 
+			   sizeof(rpc_t) + sz, 
+			   "PROPOSE");
       while(true) {
 	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
 				     (unsigned char *)packet_in, 
@@ -373,8 +340,7 @@ void* cyclone_client_init(int client_id,
 				     &pt_server,
 				     &pt_client,
 				     client_id,
-				     client_mc,
-				     false);
+				     client_mc);
   void *buf = new char[DISP_MAX_MSGSIZE];
   client->packet_out = (rpc_t *)buf;
   buf = new char[DISP_MAX_MSGSIZE];

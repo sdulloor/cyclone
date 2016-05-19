@@ -72,29 +72,6 @@ static int __send_appendentries(raft_server_t* raft,
   void *socket      = raft_node_get_udata(node);
   msg_t *msg = (msg_t *)cyclone_handle->cyclone_buffer_out;
   unsigned char *ptr = (unsigned char *)(msg + 1);
-  int nodeidx = raft_node_get_id(node);
-  bool same_log_point  =
-    (m->prev_log_term == cyclone_handle->throttles[nodeidx].prev_log_term &&
-     m->prev_log_idx  == cyclone_handle->throttles[nodeidx].prev_log_idx);
-  bool prev_was_heartbeat = (cyclone_handle->throttles[nodeidx].prev_entries == 0);
-  bool current_is_heartbeat = (m->n_entries == 0);
-  if(same_log_point && (prev_was_heartbeat == current_is_heartbeat)) {
-    if((rtc_clock::current_time() - cyclone_handle->throttles[nodeidx].last_tx_time) <=
-       cyclone_handle->throttles[nodeidx].timeout) {
-      return 0; // throttle retx
-    }
-    else {
-      cyclone_handle->throttles[nodeidx].last_tx_time = rtc_clock::current_time();
-      cyclone_handle->throttles[nodeidx].timeout = 2*cyclone_handle->throttles[nodeidx].timeout;
-    }
-  }
-  else {
-    cyclone_handle->throttles[nodeidx].prev_log_term = m->prev_log_term;
-    cyclone_handle->throttles[nodeidx].prev_log_idx = m->prev_log_idx;
-    cyclone_handle->throttles[nodeidx].prev_entries = m->n_entries;
-    cyclone_handle->throttles[nodeidx].last_tx_time = rtc_clock::current_time();
-    cyclone_handle->throttles[nodeidx].timeout = RAFT_REQUEST_TIMEOUT/2;
-  }
   msg->msg_type         = MSG_APPENDENTRIES;
   msg->source           = cyclone_handle->me;
   msg->ae.term          = m->term;
@@ -711,23 +688,13 @@ void* cyclone_boot(const char *config_path,
   raft_set_election_timeout(cyclone_handle->raft_handle, RAFT_ELECTION_TIMEOUT);
   raft_set_request_timeout(cyclone_handle->raft_handle, RAFT_REQUEST_TIMEOUT);
 
-  cyclone_handle->throttles   = new throttle_st[cyclone_handle->replicas];
-
-  for(int i=0;i<cyclone_handle->replicas;i++) {
-    cyclone_handle->throttles[i].prev_log_term  = -1;
-    cyclone_handle->throttles[i].prev_log_idx   = -1;
-    cyclone_handle->throttles[i].prev_entries   = 0;
-    
-    cyclone_handle->throttles[i].timeout = RAFT_REQUEST_TIMEOUT/2;
-  }
-
   /* setup connections */
   cyclone_handle->zmq_context  = zmq_init(zmq_threads); 
   cyclone_handle->router = new raft_switch(cyclone_handle->zmq_context,
 					   &cyclone_handle->pt,
 					   cyclone_handle->me,
-					   cyclone_handle->replicas,
-					   false);
+					   cyclone_handle->replicas);
+
   bool i_am_active = false;
   for(int i=0;i<cyclone_handle->pt.get<int>("active.replicas");i++) {
     char nodeidxkey[100];

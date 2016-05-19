@@ -9,6 +9,7 @@
 
 // Cyclone communication
 
+// Best effort
 static int cyclone_tx(void *socket,
 		      const unsigned char *data,
 		      unsigned long size,
@@ -30,35 +31,7 @@ static int cyclone_tx(void *socket,
   }
 }
 
-static int cyclone_tx_timeout(void *socket,
-			      const unsigned char *data,
-			      unsigned long size,
-			      unsigned long timeout_usecs,
-			      const char *context) 
-{
-  int rc;
-  unsigned long mark = rtc_clock::current_time();
-  while (true) {
-    rc = zmq_send(socket, data, size, ZMQ_NOBLOCK);
-    if(rc >= 0) {
-      break;
-    }
-    if(rc == -1) {
-      if (errno != EAGAIN) {
-	BOOST_LOG_TRIVIAL(warning) 
-	  << "CYCLONE: Unable to transmit "
-	  << context << " "
-	  << zmq_strerror(zmq_errno());
-	exit(-1);
-      }
-    }
-    if((rtc_clock::current_time() - mark) >= timeout_usecs) {
-      break;
-    }
-  }
-  return rc;
-}
-
+// Block till data available
 static int cyclone_rx(void *socket,
 		      unsigned char *data,
 		      unsigned long size,
@@ -84,6 +57,7 @@ static int cyclone_rx(void *socket,
   return rc;
 }
 
+// Block till data available or timeout
 static int cyclone_rx_timeout(void *socket,
 			      unsigned char *data,
 			      unsigned long size,
@@ -111,6 +85,7 @@ static int cyclone_rx_timeout(void *socket,
   return rc;
 }
 
+// Don't block
 static int cyclone_rx_noblock(void *socket,
 			      unsigned char *data,
 			      unsigned long size,
@@ -130,36 +105,36 @@ static int cyclone_rx_noblock(void *socket,
   return rc;
 }
 
-static void * setup_cyclone_inpoll(void **sockets, int cnt)
+static void* cyclone_socket_out(void *context)
 {
-  zmq_pollitem_t *items = new zmq_pollitem_t[cnt];
-  for(int i=0;i<cnt;i++) {
-    items[i].socket = sockets[i];
-    items[i].events = ZMQ_POLLIN;
+  void *socket;
+  int conflate = 1;
+  socket = zmq_socket(context, ZMQ_PUSH);
+  int e = zmq_setsockopt(socket, ZMQ_CONFLATE, &conflate, sizeof(int));
+  if (e == -1) {
+    BOOST_LOG_TRIVIAL(fatal) 
+      << "CYCLONE_COMM: Unable to set sock CONFLATE "
+      << context << " "
+      << zmq_strerror(zmq_errno());
+    exit(-1);
   }
-  return items;
+
+  int linger = 0;
+  e = zmq_setsockopt(socket, ZMQ_LINGER, &linger, sizeof(int));
+  if (e == -1) {
+    BOOST_LOG_TRIVIAL(fatal) 
+      << "CYCLONE_COMM: Unable to set sock linger "
+      << zmq_strerror(zmq_errno());
+    exit(-1);
+  }
+  
+  return socket;
 }
 
-static void delete_cyclone_inpoll(void *pollitem)
+static void* cyclone_socket_out_loopback(void *context)
 {
-  delete[] ((zmq_pollitem_t *)pollitem);
-}
-
-static int cyclone_poll(void * poll_handle, int cnt, int msec_timeout)
-{
-  zmq_pollitem_t *items = (zmq_pollitem_t *)poll_handle;
-  int e = zmq_poll(items, cnt, msec_timeout);
-  return e;
-}
-
-static int cyclone_socket_has_data(void *poll_handle, int index)
-{
-  zmq_pollitem_t *items = (zmq_pollitem_t *)poll_handle;
-  return ((items[index].revents & ZMQ_POLLIN) != 0) ? 1:0;
-}
-
-static void socket_set_nolinger(void *socket)
-{
+  void *socket;
+  socket = zmq_socket(context, ZMQ_REQ);
   int linger = 0;
   int e = zmq_setsockopt(socket, ZMQ_LINGER, &linger, sizeof(int));
   if (e == -1) {
@@ -168,32 +143,6 @@ static void socket_set_nolinger(void *socket)
       << zmq_strerror(zmq_errno());
     exit(-1);
   }
-}
-
-static void* cyclone_socket_out(void *context, bool use_hwm)
-{
-  void *socket;
-  int hwm = 5;
-  socket = zmq_socket(context, ZMQ_PUSH);
-  if(use_hwm) {
-    int e = zmq_setsockopt(socket, ZMQ_SNDHWM, &hwm, sizeof(int));
-    if (e == -1) {
-      BOOST_LOG_TRIVIAL(fatal) 
-	<< "CYCLONE_COMM: Unable to set sock HWM "
-	<< context << " "
-	<< zmq_strerror(zmq_errno());
-      exit(-1);
-    }
-  }
-  socket_set_nolinger(socket);
-  return socket;
-}
-
-static void* cyclone_socket_out_loopback(void *context)
-{
-  void *socket;
-  socket = zmq_socket(context, ZMQ_REQ);
-  socket_set_nolinger(socket);
   return socket;
 }
 
@@ -248,8 +197,7 @@ public:
   raft_switch(void *context,
 	      boost::property_tree::ptree *pt,
 	      int me,
-	      int replicas_in,
-	      bool use_hwm)
+	      int replicas_in)
     :replicas(replicas_in)
   {
     std::stringstream key;
@@ -280,7 +228,7 @@ public:
     cyclone_connect_endpoint(request_socket_out, "inproc://RAFT_REQ");
     
     for(int i=0;i<replicas;i++) {
-      sockets_out[i] = cyclone_socket_out(context, use_hwm);
+      sockets_out[i] = cyclone_socket_out(context);
       key.str("");key.clear();
       addr.str("");addr.clear();
       key << "machines.addr" << i;
@@ -379,7 +327,6 @@ class server_switch {
   int client_machines;
   int server_machines;
   int clients;
-  bool saved_use_hwm;
   boost::property_tree::ptree *saved_pt_client;
 
   int index(int mc, int client)
@@ -397,7 +344,6 @@ public:
 		boost::property_tree::ptree *pt_client,
 		int me,
 		int clients_in,
-		bool use_hwm,
 		int mux_port_cnt)
     :saved_context(context)
     
@@ -416,7 +362,6 @@ public:
     server_machines =  pt_server->get<int>(key.str().c_str());
     
     clients  = clients_in;
-    saved_use_hwm = use_hwm;
     saved_pt_client = pt_client;
 
     sockets_out = new void *[client_machines*clients];
@@ -460,7 +405,7 @@ public:
     std::stringstream key; 
     std::stringstream addr;
     // output wire to client
-    void *socket = cyclone_socket_out(saved_context, saved_use_hwm);
+    void *socket = cyclone_socket_out(saved_context);
     sockets_out[index(mc, client)] = socket;
     key.str("");key.clear();
     addr.str("");addr.clear();
@@ -584,8 +529,7 @@ public:
 		boost::property_tree::ptree *pt_server,
 		boost::property_tree::ptree *pt_client,
 		int me,
-		int me_mc,
-		bool use_hwm)
+		int me_mc)
     
   {
     std::stringstream key; 
@@ -628,7 +572,7 @@ public:
       ptr++;
       ports_in[i] = atoi(ptr);
       // output wire to server
-      sockets_out[i] = cyclone_socket_out(context, use_hwm);
+      sockets_out[i] = cyclone_socket_out(context);
       key.str("");key.clear();
       addr.str("");addr.clear();
       key << "machines.addr" << i;
