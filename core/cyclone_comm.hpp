@@ -161,12 +161,12 @@ static void* cyclone_socket_out_loopback(void *context)
 static void* cyclone_socket_in(void *context)
 {
   void *socket;
-  int conflate = 1;
+  int recv_hwm = 50;
   socket = zmq_socket(context, ZMQ_PULL);
-  int e = zmq_setsockopt(socket, ZMQ_CONFLATE, &conflate, sizeof(int));
+  int e = zmq_setsockopt(socket, ZMQ_RCVHWM, &recv_hwm, sizeof(int));
   if (e == -1) {
     BOOST_LOG_TRIVIAL(fatal) 
-      << "CYCLONE_COMM: Unable to set sock CONFLATE "
+      << "CYCLONE_COMM: Unable to set sock RCVHWM "
       << context << " "
       << zmq_strerror(zmq_errno());
     exit(-1);
