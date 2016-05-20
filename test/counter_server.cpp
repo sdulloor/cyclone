@@ -58,6 +58,10 @@ typedef struct heap_root_st {
 TOID(uint64_t) new_store_item(uint64_t val)
 {
   TOID(uint64_t) item = TX_ALLOC(uint64_t, sizeof(uint64_t));
+  if(TOID_IS_NULL(item)) {
+    BOOST_LOG_TRIVIAL(fatal) << "Out of pmem heap space.";
+    exit(-1);
+  }
   *D_RW(item) = val;
   return item;
 }
