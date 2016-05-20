@@ -213,6 +213,10 @@ static void mark_done(const rpc_t *rpc,
   }
   if(ret_size > 0) {
     cstate->last_return_value = TX_ALLOC(char, ret_size);
+    if(TOID_IS_NULL(cstate->last_return_value)) {
+      BOOST_LOG_TRIVIAL(fatal) << "mark_done: Out of pmem heap space.";
+      exit(-1);
+    }
     pmemobj_memcpy_persist(state, D_RW(cstate->last_return_value), ret_value, ret_size);
   }
   else {
