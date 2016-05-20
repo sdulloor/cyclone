@@ -161,7 +161,16 @@ static void* cyclone_socket_out_loopback(void *context)
 static void* cyclone_socket_in(void *context)
 {
   void *socket;
+  int conflate = 1;
   socket = zmq_socket(context, ZMQ_PULL);
+  int e = zmq_setsockopt(socket, ZMQ_CONFLATE, &conflate, sizeof(int));
+  if (e == -1) {
+    BOOST_LOG_TRIVIAL(fatal) 
+      << "CYCLONE_COMM: Unable to set sock CONFLATE "
+      << context << " "
+      << zmq_strerror(zmq_errno());
+    exit(-1);
+  }
   return socket;
 }
 
