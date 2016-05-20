@@ -52,10 +52,10 @@ void send_checkpoint(void *socket, void *cyclone_handle)
     cyclone_serialize_last_applied(cyclone_handle, 
 				   (char *)buffer + sizeof(fragment_t));
   // tx and await reply;
-  cyclone_tx(socket, (const unsigned char *)buffer, 
-	     bytes_to_send, "Checkpoint header send");
-  cyclone_rx(socket, (unsigned char *)&reply, sizeof(uint64_t),
-	     "Checkpoint rcv");
+  cyclone_tx_block(socket, (const unsigned char *)buffer, 
+		   bytes_to_send, "Checkpoint header send");
+  cyclone_rx_block(socket, (unsigned char *)&reply, sizeof(uint64_t),
+		   "Checkpoint rcv");
 
   int fd = open(fname, O_RDONLY);
   BOOST_LOG_TRIVIAL(info) << "Checkpoint: Begin send image ...";
@@ -81,19 +81,19 @@ void send_checkpoint(void *socket, void *cyclone_handle)
 	   cursor->saved_version,
 	   pagesize);
     // tx and await reply;
-    cyclone_tx(socket, (const unsigned char *)buffer, 
-	       sizeof(fragment_t) + pagesize, "Checkpoint send");
-    cyclone_rx(socket, (unsigned char *)&reply, sizeof(uint64_t),
-	       "Checkpoint rcv");
+    cyclone_tx_block(socket, (const unsigned char *)buffer, 
+		     sizeof(fragment_t) + pagesize, "Checkpoint send");
+    cyclone_rx_block(socket, (unsigned char *)&reply, sizeof(uint64_t),
+		     "Checkpoint rcv");
     cursor = cursor->next;
   }
   BOOST_LOG_TRIVIAL(info) << "Checkpoint: Done.";
   //tx EOF and throw away reply;
   ((fragment_t *)buffer)->offset = checkpoint_hdr.offset;
-  cyclone_tx(socket, (const unsigned char *)buffer, sizeof(fragment_t),
-	     "Checkpoint send");
-  cyclone_rx(socket, (unsigned char *)&reply, sizeof(uint64_t),
-	     "Checkpoint rcv");
+  cyclone_tx_block(socket, (const unsigned char *)buffer, sizeof(fragment_t),
+		   "Checkpoint send");
+  cyclone_rx_block(socket, (unsigned char *)&reply, sizeof(uint64_t),
+		   "Checkpoint rcv");
   delete_saved_pages();
 }
 
@@ -104,10 +104,10 @@ void init_build_image(void *socket,
 		      void **init_ety_ptr)
 {
   uint64_t reply = REPLY_OK;
-  int bytes = cyclone_rx(socket,
-			 (unsigned char *)buffer,
-			 bufbytes,
-			 "Checkpoint rcv");
+  int bytes = cyclone_rx_block(socket,
+			       (unsigned char *)buffer,
+			       bufbytes,
+			       "Checkpoint rcv");
   memcpy(&checkpoint_hdr, buffer, sizeof(fragment_t));
   *termp  = checkpoint_hdr.last_included_term;
   *indexp = checkpoint_hdr.last_included_index;
@@ -118,7 +118,7 @@ void init_build_image(void *socket,
   else {
     *init_ety_ptr = NULL;
   }
-  cyclone_tx(socket, (const unsigned char *)&reply, sizeof(uint64_t), "Checkpoint send");
+  cyclone_tx_block(socket, (const unsigned char *)&reply, sizeof(uint64_t), "Checkpoint send");
 }
 
 void build_image(void *socket)
@@ -133,7 +133,7 @@ void build_image(void *socket)
   }
   unsigned long foffset = 0;
   while(true) {
-    bytes = cyclone_rx(socket, (unsigned char *)buffer, bufbytes, "Checkpoint rcv");
+    bytes = cyclone_rx_block(socket, (unsigned char *)buffer, bufbytes, "Checkpoint rcv");
     fptr = (fragment_t *)buffer;
     if(fptr->term != checkpoint_hdr.term) {
       BOOST_LOG_TRIVIAL(fatal) << "Failed to get checkpoint";
@@ -163,7 +163,7 @@ void build_image(void *socket)
 	foffset               += bytes_written;
       }
     }
-    cyclone_tx(socket, (const unsigned char *)&reply, sizeof(uint64_t), "Checkpoint send");
+    cyclone_tx_block(socket, (const unsigned char *)&reply, sizeof(uint64_t), "Checkpoint send");
     if(bytes == sizeof(fragment_t)) {
       break;
     }

@@ -31,11 +31,23 @@ static int cyclone_tx(void *socket,
   }
 }
 
+// Keep trying until success
+static void cyclone_tx_block(void *socket,
+			     const unsigned char *data,
+			     unsigned long size,
+			     const char *context)
+{
+  int ok;
+  do {
+    ok = cyclone_tx(socket, data, size, context);
+  } while(ok != 0);
+}
+
 // Block till data available
-static int cyclone_rx(void *socket,
-		      unsigned char *data,
-		      unsigned long size,
-		      const char *context)
+static int cyclone_rx_block(void *socket,
+			    unsigned char *data,
+			    unsigned long size,
+			    const char *context)
 {
   int rc;
   while (true) {
@@ -85,11 +97,11 @@ static int cyclone_rx_timeout(void *socket,
   return rc;
 }
 
-// Don't block
-static int cyclone_rx_noblock(void *socket,
-			      unsigned char *data,
-			      unsigned long size,
-			      const char *context)
+// Best effort
+static int cyclone_rx(void *socket,
+		      unsigned char *data,
+		      unsigned long size,
+		      const char *context)
 {
   int rc;
   rc = zmq_recv(socket, data, size, ZMQ_NOBLOCK);
@@ -430,14 +442,14 @@ public:
     cmd.client = client;
     cmd.data = data;
     cmd.size = size;
-    cyclone_tx(mux_ports[mux_index],
-	       (const unsigned char *)&cmd,
-	       sizeof(mux_state_t),
-	       "mux");
-    cyclone_rx(mux_ports[mux_index],
-	       (unsigned char *)&ok,
-	       sizeof(int),
-	       "demux");
+    cyclone_tx_block(mux_ports[mux_index],
+		     (const unsigned char *)&cmd,
+		     sizeof(mux_state_t),
+		     "mux");
+    cyclone_rx_block(mux_ports[mux_index],
+		     (unsigned char *)&ok,
+		     sizeof(int),
+		     "demux");
   }
 
   void ring_doorbell(int mc,
@@ -451,15 +463,15 @@ public:
     cmd.mc = mc;
     cmd.client = client;
     cmd.port = port;
+    cyclone_tx_block(mux_ports[mux_index],
+		     (const unsigned char *)&cmd,
+		     sizeof(mux_state_t),
+		     "mux");
     
-    cyclone_tx(mux_ports[mux_index],
-	       (const unsigned char *)&cmd,
-	       sizeof(mux_state_t),
-	       "mux");
-    cyclone_rx(mux_ports[mux_index],
-	       (unsigned char *)&ok,
-	       sizeof(int),
-	       "demux");
+    cyclone_rx_block(mux_ports[mux_index],
+		     (unsigned char *)&ok,
+		     sizeof(int),
+		     "demux");
   }
 
   void *input_socket()
@@ -475,10 +487,10 @@ public:
       cyclone_socket_in_loopback(saved_context);
     cyclone_bind_endpoint(demux_port, "inproc://MUXDEMUX");
     while(true) {
-      cyclone_rx(demux_port, 
-		 (unsigned char *)&cmd, 
-		 sizeof(mux_state_t),
-		 "demux");
+      cyclone_rx_block(demux_port, 
+		       (unsigned char *)&cmd, 
+		       sizeof(mux_state_t),
+		       "demux");
       if(cmd.op == RING_DOORBELL) {
 	ring_doorbell_backend(cmd.mc,
 			      cmd.client,
@@ -496,10 +508,10 @@ public:
 		   cmd.size,
 		   "demux");
       }
-      cyclone_tx(demux_port, 
-		 (unsigned char *)&ok, 
-		 sizeof(int),
-		 "demux");
+      cyclone_tx_block(demux_port, 
+		       (unsigned char *)&ok, 
+		       sizeof(int),
+		       "demux");
     }
   }
   

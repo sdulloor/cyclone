@@ -913,10 +913,10 @@ struct dispatcher_loop {
     while(building_image); // Wait till building image is complete
     ptr = rx_buffers;
     while(true) {
-      int sz = cyclone_rx_noblock(router->input_socket(),
-				  ptr,
-				  DISP_MAX_MSGSIZE,
-				  "DISP RCV");
+      int sz = cyclone_rx(router->input_socket(),
+			  ptr,
+			  DISP_MAX_MSGSIZE,
+			  "DISP RCV");
       unsigned long mark = rtc_clock::current_time();
       if(sz != -1) {
 	rx_sizes[requests] = sz;

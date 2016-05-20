@@ -456,10 +456,10 @@ typedef struct cyclone_st {
 	free(client_rep);
 	client_rep = NULL;
       }
-      cyclone_tx(router->request_in(),
-		 (unsigned char *)&client_rep,
-		 sizeof(void *),
-		 "CLIENT COOKIE SEND");
+      cyclone_tx_block(router->request_in(),
+		       (unsigned char *)&client_rep,
+		       sizeof(void *),
+		       "CLIENT COOKIE SEND");
       break;
     case MSG_CLIENT_REQ_BATCH:
       messages = 
@@ -484,10 +484,10 @@ typedef struct cyclone_st {
 	client_rep = NULL;
       }
       free(messages);
-      cyclone_tx(router->request_in(),
-		 (unsigned char *)&client_rep,
-		 sizeof(void *),
-		 "CLIENT COOKIE SEND");
+      cyclone_tx_block(router->request_in(),
+		       (unsigned char *)&client_rep,
+		       sizeof(void *),
+		       "CLIENT COOKIE SEND");
       break;
     case MSG_CLIENT_REQ_CFG:
       client_req.id = rand();
@@ -502,18 +502,18 @@ typedef struct cyclone_st {
 	free(client_rep);
 	client_rep = NULL;
       }
-      cyclone_tx(router->request_in(),
-		    (unsigned char *)&client_rep,
-		    sizeof(void *),
-		    "CLIENT COOKIE SEND");
+      cyclone_tx_block(router->request_in(),
+		       (unsigned char *)&client_rep,
+		       sizeof(void *),
+		       "CLIENT COOKIE SEND");
       break;
     case MSG_CLIENT_REQ_TERM:
       if(raft_get_current_term(raft_handle) != msg->client.term) {
 	client_rep = NULL;
-	cyclone_tx(router->request_in(),
-		   (unsigned char *)&client_rep,
-		   sizeof(void *),
-		   "CLIENT COOKIE SEND");
+	cyclone_tx_block(router->request_in(),
+			 (unsigned char *)&client_rep,
+			 sizeof(void *),
+			 "CLIENT COOKIE SEND");
       }
       else {
 	client_req.id = rand();
@@ -528,37 +528,37 @@ typedef struct cyclone_st {
 	  free(client_rep);
 	  client_rep = NULL;
 	}
-	cyclone_tx(router->request_in(),
-		    (unsigned char *)&client_rep,
-		    sizeof(void *),
-		    "CLIENT COOKIE SEND");
+	cyclone_tx_block(router->request_in(),
+			 (unsigned char *)&client_rep,
+			 sizeof(void *),
+			 "CLIENT COOKIE SEND");
       }
       break;
 
     case MSG_CLIENT_STATUS:
       e = raft_msg_entry_response_committed
 	(raft_handle, (const msg_entry_response_t *)msg->client.ptr);
-      cyclone_tx(router->request_in(),
-		  (unsigned char *)&e,
-		  sizeof(int),
-		  "CLIENT COOKIE SEND");
+      cyclone_tx_block(router->request_in(),
+		       (unsigned char *)&e,
+		       sizeof(int),
+		       "CLIENT COOKIE SEND");
       break;
 
     case MSG_CLIENT_REQ_SET_IMGBUILD:
       raft_set_img_build(raft_handle);
       client_rep = NULL;
-      cyclone_tx(router->request_in(),
-		  (unsigned char *)&e,
-		  sizeof(int),
-		  "CLIENT COOKIE SEND");
+      cyclone_tx_block(router->request_in(),
+		       (unsigned char *)&e,
+		       sizeof(int),
+		       "CLIENT COOKIE SEND");
       break;
     case MSG_CLIENT_REQ_UNSET_IMGBUILD:
       raft_unset_img_build(raft_handle);
       client_rep = NULL;
-      cyclone_tx(router->request_in(),
-		  (unsigned char *)&e,
-		  sizeof(int),
-		  "CLIENT COOKIE SEND");
+      cyclone_tx_block(router->request_in(),
+		       (unsigned char *)&e,
+		       sizeof(int),
+		       "CLIENT COOKIE SEND");
       break;
     default:
       printf("unknown msg\n");
@@ -585,18 +585,18 @@ struct cyclone_monitor {
       // Handle any outstanding requests
       for(int i=0;i<cyclone_handle->replicas;i++) {
 	int sz =
-	  cyclone_rx_noblock(cyclone_handle->router->input_socket(),
-			     cyclone_handle->cyclone_buffer_in,
-			     MSG_MAXSIZE,
-			     "Incoming");
+	  cyclone_rx(cyclone_handle->router->input_socket(),
+		     cyclone_handle->cyclone_buffer_in,
+		     MSG_MAXSIZE,
+		     "Incoming");
 	if(sz != -1) {
 	  cyclone_handle->handle_incoming(sz);
 	}
 	sz =
-	  cyclone_rx_noblock(cyclone_handle->router->request_in(),
-			     cyclone_handle->cyclone_buffer_in,
-			     MSG_MAXSIZE,
-			     "Incoming");
+	  cyclone_rx(cyclone_handle->router->request_in(),
+		     cyclone_handle->cyclone_buffer_in,
+		     MSG_MAXSIZE,
+		     "Incoming");
 	if(sz != -1) {
 	  cyclone_handle->handle_incoming(sz);
 	}
