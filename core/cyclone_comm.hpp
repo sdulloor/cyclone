@@ -15,7 +15,7 @@ static int cyclone_tx(void *socket,
 		      unsigned long size,
 		      const char *context) 
 {
-  int rc = zmq_send(socket, data, size, ZMQ_NOBLOCK);
+  int rc = zmq_send(socket, data, size, ZMQ_DONTWAIT);
   if(rc == -1) {
     if (errno != EAGAIN) {
       BOOST_LOG_TRIVIAL(fatal) 
