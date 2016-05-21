@@ -18,7 +18,7 @@ static int cyclone_tx(void *socket,
   int rc = zmq_send(socket, data, size, ZMQ_NOBLOCK);
   if(rc == -1) {
     if (errno != EAGAIN) {
-      BOOST_LOG_TRIVIAL(warning) 
+      BOOST_LOG_TRIVIAL(fatal) 
 	<< "CYCLONE: Unable to transmit "
 	<< context << " "
 	<< zmq_strerror(zmq_errno());
