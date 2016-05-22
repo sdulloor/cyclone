@@ -8,26 +8,46 @@
 TOID_DECLARE(uint64_t, TOID_NUM_BASE);
 
 static TOID(uint64_t) txnum;
+extern cookies_t *cookies_root;
 void **quorum_handles;
 int me;
 int quorums;
 int clients;
 volatile int *ctr;
 
+typedef struct heap_root_st {
+  TOID(uint64_t) txnum;
+  cookies_t the_cookies;
+}heap_root_t;
+
+
 TOID(char) nvheap_setup(TOID(char) recovered,
 			PMEMobjpool *state)
 {
   TOID(char) store;
+  heap_root_t *heap_root;
   if(TOID_IS_NULL(recovered)) {
-    txnum = TX_ALLOC(uint64_t, sizeof(uint64_t));
-    *D_RW(txnum) = 1;
-    store = TX_ALLOC(char, sizeof(TOID(uint64_t)));
-    memcpy(D_RW(store), &txnum, sizeof(TOID(uint64_t)));
+    store = TX_ALLOC(char, sizeof(heap_root_t));
+    heap_root = (heap_root_t *)D_RW(store);
+    heap_root->txnum = TX_ALLOC(uint64_t, sizeof(uint64_t));
+    *D_RW(heap_root->txnum) = 1;
+    for(int i = 0;i < MAX_CLIENTS;i++) {
+      heap_root->the_cookies.client_state[i].committed_txid    = 0UL;
+      heap_root->the_cookies.client_state[i].last_return_size  = 0;
+      TOID_ASSIGN(heap_root->the_cookies.client_state[i].last_return_value, OID_NULL);
+    }
+    heap_root->the_cookies.applied_raft_idx = -1;
+    heap_root->the_cookies.applied_raft_term  = -1;
+    txnum = heap_root->txnum;
+    cookies_root = &heap_root->the_cookies;
+    return store; 
   }
   else {
-    memcpy(&txnum, D_RO(store), sizeof(TOID(uint64_t)));
+    heap_root = (heap_root_t *)D_RW(recovered);
+    txnum = heap_root->txnum;
+    cookies_root = &heap_root->the_cookies;
+    return recovered;
   }
-  return store; 
 }
 
 
