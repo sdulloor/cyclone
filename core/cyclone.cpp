@@ -321,7 +321,7 @@ static int __raft_logentry_pop(raft_server_t* raft,
     unsigned char *chunk = (unsigned char *)malloc(entry->data.len);
     (void)cyclone_handle->read_from_log_check_size(chunk, 
 						   (unsigned long)entry->data.buf,
-						   enrty->data.len);
+						   entry->data.len);
     cyclone_handle->cyclone_pop_cb(cyclone_handle->user_arg,
 				   chunk,
 				   entry->data.len,

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "../core/logging.hpp"
+#include "common.hpp"
 
 TOID_DECLARE(uint64_t, TOID_NUM_BASE);
 
@@ -30,16 +31,17 @@ TOID(char) nvheap_setup(TOID(char) recovered,
 }
 
 
-int leader_callback(const unsigned char *data,
-		    const int len,
-		    unsigned char **follower_data,
-		    int *follower_data_size, 
-		    void * volatile *return_value)
+void leader_callback(const unsigned char *data,
+		     const int len,
+		     unsigned char **follower_data,
+		     int *follower_data_size, 
+		     rpc_cookie_t *rpc_cookie)
 {
   rbtree_tx_t * tx = (rbtree_tx_t *)data;
   *follower_data = (unsigned char *)malloc(sizeof(int));
   *follower_data_size = sizeof(int);
-  *return_value = (int *)malloc(sizeof(int));
+  rpc_cookie->ret_value = (int *)malloc(sizeof(int));
+  rpc_cookie->ret_size  = sizeof(int);
 
   struct proposal *p = (proposal *)(tx + 1);
   struct proposal* resp;
@@ -83,19 +85,19 @@ int leader_callback(const unsigned char *data,
     ctr[partition]++;
     i++;
   }
-  *(int *)*follower_data = cookie.success;
-  *(int *)*return_value  = cookie.success;
-  return sizeof(int);
+  *(int *)*follower_data     = cookie.success;
+  *(int *)rpc_cookie->ret_value  = cookie.success;
 }  
 
-int follower_callback(const unsigned char *data,
-		      const int len,
-		      unsigned char *follower_data,
-		      int follower_data_size, 
-		      void * volatile *return_value)
+void follower_callback(const unsigned char *data,
+		       const int len,
+		       unsigned char *follower_data,
+		       int follower_data_size, 
+		       rpc_cookie_t *rpc_cookie)
 {
-  *return_value = malloc(sizeof(int));
-  *(int *)*return_value = *(int *)follower_data;
+  rpc_cookie->ret_value = malloc(sizeof(int));
+  rpc_cookie->ret_size  = sizeof(int);
+  *(int *)rpc_cookie->ret_value = *(int *)follower_data;
   TX_ADD(txnum);
   *D_RW(txnum) = *D_RO(txnum) + 1;
   rbtree_tx_t *tx = (rbtree_tx_t *)data;
@@ -104,7 +106,6 @@ int follower_callback(const unsigned char *data,
     int partition = get_key(p) % quorums;
     ctr[partition]++;
   }
-  return sizeof(int);
 }
 
 
@@ -139,7 +140,18 @@ int main(int argc, char *argv[])
 					    fname_client);
     ctr[i] = get_last_txid(quorum_handles[i]) + 1;
   }
-  dispatcher_start(argv[6], argv[7], NULL, leader_callback,
-		   follower_callback, gc, nvheap_setup, coord_id,
-		   coord_replicas, clients);
+  dispatcher_start(argv[6], 
+		   argv[7], 
+		   NULL, 
+		   leader_callback,
+		   follower_callback, 
+		   get_cookie,
+		   get_lock_cookie,
+		   unlock_cookie,
+		   mark_done,
+		   gc, 
+		   nvheap_setup, 
+		   coord_id,
+		   coord_replicas, 
+		   clients);
 }

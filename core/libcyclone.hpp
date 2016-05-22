@@ -9,29 +9,49 @@ TOID_DECLARE(char, 0);
 static const int MAX_CLIENTS      = 10000; // Should be enough ?
 static const int DISP_MAX_MSGSIZE = 4194304; // 4MB max msg size 
 
+typedef struct rpc_cookie_st {
+  int raft_idx;
+  int raft_term;
+  int client_id;
+  int client_txid;
+  void *volatile ret_value;
+  volatile int ret_size;
+} rpc_cookie_t;
+
 ////// RPC Server side interface
 // Returns the size of the return value blob
 typedef 
-int (*rpc_callback_t)(const unsigned char *data,
-		      const int len,
-		      void * volatile *return_value);
+void (*rpc_callback_t)(const unsigned char *data,
+		       const int len,
+		       rpc_cookie_t * rpc_cookie);
 
 typedef 
-int (*rpc_leader_callback_t)(const unsigned char *data,
-			     const int len,
-			     unsigned char **follower_data,
-			     int * follower_data_size, 
-			     void * volatile *return_value);
+void (*rpc_leader_callback_t)(const unsigned char *data,
+			      const int len,
+			      unsigned char **follower_data,
+			      int * follower_data_size, 
+			      rpc_cookie_t *rpc_cookie);
 
 typedef 
-int (*rpc_follower_callback_t)(const unsigned char *data,
-			       const int len,
-			       unsigned char *follower_data,
-			       int follower_data_size, 
-			       void * volatile *return_value);
+void (*rpc_follower_callback_t)(const unsigned char *data,
+				const int len,
+				unsigned char *follower_data,
+				int follower_data_size, 
+				rpc_cookie_t * rpc_cookie);
+
+
 
 //Garbage collect return value
 typedef void (*rpc_gc_callback_t)(void *data);
+
+// Get most recent global cookie data (dont keep lock)
+typedef void (*rpc_get_lock_cookie_callback_t)(rpc_cookie_t *cookie);
+// Get most recent client specific cookie data (keep lock)
+typedef void (*rpc_get_cookie_callback_t)(rpc_cookie_t *cookie);
+// Unlock cookie lock
+typedef void (*rpc_unlock_cookie_callback_t)();
+// Commit cookie
+typedef void (*rpc_commit_cookie_callback_t)(rpc_cookie_t *cookie);
 
 //NVheap setup return heap root -- passes in recovered heap root
 typedef TOID(char) (*rpc_nvheap_setup_callback_t)(TOID(char) recovered,
@@ -43,6 +63,10 @@ void dispatcher_start(const char* config_server_path,
 		      rpc_callback_t rpc_callback,
 		      rpc_leader_callback_t rpc_leader_callback,
 		      rpc_follower_callback_t rpc_follower_callback,
+		      rpc_get_cookie_callback_t cookie_get_callback,
+		      rpc_get_lock_cookie_callback_t cookie_lock_callback,
+		      rpc_unlock_cookie_callback_t cookie_unlock_callback,
+		      rpc_commit_cookie_callback_t cookie_commit_callback,
 		      rpc_gc_callback_t gc_callback,
 		      rpc_nvheap_setup_callback_t nvheap_setup_callback,
 		      int me,

@@ -43,15 +43,19 @@ extern "C" {
 #include "../nvml.git/src/examples/libpmemobj/tree_map/rbtree_map.h"
 }
 #include "counter.hpp"
+#include "common.hpp"
 
 TOID_DECLARE(uint64_t, TOID_NUM_BASE);
 
 static unsigned long server_id;
 static TOID(struct rbtree_map) the_tree;
+extern cookies_t* cookies_root;
 static PMEMobjpool *pop;
+extern PMEMobjpool *cookies_pool;
 
 typedef struct heap_root_st {
   TOID(struct rbtree_map) the_tree;
+  cookies_t the_cookies;
 }heap_root_t;
 
 
@@ -66,9 +70,9 @@ TOID(uint64_t) new_store_item(uint64_t val)
   return item;
 }
 
-int callback(const unsigned char *data,
-	     const int len,
-	     void * volatile *return_value)
+void callback(const unsigned char *data,
+	      const int len,
+	      rpc_cookie_t *cookie)
 {
   // Heartbeat
   static unsigned long tx_block_cnt   = 0;
@@ -93,8 +97,9 @@ int callback(const unsigned char *data,
 
   struct proposal *req = (struct proposal *)data;
   int code = req->fn;
-  *return_value  = malloc(sizeof(struct proposal));
-  struct proposal *rep  = (struct proposal *)*return_value;
+  cookie->ret_value  = malloc(sizeof(struct proposal));
+  cookie->ret_size   = sizeof(struct proposal);
+  struct proposal *rep  = (struct proposal *)cookie->ret_value;
   memcpy(&rep->cookie, &req->cookie, sizeof(cookie_t));
   if(code == FN_INSERT) {
     PMEMoid item = rbtree_map_get(pop, the_tree, req->kv_data.key);
@@ -203,7 +208,6 @@ int callback(const unsigned char *data,
     exit(-1);
   }
   total_latency += (rtc_clock::current_time() - tx_begin_time);
-  return sizeof(struct proposal);
 }
 
 TOID(char) nvheap_setup(TOID(char) recovered,
@@ -213,17 +217,26 @@ TOID(char) nvheap_setup(TOID(char) recovered,
   TOID(char) store;
   heap_root_t *heap_root;
   pop = state;
+  cookies_pool = state;
   if(TOID_IS_NULL(recovered)) {
     store = TX_ALLOC(char, sizeof(heap_root_t));
     heap_root = (heap_root_t *)D_RW(store);
-    pmemobj_tx_add_range_direct(heap_root, sizeof(heap_root_t));
+    for(int i = 0;i < MAX_CLIENTS;i++) {
+      heap_root->the_cookies.client_state[i].committed_txid    = 0UL;
+      heap_root->the_cookies.client_state[i].last_return_size  = 0;
+      TOID_ASSIGN(heap_root->the_cookies.client_state[i].last_return_value, OID_NULL);
+    }
+    heap_root->the_cookies.applied_raft_idx = -1;
+    heap_root->the_cookies.applied_raft_term  = -1;
     rbtree_map_new(state, &heap_root->the_tree, NULL);
     the_tree = heap_root->the_tree;
+    cookies_root = &heap_root->the_cookies;
     return store;
   }
   else {
     heap_root = (heap_root_t *)D_RW(recovered);
     the_tree = heap_root->the_tree;
+    cookies_root = &heap_root->the_cookies;
     return recovered;
   }
 }
@@ -246,14 +259,36 @@ int main(int argc, char *argv[])
   int replicas = atoi(argv[2]);
   int clients  = atoi(argv[3]);
   if(argc == 4) {
-    dispatcher_start("cyclone_test.ini", "cyclone_test.ini", callback, 
-		     NULL, NULL, 
-		     gc, nvheap_setup, server_id, replicas, clients);
+    dispatcher_start("cyclone_test.ini", 
+		     "cyclone_test.ini", 
+		     callback, 
+		     NULL, 
+		     NULL, 
+		     get_cookie,
+		     get_lock_cookie,
+		     unlock_cookie,
+		     mark_done,
+		     gc,
+		     nvheap_setup, 
+		     server_id, 
+		     replicas, 
+		     clients);
   }
   else {
-      dispatcher_start(argv[4], argv[5], callback, 
-		       NULL, NULL, 
-		       gc, nvheap_setup, server_id, replicas, clients);
+      dispatcher_start(argv[4], 
+		       argv[5], 
+		       callback, 
+		       NULL, 
+		       NULL, 
+		       get_cookie,
+		       get_lock_cookie,
+		       unlock_cookie,
+		       mark_done,
+		       gc,
+		       nvheap_setup, 
+		       server_id, 
+		       replicas, 
+		       clients);
   }
 }
 

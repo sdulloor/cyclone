@@ -10,14 +10,17 @@ LIBS = -lc -lcyclone -lboost_system -lboost_date_time -lpmemobj -lpthread
 BOOST_THREAD_LIB=-lboost_thread-mt
 #BOOST_THREAD_LIB=-lboost_thread
 
-counter_server:counter_server.cpp 
-	$(CXX) $(CXXFLAGS) counter_server.cpp ../nvml.git/src/examples/libpmemobj/tree_map/rbtree_map.o $(BOOST_THREAD_LIB) $(LIBS) -o $@
+common.o:common.cpp
+	$(CXX) $(CXXFLAGS) -c common.cpp -o $@
 
-counter_coordinator:counter_coordinator.cpp 
-	$(CXX) $(CXXFLAGS) counter_coordinator.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
+counter_server:counter_server.cpp common.o
+	$(CXX) $(CXXFLAGS) counter_server.cpp common.o ../nvml.git/src/examples/libpmemobj/tree_map/rbtree_map.o $(BOOST_THREAD_LIB) $(LIBS) -o $@
+
+counter_coordinator:counter_coordinator.cpp common.o 
+	$(CXX) $(CXXFLAGS) counter_coordinator.cpp common.o $(BOOST_THREAD_LIB) $(LIBS) -o $@
 
 counter_loader:counter_loader.cpp 
-	$(CXX) $(CXXFLAGS) counter_loader.cpp  $(BOOST_THREAD_LIB) $(LIBS) -o $@
+	$(CXX) $(CXXFLAGS) counter_loader.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
 
 counter_driver:counter_driver.cpp 
 	$(CXX) $(CXXFLAGS) counter_driver.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
@@ -36,5 +39,5 @@ counter_add_node:counter_add_node.cpp
 clean:
 	rm -f counter_server counter_driver\
 counter_coordinator counter_delete_node counter_add_node\
-counter_loader
+counter_loader common.o
 

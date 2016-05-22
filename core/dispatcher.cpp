@@ -31,6 +31,7 @@ struct client_ro_state_st {
   int last_return_size;
   bool inflight;
 } client_ro_state [MAX_CLIENTS];
+static unsigned long ro_result_lock = 0;
 
 static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
 static unsigned char *rx_buffer;
@@ -44,6 +45,12 @@ static rpc_callback_t execute_rpc;
 static rpc_leader_callback_t execute_rpc_leader;
 static rpc_follower_callback_t execute_rpc_follower;
 static rpc_gc_callback_t gc_rpc;
+static rpc_get_cookie_callback_t cookie_get;
+static rpc_get_lock_cookie_callback_t cookie_lock;
+static rpc_unlock_cookie_callback_t cookie_unlock;
+static rpc_commit_cookie_callback_t cookie_commit;
+
+
 static int me;
 // Linked list of RPCs yet to be completed
 static rpc_info_t * volatile pending_rpc_head;
@@ -51,7 +58,6 @@ static rpc_info_t * volatile pending_rpc_tail;
 static volatile int committed_raft_log_idx;
 
 static volatile unsigned long list_lock   = 0;
-static volatile unsigned long result_lock = 0;
 static volatile bool building_image = false;
 
 static void lock_rpc_list()
@@ -142,7 +148,7 @@ static void dump_active_list()
 static int get_max_client_txid(int client_id)
 {
   int max_client_txid = 0;
-  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+  rpc_cookie_t cookie;
   lock_rpc_list();
   rpc_info_t *rpc_info = pending_rpc_head;
   while(rpc_info != NULL) {
@@ -156,8 +162,13 @@ static int get_max_client_txid(int client_id)
     rpc_info = rpc_info->next;
   }
   unlock_rpc_list();
-  int last_rw_txid = D_RO(root)->client_state[client_id].committed_txid;
+  cookie.client_id = client_id;
+  cookie_lock(&cookie);
+  cookie_unlock();
+  int last_rw_txid = cookie.client_txid;
+  lock(&ro_result_lock);
   int last_ro_txid = client_ro_state[client_id].committed_txid;
+  unlock(&ro_result_lock);
   if(last_rw_txid > max_client_txid) {
     max_client_txid = last_rw_txid;
   }
@@ -190,42 +201,12 @@ static void mark_client_pending(int client_txid,
   unlock_rpc_list();
 }
 
-// This function must be executed in the context of a tx
-static void mark_done(const rpc_t *rpc,
-		      const int raft_idx,
-		      const int raft_term,
-		      const void* ret_value,
-		      const int ret_size)
+void init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_info_t *rpc)
 {
-  int client_id = rpc->client_id;
-  lock(&result_lock);
-  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  volatile int *c_raft_idx_p  = &D_RW(root)->applied_raft_idx;
-  volatile int *c_raft_term_p = &D_RW(root)->applied_raft_term;
-  pmemobj_tx_add_range_direct((const void *)c_raft_idx_p, sizeof(int));
-  pmemobj_tx_add_range_direct((const void *)c_raft_term_p, sizeof(int));
-  *c_raft_idx_p  = raft_idx;
-  *c_raft_term_p = raft_term;
-  struct client_state_st *cstate = &D_RW(root)->client_state[client_id];
-  pmemobj_tx_add_range_direct(cstate, sizeof(struct client_state_st));
-  if(!TOID_IS_NULL(cstate->last_return_value)) {
-    TX_FREE(cstate->last_return_value);
-  }
-  if(ret_size > 0) {
-    cstate->last_return_value = TX_ALLOC(char, ret_size);
-    if(TOID_IS_NULL(cstate->last_return_value)) {
-      BOOST_LOG_TRIVIAL(fatal) << "mark_done: Out of pmem heap space.";
-      exit(-1);
-    }
-    pmemobj_memcpy_persist(state, D_RW(cstate->last_return_value), ret_value, ret_size);
-  }
-  else {
-    TOID_ASSIGN(cstate->last_return_value, OID_NULL);
-  }
-  cstate->last_return_size = ret_size;
-  __sync_synchronize(); // Main thread can return this value now
-  cstate->committed_txid = rpc->client_txid;
-  unlock(&result_lock);
+  cookie->raft_idx  = rpc->raft_idx;
+  cookie->raft_term = rpc->raft_term;
+  cookie->client_id = rpc->rpc->client_id;
+  cookie->client_txid = rpc->rpc->client_txid;
 }
 
 void exec_rpc_internal_synchronous(rpc_info_t *rpc)
@@ -236,6 +217,8 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
   volatile int execution_term;
   volatile bool is_leader;
   volatile bool have_data;
+  rpc_cookie_t rpc_cookie;
+  init_rpc_cookie_info(&rpc_cookie, rpc);
   while(!rpc->rep_success && !rpc->rep_failed);
   if(rpc->rep_success) {
     while(repeat) {
@@ -255,11 +238,13 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	rpc_t *follower_data;
 	int follower_data_size;
 	if(is_leader && !have_data) {
-	  rpc->sz = execute_rpc_leader((const unsigned char *)(rpc->rpc + 1),
-				       rpc->len - sizeof(rpc_t),
-				       &tmp,
-				       &follower_data_size,
-				       &rpc->ret_value);
+	  execute_rpc_leader((const unsigned char *)(rpc->rpc + 1),
+			     rpc->len - sizeof(rpc_t),
+			     &tmp,
+			     &follower_data_size,
+			     &rpc_cookie);
+	  rpc->ret_value = rpc_cookie.ret_value;
+	  rpc->sz  = rpc_cookie.ret_size;
 	  follower_data = (rpc_t *)malloc(sizeof(rpc_t) + follower_data_size);
 	  memcpy(follower_data + 1, tmp, follower_data_size);
 	  follower_data->code = RPC_REQ_DATA;
@@ -290,13 +275,16 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	    pmemobj_tx_abort(-1);
 	  }
 	  __sync_synchronize();
-	  rpc->sz = execute_rpc_follower((const unsigned char *)(rpc->rpc + 1),
-					 rpc->len - sizeof(rpc_t),
-					 (unsigned char *)rpc->follower_data,
-					 rpc->follower_data_size,
-					 &rpc->ret_value);
+	  execute_rpc_follower((const unsigned char *)(rpc->rpc + 1),
+			       rpc->len - sizeof(rpc_t),
+			       (unsigned char *)rpc->follower_data,
+			       rpc->follower_data_size,
+			       &rpc_cookie);
+	  
+	  rpc->sz    = rpc_cookie.ret_size;
+	  rpc->ret_value = rpc_cookie.ret_value; 
 	}
-	mark_done(rpc->rpc, rpc->raft_idx, rpc->raft_term, rpc->ret_value, rpc->sz);
+	cookie_commit(&rpc_cookie);
       } TX_ONABORT {
 	if(!repeat) {
 	  BOOST_LOG_TRIVIAL(fatal) << "USER ABORT. Shutting down.";
@@ -321,7 +309,8 @@ void exec_rpc_internal(rpc_info_t *rpc)
 {
   while(building_image);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  
+  rpc_cookie_t rpc_cookie;
+  init_rpc_cookie_info(&rpc_cookie, rpc);
   TX_BEGIN(state) {
     if(rpc->rpc->code == RPC_REQ_NODEADD) {
       rpc->sz= 0;
@@ -330,19 +319,20 @@ void exec_rpc_internal(rpc_info_t *rpc)
       rpc->sz = 0;
     }
     else {
-      rpc->sz = execute_rpc((const unsigned char *)(rpc->rpc + 1),
-			    rpc->len - sizeof(rpc_t),
-			    &rpc->ret_value);
+      execute_rpc((const unsigned char *)(rpc->rpc + 1),
+		  rpc->len - sizeof(rpc_t),
+		  &rpc_cookie);
+      rpc->sz = rpc_cookie.ret_size;
+      rpc->ret_value = rpc_cookie.ret_value;
     }
     while(!rpc->rep_success && !rpc->rep_failed);
     if(rpc->rep_success) {
-      mark_done(rpc->rpc, rpc->raft_idx, rpc->raft_term, rpc->ret_value, rpc->sz);
+      cookie_commit(&rpc_cookie);
     }
     else {
       pmemobj_tx_abort(-1);
     }
   } TX_ONABORT {
-    // Wait for replication to finish
     if(!rpc->rep_failed) {
       BOOST_LOG_TRIVIAL(fatal) << "USER ABORT. Shutting down.";
       exit(-1);
@@ -358,12 +348,16 @@ void exec_rpc_internal_ro(rpc_info_t *rpc)
 {
   while(building_image);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  rpc->sz = execute_rpc((const unsigned char *)(rpc->rpc + 1),
-			rpc->len - sizeof(rpc_t),
-			&rpc->ret_value);
+  rpc_cookie_t rpc_cookie;
+  init_rpc_cookie_info(&rpc_cookie, rpc);
+  execute_rpc((const unsigned char *)(rpc->rpc + 1),
+	      rpc->len - sizeof(rpc_t),
+	      &rpc_cookie);
+  rpc->ret_value = rpc_cookie.ret_value;
+  rpc->sz  = rpc_cookie.ret_size;
   rpc->rep_success = true; // No replication needed
   struct client_ro_state_st *cstate = &client_ro_state[rpc->rpc->client_id];
-  lock(&result_lock);
+  lock(&ro_result_lock);
   if(cstate->last_return_size != 0) {
     free(cstate->last_return_value);
     cstate->last_return_size = 0;
@@ -376,7 +370,7 @@ void exec_rpc_internal_ro(rpc_info_t *rpc)
     cstate->last_return_size = rpc->sz;
   }
   cstate->committed_txid = rpc->rpc->client_txid;
-  unlock(&result_lock);
+  unlock(&ro_result_lock);
   client_response(rpc, (rpc_t *)tx_async_buffer, 1);
   __sync_synchronize();
   rpc->complete = true; // note: rpc will be freed after this
@@ -497,8 +491,9 @@ void cyclone_commit_cb(void *user_arg,
 {
   const rpc_t *rpc = (const rpc_t *)data;
   rpc_info_t *rpc_info;
-  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  int applied_raft_idx  = D_RO(root)->applied_raft_idx;
+  rpc_cookie_t rpc_cookie;
+  cookie_get(&rpc_cookie);
+  int applied_raft_idx  = rpc_cookie.raft_idx;
   if(committed_raft_log_idx >=  raft_idx) {
     BOOST_LOG_TRIVIAL(fatal)
       << "Error in commit idx (cyclone_commit_cb) "
@@ -559,7 +554,6 @@ void cyclone_rep_cb(void *user_arg,
 {
   const rpc_t *rpc = (const rpc_t *)data;
   rpc_info_t *match;
-  TOID(disp_state_t) root;
   int applied_raft_idx;
 
   if(committed_raft_log_idx >=  raft_idx) {
@@ -576,8 +570,9 @@ void cyclone_rep_cb(void *user_arg,
   }
 
   if(!building_image) {
-    root = POBJ_ROOT(state, disp_state_t);
-    applied_raft_idx = D_RO(root)->applied_raft_idx;
+    rpc_cookie_t cookie;
+    cookie_get(&cookie);
+    applied_raft_idx = cookie.raft_idx;
   }
 
   if(rpc->code == RPC_REQ_MARKER) {
@@ -678,37 +673,38 @@ struct dispatcher_loop {
 
   void determine_status(rpc_t * rpc_req, rpc_t *rpc_rep, unsigned long* rep_sz)
   {
-    TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+    rpc_cookie_t cookie;
     if(get_max_client_txid(rpc_req->client_id) < rpc_req->client_txid) {
       rpc_rep->code = RPC_REP_UNKNOWN;
       return;
     }
     else {
-      lock(&result_lock);
-      int last_rw_txid = D_RO(root)->client_state[rpc_req->client_id].committed_txid;
+      cookie.client_id = rpc_req->client_id;
+      cookie_lock(&cookie);
+      lock(&ro_result_lock);
+      int last_rw_txid = cookie.client_txid;
       int last_ro_txid = client_ro_state[rpc_req->client_id].committed_txid;
       if(((rpc_req->flags & RPC_FLAG_RO) == 0) &&
 	 last_rw_txid < rpc_req->client_txid) {
-	unlock(&result_lock);
+	unlock(&ro_result_lock);
+	cookie_unlock();
 	rpc_rep->code = RPC_REP_PENDING;
 	return;
       }
       else if(((rpc_req->flags & RPC_FLAG_RO) != 0) &&
 	      last_ro_txid < rpc_req->client_txid ) {
-	unlock(&result_lock);
+	unlock(&ro_result_lock);
+	cookie_unlock();
 	rpc_rep->code = RPC_REP_PENDING;
 	return;
       }
       else if(last_rw_txid == rpc_req->client_txid) {
-	const struct client_state_st * s =
-	  &D_RO(root)->client_state[rpc_req->client_id];
-	*rep_sz = *rep_sz + s->last_return_size;
-	if(s->last_return_size > 0) {
-	  memcpy(rpc_rep + 1,
-		 (void *)D_RO(s->last_return_value),
-		 s->last_return_size);
+	*rep_sz = *rep_sz + cookie.ret_size;
+	if(cookie.ret_size > 0) {
+	  memcpy(rpc_rep + 1, cookie.ret_value, cookie.ret_size);
 	}
-	unlock(&result_lock);
+	unlock(&ro_result_lock);
+	cookie_unlock();
 	rpc_rep->code = RPC_REP_COMPLETE;
 	return;
       }
@@ -719,12 +715,14 @@ struct dispatcher_loop {
 		     client_ro_state[rpc_req->client_id].last_return_value,
 		     client_ro_state[rpc_req->client_id].last_return_size);
 	}
-	unlock(&result_lock);
+	unlock(&ro_result_lock);
+	cookie_unlock();
 	rpc_rep->code = RPC_REP_COMPLETE;
 	return;
       }
       else {
-      	unlock(&result_lock);
+	unlock(&ro_result_lock);
+	cookie_unlock();
 	rpc_rep->code = RPC_REP_OLD;
       	return;
       }
@@ -779,11 +777,10 @@ struct dispatcher_loop {
 	    // Wait for pipeline to drain
 	    while(is_pending_rpc_list());
 	    int chosen_raft_idx, chosen_raft_term;
-	    do {
-	      chosen_raft_term = D_RO(root)->applied_raft_term; 
-	      __sync_synchronize();
-	      chosen_raft_idx  = D_RO(root)->applied_raft_idx;
-	    } while(chosen_raft_term != D_RO(root)->applied_raft_term);
+	    rpc_cookie_t rpc_cookie;
+	    cookie_get(&rpc_cookie);
+	    chosen_raft_term = rpc_cookie.raft_term; 
+	    chosen_raft_idx  = rpc_cookie.raft_idx;
 	    cfg_change_t *cfg = (cfg_change_t *)(rpc_req + 1);
 	    cfg->last_included_term = chosen_raft_term;
 	    cfg->last_included_idx = chosen_raft_idx;
@@ -1045,6 +1042,10 @@ void dispatcher_start(const char* config_server_path,
 		      rpc_callback_t rpc_callback,
 		      rpc_leader_callback_t rpc_leader_callback,
 		      rpc_follower_callback_t rpc_follower_callback,
+		      rpc_get_cookie_callback_t cookie_get_callback,
+		      rpc_get_lock_cookie_callback_t cookie_lock_callback,
+		      rpc_unlock_cookie_callback_t cookie_unlock_callback,
+		      rpc_commit_cookie_callback_t cookie_commit_callback,
 		      rpc_gc_callback_t gc_callback,
 		      rpc_nvheap_setup_callback_t nvheap_setup_callback,
 		      int me,
@@ -1093,14 +1094,7 @@ void dispatcher_start(const char* config_server_path,
       TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
       TX_BEGIN(state) {
 	TX_ADD(root); // Add everything
-	for(int i = 0;i < MAX_CLIENTS;i++) {
-	  D_RW(root)->client_state[i].committed_txid    = 0UL;
-	  D_RW(root)->client_state[i].last_return_size  = 0;
-	  TOID_ASSIGN(D_RW(root)->client_state[i].last_return_value, OID_NULL);
-	}
 	D_RW(root)->nvheap_root = nvheap_setup_callback(TOID_NULL(char), state);
-	D_RW(root)->applied_raft_idx = -1;
-	D_RW(root)->applied_raft_term  = -1;
       } TX_ONABORT {
 	BOOST_LOG_TRIVIAL(fatal) 
 	  << "Unable to setup dispatcher state:"
@@ -1142,7 +1136,11 @@ void dispatcher_start(const char* config_server_path,
   execute_rpc_follower = rpc_follower_callback;
   execute_rpc_leader = rpc_leader_callback;
 
-  gc_rpc      = gc_callback;
+  gc_rpc        = gc_callback;
+  cookie_get    = cookie_get_callback;
+  cookie_lock   = cookie_lock_callback;
+  cookie_unlock = cookie_unlock_callback; 
+  cookie_commit = cookie_commit_callback;
   pending_rpc_head = pending_rpc_tail = NULL;
   // Boot cyclone -- this can lead to rep cbs on recovery
   cyclone_handle = cyclone_boot(config_server_path,
