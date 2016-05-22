@@ -376,6 +376,29 @@ typedef struct cyclone_st {
     return offset;
   }
 
+  unsigned long read_from_log_check_size(unsigned char *dst,
+					 unsigned long offset,
+					 int size_check)
+  {
+    int size;
+    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
+    log_t tmp = D_RO(root)->log;
+    const struct circular_log* log = D_RO(tmp);
+    copy_from_circular_log(log,
+			   RAFT_LOGSIZE,
+			   (unsigned char *)&size,
+			   offset,
+			   sizeof(int));
+    if(size != size_check) {
+      BOOST_LOG_TRIVIAL(fatal) << "SIZE CHECK FAILED !";
+      exit(-1);
+    }
+    offset = circular_log_advance_ptr(offset, sizeof(int), RAFT_LOGSIZE);
+    copy_from_circular_log(log, RAFT_LOGSIZE, dst, offset, size);
+    offset = circular_log_advance_ptr(offset, size + sizeof(int), RAFT_LOGSIZE);
+    return offset;
+  }
+
   unsigned long skip_log_entry(unsigned long offset)
   {
     int size;

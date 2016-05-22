@@ -153,7 +153,9 @@ static int __applylog(raft_server_t* raft,
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   unsigned char *chunk = (unsigned char *)malloc(ety->data.len);
   int delta_node_id;
-  (void)cyclone_handle->read_from_log(chunk, (unsigned long)ety->data.buf);
+  (void)cyclone_handle->read_from_log_check_size(chunk, 
+						 (unsigned long)ety->data.buf,
+						 ety->data.len);
   if(ety->type != RAFT_LOGTYPE_ADD_NODE &&
      cyclone_handle->cyclone_commit_cb != NULL) {    
     cyclone_handle->cyclone_commit_cb(cyclone_handle->user_arg, 
@@ -176,7 +178,6 @@ static int __applylog(raft_server_t* raft,
     BOOST_LOG_TRIVIAL(info) << "INIT nonvoting node " << delta_node_id;
   }
   else if(ety->type == RAFT_LOGTYPE_ADD_NODE) {
-    (void)cyclone_handle->read_from_log(chunk, (unsigned long)ety->data.buf);
     int *delta_node_idp = (int *)chunk;
     BOOST_LOG_TRIVIAL(info) << "STARTUP node " << *delta_node_idp;
   }
@@ -316,13 +317,11 @@ static int __raft_logentry_pop(raft_server_t* raft,
 {
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  if(raft_entry_is_cfg_change(entry)) {
-    // Reverse configuration change -- TBD
-  }
   if(cyclone_handle->cyclone_pop_cb != NULL && entry->type != RAFT_LOGTYPE_ADD_NODE) {
     unsigned char *chunk = (unsigned char *)malloc(entry->data.len);
-    (void)cyclone_handle->read_from_log(chunk, 
-					(unsigned long)entry->data.buf);
+    (void)cyclone_handle->read_from_log_check_size(chunk, 
+						   (unsigned long)entry->data.buf,
+						   enrty->data.len);
     cyclone_handle->cyclone_pop_cb(cyclone_handle->user_arg,
 				   chunk,
 				   entry->data.len,
