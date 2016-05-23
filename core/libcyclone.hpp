@@ -10,10 +10,10 @@ static const int MAX_CLIENTS      = 10000; // Should be enough ?
 static const int DISP_MAX_MSGSIZE = 4194304; // 4MB max msg size 
 
 typedef struct rpc_cookie_st {
-  int raft_idx;
-  int raft_term;
-  int client_id;
-  int client_txid;
+  volatile int raft_idx;
+  volatile int raft_term;
+  volatile int client_id;
+  volatile int client_txid;
   void *volatile ret_value;
   volatile int ret_size;
 } rpc_cookie_t;
