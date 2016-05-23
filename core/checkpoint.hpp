@@ -33,7 +33,7 @@ typedef struct savepage_st{
   struct savepage_st *next;
 } save_page_t;
 
-extern save_page_t *saved_pages;
+extern save_page_t * volatile saved_pages;
 
 extern void init_sigsegv_handler(const char *fname);
 extern void restore_sigsegv_handler();

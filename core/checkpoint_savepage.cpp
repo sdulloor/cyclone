@@ -6,10 +6,10 @@
 #include "logging.hpp"
 
 static struct sigaction orig_sigsegv_handler;
-static void *mapping;
-static unsigned long mapping_size;
-static unsigned long map_offset;
-save_page_t *saved_pages = NULL;
+static void * volatile mapping;
+static volatile unsigned long mapping_size;
+static volatile unsigned long map_offset;
+save_page_t * volatile saved_pages = NULL;
 
 static void check_sigsegv_range(unsigned long addr)
 {
@@ -102,6 +102,7 @@ void init_sigsegv_handler(const char *fname)
   }
   free(buffer);
   fclose(fp);
+  __sync_synchronize(); // Make sure mapping hits memory
   sigsegv.sa_sigaction = sigsegv_handler;
   sigemptyset(&sigsegv.sa_mask);
   sigsegv.sa_flags = SA_SIGINFO;
