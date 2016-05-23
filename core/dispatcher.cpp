@@ -487,6 +487,9 @@ void cyclone_commit_cb(void *user_arg,
   rpc_cookie_t rpc_cookie;
   cookie_get(&rpc_cookie);
   int applied_raft_idx  = rpc_cookie.raft_idx;
+  if(raft_idx  <= applied_raft_idx) {
+    return;
+  }
   if(committed_raft_log_idx >=  raft_idx) {
     BOOST_LOG_TRIVIAL(fatal)
       << "Error in commit idx (cyclone_commit_cb) "

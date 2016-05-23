@@ -228,6 +228,7 @@ static int __raft_logentry_offer(raft_server_t* raft,
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   void *chunk = ety->data.buf;
+  ety->id = ety_idx;
   ety->data.buf = (void *)
     cyclone_handle->double_append_to_raft_log
     ((unsigned char *)ety,
@@ -261,6 +262,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
   unsigned long tail = log->log_tail;
   raft_entry_t *e = ety;
   for(int i=0; i<count;i++,e++) {
+    e->id = ety_idx + i;
     tail = cyclone_handle->append_to_raft_log_noupdate(log,
 						       (unsigned char *)e,
 						       sizeof(raft_entry_t),
@@ -660,7 +662,6 @@ void* cyclone_boot(const char *config_path,
 			  D_RO(root)->term);
     unsigned long ptr = D_RO(log)->log_head;
     raft_entry_t ety;
-    int raft_idx = 0; // TBD fix this on log compaction
     while(ptr != D_RO(log)->log_tail) {
       // Optimize later by removing transaction
       ptr = cyclone_handle->read_from_log((unsigned char *)&ety, ptr);
@@ -674,7 +675,7 @@ void* cyclone_boot(const char *config_path,
 	cyclone_rep_callback(user_arg,
 			     (const unsigned char *)chunk,
 			     ety.data.len,
-			     raft_idx++,
+			     ety.id,
 			     ety.term);
 	free(chunk);
       }
