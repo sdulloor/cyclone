@@ -13,10 +13,6 @@ typedef struct rpc_info_st {
   void *follower_data;
   int follower_data_size;
   volatile bool have_follower_data;
-  char * volatile req_follower_data;
-  volatile int req_follower_data_size;
-  volatile int req_follower_term;
-  volatile bool req_follower_data_active;
   volatile bool rep_success;
   volatile bool rep_failed;
   volatile bool rep_follower_success;
@@ -27,6 +23,11 @@ typedef struct rpc_info_st {
   struct rpc_info_st *volatile next_issue;
 } rpc_info_t;
 
+typedef struct follower_req_st {
+  char * req_follower_data;
+  int req_follower_data_size;
+  int req_follower_term;
+} follower_req_t;
 
 extern void dispatcher_exec_startup();
 extern void exec_rpc(rpc_info_t *rpc);

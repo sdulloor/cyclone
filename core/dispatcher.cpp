@@ -59,6 +59,8 @@ static volatile int committed_raft_log_idx;
 
 static volatile unsigned long list_lock   = 0;
 static volatile bool building_image = false;
+static void* follower_req_socket = NULL;
+static void* follower_rep_socket = NULL;
 
 static void lock_rpc_list()
 {
@@ -218,6 +220,8 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
   volatile bool is_leader;
   volatile bool have_data;
   rpc_cookie_t rpc_cookie;
+  follower_req_t follower_req;
+  int follower_resp;
   init_rpc_cookie_info(&rpc_cookie, rpc);
   while(!rpc->rep_success && !rpc->rep_failed);
   if(rpc->rep_success) {
@@ -251,14 +255,18 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	  follower_data->parent_raft_idx = rpc->raft_idx;
 	  follower_data->parent_raft_term = rpc->raft_term;
 	  follower_data->timestamp = rpc->rpc->timestamp;
-	  rpc->req_follower_data = (char *)follower_data;
-	  rpc->req_follower_term = execution_term;
-	  rpc->req_follower_data_size = follower_data_size + sizeof(rpc_t);
+	  follower_req.req_follower_data = (char *)follower_data;
+	  follower_req.req_follower_term = execution_term;
+	  follower_req.req_follower_data_size = follower_data_size + sizeof(rpc_t);
+	  cyclone_tx_block(follower_req_socket, 
+			   (const unsigned char *)&follower_req,
+			   sizeof(follower_req_t),
+			   "follower req");
+	  cyclone_rx_block(follower_req_socket,
+			   (unsigned char *)&follower_resp,
+			   sizeof(int),
+			   "follower req resp");
 	  gc_rpc(tmp);
-	  __sync_synchronize();
-	  rpc->req_follower_data_active = true;
-	  __sync_synchronize();
-	  while(rpc->req_follower_data_active);
 	  free(follower_data);
 	  while(!rpc->rep_follower_success &&
 		cyclone_get_term(cyclone_handle) == execution_term);
@@ -395,22 +403,8 @@ static void gc_pending_rpc_list(bool is_master)
   rpc_info_t *rpc, *deleted, *tmp;
   void *cookie;
   deleted = NULL;
-  tmp = pending_rpc_head;
+  
   lock_rpc_list();
-  while(tmp) {
-    if(tmp->req_follower_data_active) {
-      cookie = cyclone_add_entry_term(cyclone_handle,
-				      tmp->req_follower_data,
-				      tmp->req_follower_data_size,
-				      tmp->req_follower_term);
-      __sync_synchronize();
-      tmp->req_follower_data_active = false;
-      if(cookie != NULL) {
-	free(cookie);
-      }
-    }
-    tmp = tmp->next;
-  }
   while(pending_rpc_head != NULL) {
     if(!pending_rpc_head->complete) {
       break;
@@ -459,7 +453,6 @@ static void issue_rpc(const rpc_t *rpc,
   rpc_info->follower_data = NULL;
   rpc_info->follower_data_size = 0;
   rpc_info->have_follower_data = false;
-  rpc_info->req_follower_data_active = false;
   rpc_info->pending_lock = 0;
   if(mark_resp) {
     rpc_info->client_blocked = rpc_info->rpc->requestor;
@@ -904,6 +897,8 @@ struct dispatcher_loop {
     const int BUFSPACE = MIN_BATCH_BUFFERS*DISP_MAX_MSGSIZE;
     int adaptive_batch_size = MIN_BATCH_BUFFERS;
     int space_left = BUFSPACE;
+    follower_req_t follower_req;
+    int follower_resp;
 
     rx_buffers = (unsigned char *)malloc(BUFSPACE);
     
@@ -989,6 +984,26 @@ struct dispatcher_loop {
       }
 
       if((mark - last_gc) >= PERIODICITY) {
+	sz = cyclone_rx(follower_rep_socket,
+			(unsigned char *)&follower_req,
+			sizeof(follower_req_t),
+			"follower req");
+	if(sz != -1) {
+	  void * cookie = 
+	    cyclone_add_entry_term(cyclone_handle,
+				   follower_req.req_follower_data,
+				   follower_req.req_follower_data_size,
+				   follower_req.req_follower_term);
+	  if(cookie != NULL) {
+	    free(cookie);
+	  }
+	  follower_resp = 0;
+	  cyclone_tx_block(follower_rep_socket,
+			   (unsigned char *)&follower_resp,
+			   sizeof(int),
+			   "follower rep rep");
+	}
+	
 	// Leadership change ?
 	if(cyclone_is_leader(cyclone_handle)) {
 	  gc_pending_rpc_list(true);
@@ -1166,5 +1181,9 @@ void dispatcher_start(const char* config_server_path,
 			     2);
   dispatcher_loop_obj->tx_thread = 
     new boost::thread(boost::ref(*router));
+  follower_req_socket = cyclone_socket_out_loopback(zmq_context);
+  cyclone_connect_endpoint(follower_req_socket, "inproc://FOLLOWER");
+  follower_rep_socket = cyclone_socket_in_loopback(zmq_context);
+  cyclone_bind_endpoint(follower_rep_socket, "inproc://FOLLOWER");
   (*dispatcher_loop_obj)();
 }
