@@ -273,7 +273,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
     
     handle_cfg_change(cyclone_handle, e, e->data.buf);
     if(cyclone_handle->cyclone_rep_cb != NULL && 
-       ety->type != RAFT_LOGTYPE_ADD_NODE) { 
+       e->type != RAFT_LOGTYPE_ADD_NODE) { 
       cyclone_handle->cyclone_rep_cb(cyclone_handle->user_arg,
 				     (const unsigned char *)e->data.buf,
 				     e->data.len,
