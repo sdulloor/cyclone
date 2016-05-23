@@ -64,9 +64,9 @@ void send_checkpoint(void *socket, void *cyclone_handle)
 			     bufbytes - sizeof(fragment_t))) {
     ((fragment_t *)buffer)->offset = checkpoint_hdr.offset;
     // tx and await reply;
-    cyclone_tx(socket, (const unsigned char *)buffer, 
+    cyclone_tx_block(socket, (const unsigned char *)buffer, 
 	       sizeof(fragment_t) + bytes_to_send, "Checkpoint send");
-    cyclone_rx(socket, (unsigned char *)&reply, sizeof(uint64_t),
+    cyclone_rx_block(socket, (unsigned char *)&reply, sizeof(uint64_t),
 	       "Checkpoint rcv");
     checkpoint_hdr.offset += bytes_to_send;
   }
