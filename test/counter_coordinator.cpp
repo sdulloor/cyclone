@@ -8,7 +8,6 @@
 TOID_DECLARE(uint64_t, TOID_NUM_BASE);
 
 static TOID(uint64_t) txnum;
-extern cookies_t *cookies_root;
 void **quorum_handles;
 int me;
 int quorums;
@@ -39,13 +38,13 @@ TOID(char) nvheap_setup(TOID(char) recovered,
     heap_root->the_cookies.applied_raft_idx = -1;
     heap_root->the_cookies.applied_raft_term  = -1;
     txnum = heap_root->txnum;
-    cookies_root = &heap_root->the_cookies;
+    init_cookie_system(state, &heap_root->the_cookies);
     return store; 
   }
   else {
     heap_root = (heap_root_t *)D_RW(recovered);
     txnum = heap_root->txnum;
-    cookies_root = &heap_root->the_cookies;
+    init_cookie_system(state, &heap_root->the_cookies);
     return recovered;
   }
 }

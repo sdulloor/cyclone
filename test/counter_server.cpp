@@ -217,7 +217,6 @@ TOID(char) nvheap_setup(TOID(char) recovered,
   TOID(char) store;
   heap_root_t *heap_root;
   pop = state;
-  cookies_pool = state;
   if(TOID_IS_NULL(recovered)) {
     store = TX_ALLOC(char, sizeof(heap_root_t));
     heap_root = (heap_root_t *)D_RW(store);
@@ -230,13 +229,13 @@ TOID(char) nvheap_setup(TOID(char) recovered,
     heap_root->the_cookies.applied_raft_term  = -1;
     rbtree_map_new(state, &heap_root->the_tree, NULL);
     the_tree = heap_root->the_tree;
-    cookies_root = &heap_root->the_cookies;
+    init_cookie_system(state, &heap_root->the_cookies);
     return store;
   }
   else {
     heap_root = (heap_root_t *)D_RW(recovered);
     the_tree = heap_root->the_tree;
-    cookies_root = &heap_root->the_cookies;
+    init_cookie_system(state, &heap_root->the_cookies);
     return recovered;
   }
 }

@@ -3,8 +3,14 @@
 #include "../core/logging.hpp"
 
 volatile unsigned long cookies_lock = 0;
-cookies_t* cookies_root;
-PMEMobjpool *cookies_pool;
+cookies_t *cookies_root = NULL;
+PMEMobjpool *cookies_pool = NULL;
+
+void init_cookie_system(PMEMobjpool *pool, cookies_t *root)
+{
+  cookies_pool = pool;
+  cookies_root = root;
+}
 
 // This function must be executed in the context of a tx
 void mark_done(rpc_cookie_t *cookie)

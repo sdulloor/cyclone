@@ -518,6 +518,7 @@ void cyclone_commit_cb(void *user_arg,
       exit(-1);
     }
     rpc_info->rep_follower_success = true;
+    __sync_synchronize();
     return;
   }
   rpc_info = locate_rpc_internal(raft_idx, raft_term, true);
