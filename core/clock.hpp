@@ -36,6 +36,8 @@ class rtc_clock {
     if(samples >= dump_interval) {
       BOOST_LOG_TRIVIAL(info) << msg
 			      << ((double)accumulator/samples);
+      accumulator = 0;
+      samples = 0;
     }
   }
 };

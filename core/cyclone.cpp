@@ -62,6 +62,7 @@ void cyclone_deserialize_last_applied(void *cyclone_handle, raft_entry_t *ety)
      ety->data.len);
 }
 
+
 /** Raft callback for sending appendentries message */
 static int __send_appendentries(raft_server_t* raft,
 				void *udata,
@@ -93,8 +94,10 @@ static int __send_appendentries(raft_server_t* raft,
   m->n_entries          = i;
   msg->ae.n_entries     = m->n_entries;
   for(i=0;i<m->n_entries;i++) {
-    (void)cyclone_handle->read_from_log(ptr,
-					(unsigned long)m->entries[i].data.buf);
+    (void)cyclone_handle->read_from_log_check_size(ptr,
+						   (unsigned long)m->entries[i].data.buf,
+						   m->entries[i].data.len);
+
     ptr += m->entries[i].data.len;
   }
   cyclone_tx(socket, 
