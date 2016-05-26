@@ -662,6 +662,7 @@ struct dispatcher_loop {
   {
     rpc_t rpc_req;
     rpc_req.code = RPC_REQ_MARKER;
+    rpc_req.timestamp = rtc_clock::current_time();
     void *cookie = cyclone_add_entry(cyclone_handle, &rpc_req, sizeof(rpc_t));
     if(cookie != NULL) {
       free(cookie);
