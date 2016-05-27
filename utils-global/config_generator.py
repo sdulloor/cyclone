@@ -181,8 +181,6 @@ for q in range(0, quorums):
         iface=mc_config.get('machines','iface' + str(i))
         f.write('addr' + str(i) + '=' + addr + '\n')
         f.write('iface' + str(i) + '=' + iface + '\n')
-    f.write('[dispatch]\n')
-    f.write('server_baseport=' + str(server_baseports[str(q)]) + '\n')
     f.close()
 
 
