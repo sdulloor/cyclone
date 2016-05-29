@@ -87,6 +87,14 @@ void* leader_callback(const unsigned char *data,
 	  sz = get_response(quorum_handles[partition],
 			    (void **)&resp,
 			    txid);
+	  if(sz == RPC_EOLD) {
+	    // Another leader !
+	    pmemobj_tx_abort(-1);
+	    // This is don't care since we will fail
+	    *(int *)*follower_data     = 0;
+	    *(int *)rpc_cookie->ret_value  = 0;
+	    return NULL;
+	  }
 	  if(resp->cookie.txnum != *D_RO(txnum)) {
 	    pmemobj_tx_abort(-1);
 	    // This is don't care since we will fail
