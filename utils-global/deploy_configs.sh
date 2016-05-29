@@ -11,9 +11,11 @@ echo "deploy dir = $deploy_dir"
 echo "group = $GROUP"
 echo '#!/bin/bash' > exec_servers.sh
 echo "export LD_LIBRARY_PATH=/usr/local/lib:/usr/lib" >> exec_servers.sh
+echo "ulimit -c unlimited" >> exec_servers.sh
 echo "cd $deploy_dir" >> exec_servers.sh
 cp exec_servers.sh exec_coord.sh
 cp exec_servers.sh exec_inactive_servers.sh
+#echo "export MALLOC_CHECK_=3" >> exec_servers.sh
 echo "source launch_servers" >> exec_servers.sh
 echo "source launch_inactive_servers" >> exec_inactive_servers.sh
 echo "source launch_coord" >> exec_coord.sh
