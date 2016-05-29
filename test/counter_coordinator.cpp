@@ -89,6 +89,10 @@ void* leader_callback(const unsigned char *data,
 			    txid);
 	  if(resp->cookie.txnum != *D_RO(txnum)) {
 	    pmemobj_tx_abort(-1);
+	    // This is don't care since we will fail
+	    *(int *)*follower_data     = 0;
+	    *(int *)rpc_cookie->ret_value  = 0;
+	    return NULL;
 	  }
 	  if(resp->cookie.success == 0) {
 	    cookie.success = 0;

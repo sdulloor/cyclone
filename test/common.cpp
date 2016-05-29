@@ -17,7 +17,7 @@ void begin_tx()
 
 void commit_tx(void *handle)
 {
-  // In case the user tx has aborted we skip the commit
+  // Idempotent state changes
   if(pmemobj_tx_stage() == TX_STAGE_WORK) {
     pmemobj_tx_commit();
   }
@@ -26,7 +26,10 @@ void commit_tx(void *handle)
 
 void abort_tx(void *handle)
 {
-  pmemobj_tx_abort(0);
+  // Idempotent state changes
+  if(pmemobj_tx_stage() == TX_STAGE_WORK) {
+    pmemobj_tx_abort(0);
+  }
   pmemobj_tx_end();
 }
 
