@@ -19,25 +19,25 @@ typedef struct rpc_cookie_st {
 } rpc_cookie_t;
 
 ////// RPC Server side interface
-// Returns the size of the return value blob
+// Returns a handle to the transaction
 typedef 
-void (*rpc_callback_t)(const unsigned char *data,
-		       const int len,
-		       rpc_cookie_t * rpc_cookie);
+void* (*rpc_callback_t)(const unsigned char *data,
+			const int len,
+			rpc_cookie_t * rpc_cookie);
 
 typedef 
-void (*rpc_leader_callback_t)(const unsigned char *data,
-			      const int len,
-			      unsigned char **follower_data,
-			      int * follower_data_size, 
-			      rpc_cookie_t *rpc_cookie);
+void* (*rpc_leader_callback_t)(const unsigned char *data,
+			       const int len,
+			       unsigned char **follower_data,
+			       int * follower_data_size, 
+			       rpc_cookie_t *rpc_cookie);
 
 typedef 
-void (*rpc_follower_callback_t)(const unsigned char *data,
-				const int len,
-				unsigned char *follower_data,
-				int follower_data_size, 
-				rpc_cookie_t * rpc_cookie);
+void* (*rpc_follower_callback_t)(const unsigned char *data,
+				 const int len,
+				 unsigned char *follower_data,
+				 int follower_data_size, 
+				 rpc_cookie_t * rpc_cookie);
 
 
 
@@ -57,18 +57,23 @@ typedef void (*rpc_commit_cookie_callback_t)(rpc_cookie_t *cookie);
 typedef TOID(char) (*rpc_nvheap_setup_callback_t)(TOID(char) recovered,
 						  PMEMobjpool *state);
 
+// Callback hell !
+typedef struct rpc_callbacks_st {
+  rpc_callback_t rpc_callback;
+  rpc_leader_callback_t rpc_leader_callback;
+  rpc_follower_callback_t rpc_follower_callback;
+  rpc_get_cookie_callback_t cookie_get_callback;
+  rpc_get_lock_cookie_callback_t cookie_lock_callback;
+  rpc_unlock_cookie_callback_t cookie_unlock_callback;
+  rpc_commit_cookie_callback_t cookie_commit_callback;
+  rpc_gc_callback_t gc_callback;
+  rpc_nvheap_setup_callback_t nvheap_setup_callback;
+} rpc_callbacks_t;
+
 // Start the dispatcher loop -- note: does not return
 void dispatcher_start(const char* config_server_path,
 		      const char* config_client_path,
-		      rpc_callback_t rpc_callback,
-		      rpc_leader_callback_t rpc_leader_callback,
-		      rpc_follower_callback_t rpc_follower_callback,
-		      rpc_get_cookie_callback_t cookie_get_callback,
-		      rpc_get_lock_cookie_callback_t cookie_lock_callback,
-		      rpc_unlock_cookie_callback_t cookie_unlock_callback,
-		      rpc_commit_cookie_callback_t cookie_commit_callback,
-		      rpc_gc_callback_t gc_callback,
-		      rpc_nvheap_setup_callback_t nvheap_setup_callback,
+		      rpc_callbacks_t *rpc_callbacks,
 		      int me,
 		      int replicas,
 		      int clients);

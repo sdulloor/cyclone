@@ -70,9 +70,9 @@ TOID(uint64_t) new_store_item(uint64_t val)
   return item;
 }
 
-void callback(const unsigned char *data,
-	      const int len,
-	      rpc_cookie_t *cookie)
+void* callback(const unsigned char *data,
+	       const int len,
+	       rpc_cookie_t *cookie)
 {
   // Heartbeat
   static unsigned long tx_block_cnt   = 0;
@@ -208,6 +208,7 @@ void callback(const unsigned char *data,
     exit(-1);
   }
   total_latency += (rtc_clock::current_time() - tx_begin_time);
+  return NULL;
 }
 
 TOID(char) nvheap_setup(TOID(char) recovered,
@@ -245,7 +246,17 @@ void gc(void *data)
   free(data);
 }
 
-
+rpc_callbacks_t rpc_callbacks =  {
+  callback,
+  NULL,
+  NULL,
+  get_cookie,
+  get_lock_cookie,
+  unlock_cookie,
+  mark_done,
+  gc,
+  nvheap_setup
+};
 
 int main(int argc, char *argv[])
 {
@@ -260,15 +271,7 @@ int main(int argc, char *argv[])
   if(argc == 4) {
     dispatcher_start("cyclone_test.ini", 
 		     "cyclone_test.ini", 
-		     callback, 
-		     NULL, 
-		     NULL, 
-		     get_cookie,
-		     get_lock_cookie,
-		     unlock_cookie,
-		     mark_done,
-		     gc,
-		     nvheap_setup, 
+		     &rpc_callbacks,
 		     server_id, 
 		     replicas, 
 		     clients);
@@ -276,15 +279,7 @@ int main(int argc, char *argv[])
   else {
       dispatcher_start(argv[4], 
 		       argv[5], 
-		       callback, 
-		       NULL, 
-		       NULL, 
-		       get_cookie,
-		       get_lock_cookie,
-		       unlock_cookie,
-		       mark_done,
-		       gc,
-		       nvheap_setup, 
+		       &rpc_callbacks,
 		       server_id, 
 		       replicas, 
 		       clients);

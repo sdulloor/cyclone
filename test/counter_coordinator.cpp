@@ -50,11 +50,11 @@ TOID(char) nvheap_setup(TOID(char) recovered,
 }
 
 
-void leader_callback(const unsigned char *data,
-		     const int len,
-		     unsigned char **follower_data,
-		     int *follower_data_size, 
-		     rpc_cookie_t *rpc_cookie)
+void* leader_callback(const unsigned char *data,
+		      const int len,
+		      unsigned char **follower_data,
+		      int *follower_data_size, 
+		      rpc_cookie_t *rpc_cookie)
 {
   rbtree_tx_t * tx = (rbtree_tx_t *)data;
   *follower_data = (unsigned char *)malloc(sizeof(int));
@@ -106,13 +106,14 @@ void leader_callback(const unsigned char *data,
   }
   *(int *)*follower_data     = cookie.success;
   *(int *)rpc_cookie->ret_value  = cookie.success;
+  return NULL;
 }  
 
-void follower_callback(const unsigned char *data,
-		       const int len,
-		       unsigned char *follower_data,
-		       int follower_data_size, 
-		       rpc_cookie_t *rpc_cookie)
+void* follower_callback(const unsigned char *data,
+			const int len,
+			unsigned char *follower_data,
+			int follower_data_size, 
+			rpc_cookie_t *rpc_cookie)
 {
   rpc_cookie->ret_value = malloc(sizeof(int));
   rpc_cookie->ret_size  = sizeof(int);
@@ -125,6 +126,7 @@ void follower_callback(const unsigned char *data,
     int partition = get_key(p) % quorums;
     ctr[partition]++;
   }
+  return NULL;
 }
 
 
@@ -132,6 +134,18 @@ void gc(void *data)
 {
   free(data);
 }
+
+rpc_callbacks_t rpc_callbacks =  {
+  NULL,
+  leader_callback,
+  follower_callback,
+  get_cookie,
+  get_lock_cookie,
+  unlock_cookie,
+  mark_done,
+  gc,
+  nvheap_setup
+};
 
 int main(int argc, char *argv[])
 {
@@ -161,15 +175,7 @@ int main(int argc, char *argv[])
   }
   dispatcher_start(argv[6], 
 		   argv[7], 
-		   NULL, 
-		   leader_callback,
-		   follower_callback, 
-		   get_cookie,
-		   get_lock_cookie,
-		   unlock_cookie,
-		   mark_done,
-		   gc, 
-		   nvheap_setup, 
+		   &rpc_callbacks,
 		   coord_id,
 		   coord_replicas, 
 		   clients);
