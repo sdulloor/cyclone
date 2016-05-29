@@ -215,6 +215,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
   rpc_cookie_t rpc_cookie;
   follower_req_t follower_req;
   int follower_resp;
+  void *tx_handle;
   init_rpc_cookie_info(&rpc_cookie, rpc);
   while(!rpc->rep_success && !rpc->rep_failed);
   if(rpc->rep_success) {
@@ -230,75 +231,72 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	continue; // Make sure view hasn't changed
       }
       repeat = false;
-      TX_BEGIN(state) {
-	unsigned char *tmp;
-	rpc_t *follower_data;
-	int follower_data_size;
-	if(is_leader && !have_data) {
-	  app_callbacks.rpc_leader_callback((const unsigned char *)(rpc->rpc + 1),
-					    rpc->len - sizeof(rpc_t),
-					    &tmp,
-					    &follower_data_size,
-					    &rpc_cookie);
-	  rpc->ret_value = rpc_cookie.ret_value;
-	  rpc->sz  = rpc_cookie.ret_size;
-	  follower_data = (rpc_t *)malloc(sizeof(rpc_t) + follower_data_size);
-	  memcpy(follower_data + 1, tmp, follower_data_size);
-	  follower_data->code = RPC_REQ_DATA;
-	  follower_data->parent_raft_idx = rpc->raft_idx;
-	  follower_data->parent_raft_term = rpc->raft_term;
-	  follower_data->timestamp = rpc->rpc->timestamp;
-	  follower_req.req_follower_data = (char *)follower_data;
-	  follower_req.req_follower_term = execution_term;
-	  follower_req.req_follower_data_size = follower_data_size + sizeof(rpc_t);
-	  cyclone_tx_block(follower_req_socket, 
-			   (const unsigned char *)&follower_req,
-			   sizeof(follower_req_t),
-			   "follower req");
-	  cyclone_rx_block(follower_req_socket,
-			   (unsigned char *)&follower_resp,
-			   sizeof(int),
-			   "follower req resp");
-	  app_callbacks.gc_callback(tmp);
-	  free(follower_data);
-	  while(!rpc->rep_follower_success &&
-		cyclone_get_term(cyclone_handle) == execution_term);
-	  if(!rpc->rep_follower_success) {
-	    repeat = true;
-	    pmemobj_tx_abort(-1);
-	  }
+      unsigned char *tmp;
+      rpc_t *follower_data;
+      int follower_data_size;
+      if(is_leader && !have_data) {
+	tx_handle = app_callbacks.rpc_leader_callback((const unsigned char *)(rpc->rpc + 1),
+						      rpc->len - sizeof(rpc_t),
+						      &tmp,
+						      &follower_data_size,
+						      &rpc_cookie);
+	rpc->ret_value = rpc_cookie.ret_value;
+	rpc->sz  = rpc_cookie.ret_size;
+	follower_data = (rpc_t *)malloc(sizeof(rpc_t) + follower_data_size);
+	memcpy(follower_data + 1, tmp, follower_data_size);
+	follower_data->code = RPC_REQ_DATA;
+	follower_data->parent_raft_idx = rpc->raft_idx;
+	follower_data->parent_raft_term = rpc->raft_term;
+	follower_data->timestamp = rpc->rpc->timestamp;
+	follower_req.req_follower_data = (char *)follower_data;
+	follower_req.req_follower_term = execution_term;
+	follower_req.req_follower_data_size = follower_data_size + sizeof(rpc_t);
+	cyclone_tx_block(follower_req_socket, 
+			 (const unsigned char *)&follower_req,
+			 sizeof(follower_req_t),
+			 "follower req");
+	cyclone_rx_block(follower_req_socket,
+			 (unsigned char *)&follower_resp,
+			 sizeof(int),
+			 "follower req resp");
+	app_callbacks.gc_callback(tmp);
+	free(follower_data);
+	while(!rpc->rep_follower_success &&
+	      cyclone_get_term(cyclone_handle) == execution_term);
+	if(!rpc->rep_follower_success) {
+	  repeat = true;
+	  app_callbacks.tx_abort(tx_handle);
 	}
+      }
+      else {
+	while(!rpc->rep_follower_success &&
+	      cyclone_get_term(cyclone_handle) == execution_term);
+	if(!rpc->rep_follower_success) {
+	  repeat = true;
+	} 
 	else {
-	  while(!rpc->rep_follower_success &&
-		cyclone_get_term(cyclone_handle) == execution_term);
-	  if(!rpc->rep_follower_success) {
-	    repeat = true;
-	    pmemobj_tx_abort(-1);
-	  }
 	  __sync_synchronize();
 	  app_callbacks.rpc_follower_callback((const unsigned char *)(rpc->rpc + 1),
 					      rpc->len - sizeof(rpc_t),
 					      (unsigned char *)rpc->follower_data,
 					      rpc->follower_data_size,
 					      &rpc_cookie);
-	  
+	
 	  rpc->sz    = rpc_cookie.ret_size;
 	  rpc->ret_value = rpc_cookie.ret_value; 
 	}
+      }
+      if(!repeat) {
 	app_callbacks.cookie_commit_callback(&rpc_cookie);
-      } TX_ONABORT {
-	if(!repeat) {
-	  BOOST_LOG_TRIVIAL(fatal) << "USER ABORT. Shutting down.";
-	  exit(-1);
-	} 
-	else {
-	  if(rpc->sz > 0) {
-	    app_callbacks.gc_callback(rpc->ret_value);
-	    rpc->sz = 0;
-	    rpc->ret_value = NULL;
-	  }
+	app_callbacks.tx_commit(tx_handle);
+      }
+      else {
+	if(rpc->sz > 0) {
+	  app_callbacks.gc_callback(rpc->ret_value);
+	  rpc->sz = 0;
+	  rpc->ret_value = NULL;
 	}
-      } TX_END
+      }
     }
   }
   client_response(rpc, (rpc_t *)tx_async_buffer, 1);
@@ -311,34 +309,29 @@ void exec_rpc_internal(rpc_info_t *rpc)
   while(building_image);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   rpc_cookie_t rpc_cookie;
+  void *tx_handle;
   init_rpc_cookie_info(&rpc_cookie, rpc);
-  TX_BEGIN(state) {
-    if(rpc->rpc->code == RPC_REQ_NODEADD) {
-      rpc->sz= 0;
-    }
-    else if(rpc->rpc->code == RPC_REQ_NODEDEL) {
-      rpc->sz = 0;
-    }
-    else {
-      app_callbacks.rpc_callback((const unsigned char *)(rpc->rpc + 1),
-				 rpc->len - sizeof(rpc_t),
-				 &rpc_cookie);
-      rpc->sz = rpc_cookie.ret_size;
-      rpc->ret_value = rpc_cookie.ret_value;
-    }
-    while(!rpc->rep_success && !rpc->rep_failed);
-    if(rpc->rep_success) {
-      app_callbacks.cookie_commit_callback(&rpc_cookie);
-    }
-    else {
-      pmemobj_tx_abort(-1);
-    }
-  } TX_ONABORT {
-    if(!rpc->rep_failed) {
-      BOOST_LOG_TRIVIAL(fatal) << "USER ABORT. Shutting down.";
-      exit(-1);
-    }
-  } TX_END
+  if(rpc->rpc->code == RPC_REQ_NODEADD) {
+    rpc->sz= 0;
+  }
+  else if(rpc->rpc->code == RPC_REQ_NODEDEL) {
+    rpc->sz = 0;
+  }
+  else {
+    tx_handle = app_callbacks.rpc_callback((const unsigned char *)(rpc->rpc + 1),
+					   rpc->len - sizeof(rpc_t),
+					   &rpc_cookie);
+    rpc->sz = rpc_cookie.ret_size;
+    rpc->ret_value = rpc_cookie.ret_value;
+  }
+  while(!rpc->rep_success && !rpc->rep_failed);
+  if(rpc->rep_success) {
+    app_callbacks.cookie_commit_callback(&rpc_cookie);
+    app_callbacks.tx_commit(tx_handle);
+  }
+  else {
+    app_callbacks.tx_abort(tx_handle);
+  } 
   client_response(rpc, (rpc_t *)tx_async_buffer, 1);
   __sync_synchronize();
   rpc->complete = true; // note: rpc will be freed after this

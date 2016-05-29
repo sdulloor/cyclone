@@ -6,6 +6,27 @@ volatile unsigned long cookies_lock = 0;
 cookies_t *cookies_root = NULL;
 PMEMobjpool *cookies_pool = NULL;
 
+void begin_tx()
+{
+  int e = pmemobj_tx_begin(cookies_pool, NULL, TX_LOCK_NONE);
+  if(e != 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "Failed to start tx errno=" << e;
+    exit(-1);
+  }
+}
+
+void commit_tx(void *handle)
+{
+  pmemobj_tx_commit();
+  pmemobj_tx_end();
+}
+
+void abort_tx(void *handle)
+{
+  pmemobj_tx_abort(0);
+  pmemobj_tx_end();
+}
+
 void init_cookie_system(PMEMobjpool *pool, cookies_t *root)
 {
   cookies_pool = pool;

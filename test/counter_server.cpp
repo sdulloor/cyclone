@@ -102,6 +102,7 @@ void* callback(const unsigned char *data,
   struct proposal *rep  = (struct proposal *)cookie->ret_value;
   memcpy(&rep->cookie, &req->cookie, sizeof(cookie_t));
   if(code == FN_INSERT) {
+    begin_tx();
     PMEMoid item = rbtree_map_get(pop, the_tree, req->kv_data.key);
     rep->code = CODE_OK;
     rep->kv_data.key = req->kv_data.key;
@@ -125,6 +126,7 @@ void* callback(const unsigned char *data,
     }
   }
   else if(code == FN_DELETE) {
+    begin_tx();
     PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);
     rep->kv_data.key = req->kv_data.key;
     if(OID_IS_NULL(item)) {
@@ -154,6 +156,7 @@ void* callback(const unsigned char *data,
     }
   }
   else if(code == FN_BUMP) {
+    begin_tx();
     PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);
     rep->kv_data.key     = req->k_data.key;
     if(OID_IS_NULL(item)) {
@@ -170,6 +173,7 @@ void* callback(const unsigned char *data,
     }
   }
   else if(code == FN_PREPARE) {
+    begin_tx();
     PMEMoid item = rbtree_map_get(pop, the_tree, req->kv_data.key);
     rep->code = CODE_OK;
     rep->kv_data.key     = req->kv_data.key;
@@ -187,6 +191,7 @@ void* callback(const unsigned char *data,
     }
   }
   else if(code == FN_COMMIT) {
+    begin_tx();
     PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);
     rep->code = CODE_OK;
     rep->kv_data.key     = req->k_data.key;
@@ -255,7 +260,9 @@ rpc_callbacks_t rpc_callbacks =  {
   unlock_cookie,
   mark_done,
   gc,
-  nvheap_setup
+  nvheap_setup,
+  commit_tx,
+  abort_tx
 };
 
 int main(int argc, char *argv[])

@@ -57,6 +57,7 @@ void* leader_callback(const unsigned char *data,
 		      rpc_cookie_t *rpc_cookie)
 {
   rbtree_tx_t * tx = (rbtree_tx_t *)data;
+  begin_tx();
   *follower_data = (unsigned char *)malloc(sizeof(int));
   *follower_data_size = sizeof(int);
   rpc_cookie->ret_value = (int *)malloc(sizeof(int));
@@ -115,6 +116,7 @@ void* follower_callback(const unsigned char *data,
 			int follower_data_size, 
 			rpc_cookie_t *rpc_cookie)
 {
+  begin_tx();
   rpc_cookie->ret_value = malloc(sizeof(int));
   rpc_cookie->ret_size  = sizeof(int);
   *(int *)rpc_cookie->ret_value = *(int *)follower_data;
@@ -144,7 +146,9 @@ rpc_callbacks_t rpc_callbacks =  {
   unlock_cookie,
   mark_done,
   gc,
-  nvheap_setup
+  nvheap_setup,
+  commit_tx,
+  abort_tx
 };
 
 int main(int argc, char *argv[])

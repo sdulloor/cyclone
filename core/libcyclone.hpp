@@ -56,6 +56,9 @@ typedef void (*rpc_commit_cookie_callback_t)(rpc_cookie_t *cookie);
 //NVheap setup return heap root -- passes in recovered heap root
 typedef TOID(char) (*rpc_nvheap_setup_callback_t)(TOID(char) recovered,
 						  PMEMobjpool *state);
+// TX control functions
+typedef void (*rpc_tx_commit_callback_t)(void *handle);
+typedef void (*rpc_tx_abort_callback_t)(void *handle);
 
 // Callback hell !
 typedef struct rpc_callbacks_st {
@@ -68,6 +71,8 @@ typedef struct rpc_callbacks_st {
   rpc_commit_cookie_callback_t cookie_commit_callback;
   rpc_gc_callback_t gc_callback;
   rpc_nvheap_setup_callback_t nvheap_setup_callback;
+  rpc_tx_commit_callback_t tx_commit;
+  rpc_tx_abort_callback_t tx_abort;
 } rpc_callbacks_t;
 
 // Start the dispatcher loop -- note: does not return

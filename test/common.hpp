@@ -31,6 +31,9 @@ static void unlock(volatile unsigned long *lockp)
   __sync_synchronize();
 }
 
+extern void begin_tx();
+extern void commit_tx(void *);
+extern void abort_tx(void *);
 extern void init_cookie_system(PMEMobjpool *pool, cookies_t *root);
 extern void get_cookie(rpc_cookie_t *cookie);
 extern void get_lock_cookie(rpc_cookie_t *cookie);
