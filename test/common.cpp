@@ -17,7 +17,10 @@ void begin_tx()
 
 void commit_tx(void *handle)
 {
-  pmemobj_tx_commit();
+  // In case the user tx has aborted we skip the commit
+  if(pmemobj_tx_stage() == TX_STAGE_WORK) {
+    pmemobj_tx_commit();
+  }
   pmemobj_tx_end();
 }
 
