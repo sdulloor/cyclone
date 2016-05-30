@@ -1,15 +1,19 @@
 #!/bin/bash
-if [ $# -ne 3 ]
-    then echo "Usage $0 output_dir deploy_dir group"
+if [ $# -ne 2 ]
+    then echo "Usage $0 config_dir deploy_dir"
     exit
 fi
 output_dir=$1
 deploy_dir=$2
-GROUP=$3
-clush -w ${GROUP} 'rm -rf /dev/shm/*.cyclone*'
-clush -w ${GROUP} cp ${deploy_dir}/cyclone.git/test/counter_server ${deploy_dir}
-clush -w ${GROUP} cp ${deploy_dir}/cyclone.git/test/counter_coordinator ${deploy_dir}
-clush -w ${GROUP} ./exec_servers.sh
-echo "Deployed servers sleeping 5 sec ..."
-sleep 5
-clush -w ${GROUP} ./exec_coord.sh
+for i in ${output_dir}/* 
+do
+    if [ -d "$i" ] ; then
+	if [ -f "$i/launch_servers" ] ; then
+	    node=$(basename $i)
+	    ip=`cat ${i}/ip_address`
+	    echo "deploying service on node $node"
+	    clush -w ${ip} 'rm -rf /dev/shm/*.cyclone*'
+	    clush -w ${ip} ${deploy_dir}/${node}/exec_servers.sh
+	fi
+    fi
+done
