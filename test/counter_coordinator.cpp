@@ -165,34 +165,35 @@ rpc_callbacks_t rpc_callbacks =  {
 
 int main(int argc, char *argv[])
 {
-  if(argc != 10) {
-    printf("Usage: %s coord_id coord_replicas clients partitions replicas coord_config coord_client_config server_config_prefix client_config_prefix\n", argv[0]);
+  if(argc != 8) {
+    printf("Usage: %s coord_id mc clients partitions replicas server_config_prefix client_config_prefix\n", argv[0]);
     exit(-1);
   }
   int partitions = atoi(argv[4]);
   quorums = partitions;
   int replicas   = atoi(argv[5]);
   int coord_id   = atoi(argv[1]);
-  int coord_replicas = atoi(argv[2]);
   quorum_handles = new void *[partitions];
   ctr = new int[partitions];
   char fname_server[50];
   char fname_client[50];
   clients  = atoi(argv[3]);
   for(int i=0;i<partitions;i++) {
-    sprintf(fname_server, "%s%d.ini", argv[8], i);
-    sprintf(fname_client, "%s%d.ini", argv[9], i);
+    sprintf(fname_server, "%s%d.ini", argv[6], i);
+    sprintf(fname_client, "%s%d.ini", argv[7], i);
     quorum_handles[i] = cyclone_client_init(clients - 1,
-					    coord_id,
+					    atoi(argv[2]),
 					    replicas,
 					    fname_server,
 					    fname_client);
     ctr[i] = get_last_txid(quorum_handles[i]) + 1;
   }
-  dispatcher_start(argv[6], 
-		   argv[7], 
+  sprintf(fname_server, "%s%d.ini", argv[6], partitions);
+  sprintf(fname_client, "%s%d.ini", argv[7], partitions);
+  dispatcher_start(fname_server, 
+		   fname_client, 
 		   &rpc_callbacks,
 		   coord_id,
-		   coord_replicas, 
+		   replicas, 
 		   clients);
 }
