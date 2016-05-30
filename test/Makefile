@@ -5,7 +5,7 @@ counter_coordinator_driver
 CXXFLAGS = -O3 -DBOOST_LOG_DYN_LINK
 #CXXFLAGS = -O1 -g -fno-omit-frame-pointer -DBOOST_LOG_DYN_LINK
 
-LIBS = -lc -lcyclone -lboost_system -lboost_date_time -lpmemobj -lpthread
+LIBS = -lc -lcyclone -lboost_system -lboost_date_time -lpmemobj -lpmem -lpthread
 
 BOOST_THREAD_LIB=-lboost_thread-mt
 #BOOST_THREAD_LIB=-lboost_thread
