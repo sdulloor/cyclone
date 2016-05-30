@@ -40,7 +40,7 @@
 #include "../core/clock.hpp"
 #include<stdio.h>
 extern "C" {
-#include "../nvml.git/src/examples/libpmemobj/tree_map/rbtree_map.h"
+#include "../nvml/src/examples/libpmemobj/tree_map/rbtree_map.h"
 }
 #include "counter.hpp"
 #include "common.hpp"
