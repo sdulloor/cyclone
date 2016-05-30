@@ -94,7 +94,7 @@ for i in range(machines):
         f=open(dname + '/' + 'launch_preload', 'a')
         launch_cmds_preload_gen(f, i, c, quorums, replicas, clients, machines)
         f.close()
-        f=open(dname + '/' + 'launch_client', 'a')
+        f=open(dname + '/' + 'launch_clients', 'a')
         launch_cmds_client_gen(f, i, c, quorums, replicas, clients, machines)
         f.close()
     
