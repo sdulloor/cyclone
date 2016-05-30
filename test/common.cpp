@@ -46,8 +46,8 @@ void mark_done(rpc_cookie_t *cookie)
   lock(&cookies_lock);
   volatile int *c_raft_idx_p  = &cookies_root->applied_raft_idx;
   volatile int *c_raft_term_p = &cookies_root->applied_raft_term;
-  pmemobj_tx_add_range_direct((const void *)c_raft_idx_p, sizeof(int));
-  pmemobj_tx_add_range_direct((const void *)c_raft_term_p, sizeof(int));
+  pmemobj_tx_add_range_direct((void *)c_raft_idx_p, sizeof(int));
+  pmemobj_tx_add_range_direct((void *)c_raft_term_p, sizeof(int));
   *c_raft_idx_p  = cookie->raft_idx;
   *c_raft_term_p = cookie->raft_term;
   struct client_state_st *cstate = &cookies_root->client_state[cookie->client_id];
