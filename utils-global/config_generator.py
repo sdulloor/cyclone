@@ -105,7 +105,7 @@ for i in range(machines):
 # Generate server configs and launch cmds
 for q in range(0, quorums):
     qstring='quorum' + str(q)
-    config_name=output + '/' + 'config' + str(q) + '.ini'
+    config_name=output + '/' + 'config_server' + str(q) + '.ini'
     f=open(config_name, 'w')
     f.write('[storage]\n')
     f.write('raftpath=' + raftpath + '\n')
@@ -142,14 +142,14 @@ for q in range(0, quorums):
         else:
             f=open(dname + '/' + 'launch_inactive_servers','a')
         shutil.copy(config_name,  dname + '/config_server.ini')
-        launch_cmds_server_gen(f, q, r, quorums, replicas, clients)
+        launch_cmds_server_gen(f, q, r, mc, quorums, replicas, clients)
         f.close()
 
 #Copy per-quorum server and client configs to all directories
 for i in range(machines):
     dname=output + '/cyclone_' + str(i)
     for q in range(0, quorums):
-        shutil.copy(output + '/config' + str(q) + '.ini', dname)
+        shutil.copy(output + '/config_server' + str(q) + '.ini', dname)
         shutil.copy(dname + '/config_client.ini', dname + '/config_client' + str(q) + '.ini')
 
 sys.exit()
