@@ -30,3 +30,7 @@ def launch_cmds_client_gen(f, m, c, quorums, replicas, clients, machines):
         cmd=cmd + 'config config_client &> client_log' + str(c) + '&\n'
         f.write(cmd)
         
+def killall_cmds_gen(f):
+    f.write('killall -9 counter_server\n')
+    f.write('killall -9 counter_loader\n')
+    f.write('killall -9 counter_driver\n')

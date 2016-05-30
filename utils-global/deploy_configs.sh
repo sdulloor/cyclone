@@ -26,14 +26,17 @@ do
 	cp exec_servers.sh exec_inactive_servers.sh
 	cp exec_servers.sh exec_preload.sh
 	cp exec_servers.sh exec_clients.sh
+	cp exec_servers.sh killall.sh
 	echo "source launch_servers" >> exec_servers.sh
 	echo "source launch_inactive_servers" >> exec_inactive_servers.sh
 	echo "source launch_preload" >> exec_preload.sh
 	echo "source launch_clients" >> exec_clients.sh
+	echo "source kill_all" >> killall.sh
 	chmod u+x exec_servers.sh
 	chmod u+x exec_inactive_servers.sh
 	chmod u+x exec_preload.sh
 	chmod u+x exec_clients.sh
+	chmod u+x killall.sh
 	scp ${i}/* ${ip}:${deploy_dir}/${node}
 	if [ -f "$i/launch_servers" ] ; then
 	    scp exec_servers.sh ${ip}:${deploy_dir}/${node}
@@ -41,6 +44,7 @@ do
 	fi
 	scp exec_preload.sh ${ip}:${deploy_dir}/${node}
 	scp exec_clients.sh ${ip}:${deploy_dir}/${node}
+	scp killall.sh ${ip}:${deploy_dir}/${node}
     fi
 done
 
