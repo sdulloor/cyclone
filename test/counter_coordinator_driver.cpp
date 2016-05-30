@@ -46,21 +46,21 @@
 
 
 int main(int argc, const char *argv[]) {
-  if(argc != 10) {
-    printf("Usage: %s client_id co_replicas clients sleep_usecs config_coord_server config_coord_client partitions server_config_prefix client_config_prefix\n", argv[0]);
+  if(argc != 8) {
+    printf("Usage: %s client_id replicas clients sleep_usecs partitions server_config_prefix client_config_prefix\n", argv[0]);
     exit(-1);
   }
   int me = atoi(argv[1]);
   int replicas = atoi(argv[2]);
   int clients  = atoi(argv[3]);
   unsigned long sleep_time = atol(argv[4]);
-  int partitions = atoi(argv[7]);
+  int partitions = atoi(argv[5]);
   void **handles = new void *[partitions];
   char fname_server[50];
   char fname_client[50];
   for(int i=0;i<partitions;i++) {
-    sprintf(fname_server, "%s%d.ini", argv[8], i);
-    sprintf(fname_client, "%s%d.ini", argv[9], i);
+    sprintf(fname_server, "%s%d.ini", argv[6], i);
+    sprintf(fname_client, "%s%d.ini", argv[7], i);
     boost::property_tree::ptree pt_client;
     boost::property_tree::read_ini(fname_client, pt_client);
     handles[i] = cyclone_client_init(me,
@@ -69,14 +69,16 @@ int main(int argc, const char *argv[]) {
 				     fname_server,
 				     fname_client);
   }
+  sprintf(fname_server, "%s%d.ini", argv[6], partitions);
+  sprintf(fname_client, "%s%d.ini", argv[7], partitions);
   boost::property_tree::ptree pt_co_client;
   boost::property_tree::read_ini(fname_client, pt_co_client);
   void * coord_handle =
     cyclone_client_init(me,
 			me % pt_co_client.get<int>("machines.machines"),
 			replicas,
-			argv[5],
-			argv[6]);
+			fname_server,
+			fname_client);
 					    
   int ctr[partitions];
   int ctr_coord;
