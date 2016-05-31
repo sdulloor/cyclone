@@ -41,15 +41,11 @@ config=ConfigParser.RawConfigParser()
 config.read(input)
 quorums=config.getint('meta', 'quorums')
 replicas=config.getint('meta','replicas')
-co_replicas=config.getint('meta','co_replicas')
 clients=config.getint('meta','clients')
 raftpath=config.get('meta','raftpath') + ".cyclone"
 filepath=config.get('meta','filepath') + ".cyclone"
-coord_raftpath=config.get('meta','coord_raftpath') + ".cyclone"
-coord_filepath=config.get('meta','coord_filepath') + ".cyclone"
 logsize=config.getint('meta','logsize')
 heapsize=config.getint('meta','heapsize')
-coord_heapsize=config.getint('meta','coord_heapsize')
 
 #read inactive list
 inactive_list    = {}
@@ -151,142 +147,4 @@ for i in range(machines):
     for q in range(0, quorums):
         shutil.copy(output + '/config_server' + str(q) + '.ini', dname)
         shutil.copy(dname + '/config_client.ini', dname + '/config_client' + str(q) + '.ini')
-
-sys.exit()
-        
-# Generate coordinator config
-config_name=output + '/' + 'config_coord.ini'
-f=open(config_name, 'w')
-f.write('[storage]\n')
-f.write('raftpath=' + coord_raftpath + '\n')
-f.write('logsize=' + str(logsize) + '\n')
-f.write('[quorum]\n')
-f.write('baseport=' + str(compute_raft_baseport(quorums)) + '\n')
-f.write('[machines]\n')
-f.write('machines='+str(co_replicas)+'\n')
-for mc in range(0, co_replicas):
-    qstring='coord'
-    mc_id=config.getint(qstring, 'mc' + str(mc))
-    f.write('addr'+ str(mc) + '=' + mc_config.get('machines', 'addr' + str(mc_id)) + '\n')
-    f.write('iface'+ str(mc) + '=' + mc_config.get('machines', 'iface' + str(mc_id)) + '\n')
-f.write('[active]\n')
-f.write('replicas=' + str(co_replicas)+'\n')
-for mc in range(0, co_replicas):
-    f.write('entry'+ str(mc) +'=' + str(mc) +'\n')
-f.write('[dispatch]\n')
-f.write('server_baseport='+ str(compute_server_baseport(quorums)) + '\n')
-f.write('filepath=' + str(coord_filepath) + '\n')
-f.write('heapsize=' + str(coord_heapsize) + '\n')
-f.close()
-for r in range(0, co_replicas):
-    qstring='coord'
-    rstring='mc' + str(r)
-    m=mc_config.get('machines','addr' + config.get(qstring, rstring))
-    dname=output + '/' + mc_directory(q, r)
-    cond_abs_dir(dname)
-    cond_abs_rm(output + '/' + 'launch_coord.sh')
-    shutil.copy(config_name,  dname + '/' + 'config_coord.ini')
-    f = open(dname + '/ip_address')
-    f.write(m)
-    f.close()
-cond_abs_rm(config_name)
-
-# Generate server launch cmd
-for q in range(0, quorums):
-    for r in range(0, replicas):
-        qstring='quorum' + str(q)
-        rstring='mc' + str(r)
-        mc_id = config.get(qstring, rstring)
-        m=mc_config.get('machines','addr' + str(mc_id))
-        dname=output + '/' + mc_directory(q, r)
-        cmd='./counter_server '
-        cmd=cmd + str(r) + ' '
-        cmd=cmd + str(replicas) + ' '
-        cmd=cmd + str(clients) + ' '
-        cmd=cmd + 'config_server.ini config_client.ini &> server_log &\n'
-        f.write(cmd)
-        f.close()
-
-# Generate coord launch cmd
-for r in range(0, co_replicas):
-    qstring='coord'
-    rstring='mc' + str(r)
-    m=mc_config.get('machines','addr' + config.get(qstring, rstring))
-    dname=output + '/' + mc_directory()
-    f=open(dname + '/' + 'launch_coord','w')
-    cmd='./counter_coordinator '
-    cmd=cmd + str(r) + ' '
-    cmd=cmd + str(co_replicas) + ' '
-    cmd=cmd + str(clients) + ' '
-    cmd=cmd + str(quorums) + ' '
-    cmd=cmd + str(replicas) + ' '
-    cmd=cmd + 'config_coord.ini config_coord_client.ini config config_client &> coord_log &\n'
-    f.write(cmd)
-    f.close()
-
-
-#Copy client configs
-for q in range(0, quorums):
-    for r in range(0, replicas):
-        qstring='quorum' + str(q)
-        rstring='mc' + str(r)
-        m=mc_config.get('machines','addr' + config.get(qstring, rstring))
-        dname=output + '/' + m
-        shutil.copy(output + '/config_client' + str(q) + '.ini', dname + '/config_client.ini')
-
-#Generate coord client configs
-f=open(output + '/' + 'config_coord_client.ini', 'w')
-f.write('[machines]\n')
-f.write('machines=' + str(machines) + '\n')
-for i in range(0, machines):
-    addr=mc_config.get('machines','addr' + str(i))
-    iface=mc_config.get('machines','iface' + str(i))
-    f.write('addr' + str(i) + '=' + addr + '\n')
-    f.write('iface' + str(i) + '=' + iface + '\n')
-f.write('[dispatch]\n')
-f.write('server_baseport=' + str(compute_server_baseport(quorums)) + '\n')
-f.close()
-
-
-# Generate tx client launch cmd
-for m in range(0, machines):
-    addr=mc_config.get('machines','addr' + str(m))
-    dname=output + '/' + addr
-    cond_abs_dir(dname)
-    f_tx_client=open(dname + '/' + 'launch_tx_client','w')
-    f_preload=open(dname + '/' + 'launch_preload','w')
-    f_driver=open(dname + '/' + 'launch_client','w')
-    for c in range(0, clients - 1):
-        mc=c%machines
-        if mc==m:
-            cmd='./counter_coordinator_driver '
-            cmd=cmd + str(c) + ' '
-            cmd=cmd + str(co_replicas) + ' '
-            cmd=cmd + str(clients) + ' 0 '
-            cmd=cmd + 'config_coord.ini '
-            cmd=cmd + 'config_coord_client.ini '
-            cmd=cmd + str(quorums) + ' '
-            cmd=cmd + 'config config_client &> client_tx_log' + str(c) + '&\n'
-            f_tx_client.write(cmd)
-            cmd='./counter_loader '
-            cmd=cmd + str(c) + ' '
-            cmd=cmd + str(co_replicas) + ' '
-            cmd=cmd + str(clients - 1) + ' 0 '
-            cmd=cmd + str(quorums) + ' '
-            cmd=cmd + 'config config_client &> client_log' + str(c) + '\n'
-            f_preload.write(cmd)
-            cmd='./counter_driver '
-            cmd=cmd + str(c) + ' '
-            cmd=cmd + str(co_replicas) + ' '
-            cmd=cmd + str(clients - 1) + ' 0 '
-            cmd=cmd + str(quorums) + ' '
-            cmd=cmd + 'config config_client &> client_log' + str(c) + '&\n'
-            f_driver.write(cmd)
-    f_tx_client.close()
-    f_preload.close()
-    f_driver.close()
-
-
-
-
 
