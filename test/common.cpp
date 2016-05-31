@@ -15,32 +15,8 @@ void begin_tx()
   }
 }
 
-void commit_tx(void *handle)
-{
-  // Idempotent state changes
-  if(pmemobj_tx_stage() == TX_STAGE_WORK) {
-    pmemobj_tx_commit();
-  }
-  pmemobj_tx_end();
-}
-
-void abort_tx(void *handle)
-{
-  // Idempotent state changes
-  if(pmemobj_tx_stage() == TX_STAGE_WORK) {
-    pmemobj_tx_abort(0);
-  }
-  pmemobj_tx_end();
-}
-
-void init_cookie_system(PMEMobjpool *pool, cookies_t *root)
-{
-  cookies_pool = pool;
-  cookies_root = root;
-}
-
 // This function must be executed in the context of a tx
-void mark_done(rpc_cookie_t *cookie)
+static void mark_done(rpc_cookie_t *cookie)
 {
   int client_id = cookie->client_id;
   lock(&cookies_lock);
@@ -74,6 +50,30 @@ void mark_done(rpc_cookie_t *cookie)
   unlock(&cookies_lock);
 }
 
+void commit_tx(void *handle, rpc_cookie_t *cookie)
+{
+  // Idempotent state changes
+  if(pmemobj_tx_stage() == TX_STAGE_WORK) {
+    mark_done(cookie);
+    pmemobj_tx_commit();
+  }
+  pmemobj_tx_end();
+}
+
+void abort_tx(void *handle)
+{
+  // Idempotent state changes
+  if(pmemobj_tx_stage() == TX_STAGE_WORK) {
+    pmemobj_tx_abort(0);
+  }
+  pmemobj_tx_end();
+}
+
+void init_cookie_system(PMEMobjpool *pool, cookies_t *root)
+{
+  cookies_pool = pool;
+  cookies_root = root;
+}
 
 void get_cookie(rpc_cookie_t *cookie)
 {

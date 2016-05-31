@@ -258,7 +258,6 @@ rpc_callbacks_t rpc_callbacks =  {
   get_cookie,
   get_lock_cookie,
   unlock_cookie,
-  mark_done,
   gc,
   nvheap_setup,
   commit_tx,

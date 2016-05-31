@@ -21,13 +21,6 @@ static void unlock(volatile unsigned long *lockp)
   __sync_synchronize();
 }
 
-void commit_tx(void *handle)
-{
-  Transaction *tx = (Transaction *)handle;
-  tx->commit();
-  delete tx;
-}
-
 void abort_tx(void *handle)
 {
   Transaction *tx = (Transaction *)handle;
@@ -47,6 +40,13 @@ void mark_done(rpc_cookie_t *cookie)
   unlock(&cookies_lock);
 }
 
+void commit_tx(void *handle, rpc_cookie_t *cookie)
+{
+  Transaction *tx = (Transaction *)handle;
+  mark_done(cookie);
+  tx->commit();
+  delete tx;
+}
 
 void get_cookie(rpc_cookie_t *cookie)
 {
@@ -145,7 +145,6 @@ rpc_callbacks_t rpc_callbacks =  {
   get_cookie,
   get_lock_cookie,
   unlock_cookie,
-  mark_done,
   gc,
   nvheap_setup,
   commit_tx,

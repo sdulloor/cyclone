@@ -287,8 +287,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	}
       }
       if(!repeat) {
-	app_callbacks.cookie_commit_callback(&rpc_cookie);
-	app_callbacks.tx_commit(tx_handle);
+	app_callbacks.tx_commit(tx_handle, &rpc_cookie);
       }
       else {
 	if(rpc->sz > 0) {
@@ -326,8 +325,7 @@ void exec_rpc_internal(rpc_info_t *rpc)
   }
   while(!rpc->rep_success && !rpc->rep_failed);
   if(rpc->rep_success) {
-    app_callbacks.cookie_commit_callback(&rpc_cookie);
-    app_callbacks.tx_commit(tx_handle);
+    app_callbacks.tx_commit(tx_handle, &rpc_cookie);
   }
   else {
     app_callbacks.tx_abort(tx_handle);
