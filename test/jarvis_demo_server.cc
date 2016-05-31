@@ -4,6 +4,9 @@
 
 static volatile unsigned long cookies_lock = 0;
 Graph *db;
+int commit_raft_idx;
+int commit_raft_term;
+int *commit_txids;
 
 static void lock(volatile unsigned long *lockp)
 {
@@ -27,16 +30,20 @@ void abort_tx(void *handle)
   delete tx; // JL is redo-log based
 }
 
+
 // This function must be executed in the context of a tx
 void mark_done(rpc_cookie_t *cookie)
 {
-  lock(&cookies_lock);
   Node &client_state = get_node(*db, GRAPH_NODES + cookie->client_id);
   Node &global_state = get_node(*db, GRAPH_NODES + MAX_CLIENTS);
   client_state.set_property("last_return", 1);
   client_state.set_property("committed_txid", cookie->client_txid);
   global_state.set_property("raft_idx", cookie->raft_idx);
   global_state.set_property("raft_term", cookie->raft_term);
+  lock(&cookies_lock);
+  commit_raft_idx  = cookie->raft_idx;
+  commit_raft_term = cookie->raft_term;
+  commit_txids[cookie->client_id] = cookie->client_txid;
   unlock(&cookies_lock);
 }
 
@@ -51,11 +58,8 @@ void commit_tx(void *handle, rpc_cookie_t *cookie)
 void get_cookie(rpc_cookie_t *cookie)
 {
   lock(&cookies_lock);
-  Transaction tx(*db, Transaction::ReadOnly);
-  Node &global_state = get_node(*db, GRAPH_NODES + MAX_CLIENTS);
-  cookie->raft_idx  =  global_state.get_property("raft_idx").int_value();
-  cookie->raft_term =  global_state.get_property("raft_term").int_value();
-  tx.commit();
+  cookie->raft_idx  =  commit_raft_idx;
+  cookie->raft_term =  commit_raft_term;
   unlock(&cookies_lock);
 }
 
@@ -64,15 +68,11 @@ int dummy = 1;
 void get_lock_cookie(rpc_cookie_t *cookie)
 {
   lock(&cookies_lock);
-  Transaction tx(*db, Transaction::ReadOnly);
-  Node &global_state = get_node(*db, GRAPH_NODES + MAX_CLIENTS);
-  cookie->raft_idx  =  global_state.get_property("raft_idx").int_value();
-  cookie->raft_term =  global_state.get_property("raft_term").int_value();
-  Node &client_state = get_node(*db, GRAPH_NODES + cookie->client_id);
-  cookie->client_txid = client_state.get_property("committed_txid").int_value();
+  cookie->raft_idx  =  commit_raft_idx;
+  cookie->raft_term =  commit_raft_term;
+  cookie->client_txid = commit_txids[cookie->client_id];
   cookie->ret_value = &dummy;
   cookie->ret_size  = sizeof(int);
-  tx.commit();
 }
 
 void unlock_cookie()
@@ -135,6 +135,18 @@ TOID(char) nvheap_setup(TOID(char) recovered,
   TOID_ASSIGN(store, OID_NULL);
   const char *db_name = "jarvis_demo_graph";
   db = new Graph(db_name);
+  commit_txids = (int *)malloc(MAX_CLIENTS*sizeof(int));
+  Transaction tx(*db, Transaction::ReadOnly);
+  Node &global_state = get_node(*db, GRAPH_NODES + MAX_CLIENTS);
+  commit_raft_idx  =  global_state.get_property("raft_idx").int_value();
+  commit_raft_term =  global_state.get_property("raft_term").int_value();
+  tx.commit();
+  for(int i=0;i<MAX_CLIENTS;i++) {
+    Transaction tx(*db, Transaction::ReadOnly);
+    Node &client_state = get_node(*db, GRAPH_NODES + i);
+    commit_txids[i] = client_state.get_property("committed_txid").int_value();
+    tx.commit();
+  }
   return store;
 }
 
