@@ -39,11 +39,11 @@
 #include <assert.h>
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
-#include "counter.hpp"
 #include "../core/clock.hpp"
 #include "../core/logging.hpp"
 #include <libcyclone.hpp>
-#include "jarvis.h"
+#include <jarvis.h>
+#include "jarvis_demo.h"
 
 int main(int argc, const char *argv[]) {
   if(argc != 7) {
@@ -52,8 +52,6 @@ int main(int argc, const char *argv[]) {
   }
   int me = atoi(argv[1]);
   int replicas = atoi(argv[2]);
-  int clients  = atoi(argv[3]);
-  unsigned long sleep_time = atol(argv[4]);
   char fname_server[50];
   char fname_client[50];
   sprintf(fname_server, "%s%d.ini", argv[5], 0);
@@ -72,7 +70,7 @@ int main(int argc, const char *argv[]) {
   BOOST_LOG_TRIVIAL(info) << "Done";
  
   unsigned long tx_block_cnt   = 0;
-  unsigned long tx_block_begin = rtc_clock::current_time();
+  unsigned long tx_begin_time = rtc_clock::current_time();
   unsigned long total_latency  = 0;
   while(true) {
     void *resp;

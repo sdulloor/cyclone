@@ -8,6 +8,7 @@ using namespace Jarvis;
 const int GRAPH_NODES = 100;
 static const char ID_STR[] = "JARVIS_DEMO";
 
+static Node &get_node(Graph &db, long long id) __attribute__((unused));
 static Node &get_node(Graph &db, long long id)
 {
     NodeIterator nodes = db.get_nodes(0,

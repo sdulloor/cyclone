@@ -39,3 +39,7 @@ jarvis_demo_client:jarvis_demo_client.o
 
 
 .PHONY: all
+
+clean:
+	rm -f jarvis_demo_server jarvis_demo_server.o jarvis_demo_client\
+ jarvis_demo_client.o jarvis_demo_setup jarvis_demo_setup.o
