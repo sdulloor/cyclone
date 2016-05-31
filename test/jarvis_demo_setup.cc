@@ -9,7 +9,7 @@ int main(int argc, char **argv)
 {
   // Create a fully connected graph
   const char *db_name = "jarvis_demo_graph";
-  db = new Graph(db_name);
+  db = new Graph(db_name, Graph::Create);
   Transaction tx(*db, Transaction::ReadWrite);
   db->create_index(Graph::NodeIndex, 0, ID_STR, PropertyType::Integer);
   tx.commit();
