@@ -4,7 +4,7 @@ echo "running in $ROOT"
 export RBT_KEYS=1000
 export RBT_FRAC_READ=0.5  
 MAX_CLIENTS=200
-MAX_RUN_CLIENTS=1
+MAX_RUN_CLIENTS=100
 now=$(date +"%T-%m_%d_%Y")
 configs_dir=test_output
 deploy_dir=/root
@@ -15,6 +15,10 @@ rm -rf ${ROOT}/progress
 
 mkdir ${now}
 cd ${now}
+
+log_msg() {
+    echo "$(date): $1" >> ${ROOT}/progress
+}
 
 copy_logs () {
     target=$1
@@ -49,18 +53,18 @@ mkconfig () {
 }
 
 preload () {    
-    echo "Preloading $q" >> ${ROOT}/progress
+    log_msg "Preloading $q"
     ${ROOT}/../cyclone.git/utils-global/deploy_services.sh ${configs_dir} ${deploy_dir}
     ${ROOT}/../cyclone.git/utils-global/deploy_preload.sh ${configs_dir} ${deploy_dir}
-    echo "Completed preload" >> ${ROOT}/progress
+    log_msg "Completed preload"
 }
 
 runtest () {
     ${ROOT}/../cyclone.git/utils-global/deploy_clients.sh ${configs_dir} ${deploy_dir}
-    echo "Running test .. sleeping 2 mins." >> ${ROOT}/progress
+    log_msg "Running test .. sleeping 2 mins."
     sleep 120
     shutdown
-    echo "Completed test" >> ${ROOT}/progress
+    log_msg "Completed test"
     mkdir logs
     copy_logs "${logs_dir}"
 }
@@ -72,11 +76,11 @@ do
     quorums_plus_one=$(($q + 1)) # co-ord takes last quorum
     mkdir q_$q
     cd q_$q
-    for c in `seq 1 1 $MAX_RUN_CLIENTS` 
+    for c in `seq 1 10 $MAX_RUN_CLIENTS` 
     do
 	mkdir c_$c
 	cd c_$c
-	echo "q=$q c=$c" >> ${ROOT}/progress
+	log_msg "q=$q c=$c"
 	echo '[meta]' > ${ROOT}/example.ini
 	echo "quorums=$quorums_plus_one" >> ${ROOT}/example.ini
 	clients_plus_one=$(($c + 1)) # co-ord takes last client
