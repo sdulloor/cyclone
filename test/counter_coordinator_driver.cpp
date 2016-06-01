@@ -47,13 +47,13 @@
 
 int main(int argc, const char *argv[]) {
   if(argc != 8) {
-    printf("Usage: %s client_id replicas clients sleep_usecs partitions server_config_prefix client_config_prefix\n", argv[0]);
+    printf("Usage: %s client_id mc replicas clients partitions server_config_prefix client_config_prefix\n", argv[0]);
     exit(-1);
   }
   int me = atoi(argv[1]);
-  int replicas = atoi(argv[2]);
-  int clients  = atoi(argv[3]);
-  unsigned long sleep_time = atol(argv[4]);
+  int mc = atoi(argv[2]);
+  int replicas = atoi(argv[3]);
+  int clients  = atoi(argv[4]);
   int partitions = atoi(argv[5]);
   void **handles = new void *[partitions];
   char fname_server[50];
@@ -61,10 +61,8 @@ int main(int argc, const char *argv[]) {
   for(int i=0;i<partitions;i++) {
     sprintf(fname_server, "%s%d.ini", argv[6], i);
     sprintf(fname_client, "%s%d.ini", argv[7], i);
-    boost::property_tree::ptree pt_client;
-    boost::property_tree::read_ini(fname_client, pt_client);
     handles[i] = cyclone_client_init(me,
-				     me % pt_client.get<int>("machines.machines"),
+				     mc,
 				     replicas,
 				     fname_server,
 				     fname_client);

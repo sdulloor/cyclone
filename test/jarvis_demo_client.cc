@@ -47,19 +47,18 @@
 
 int main(int argc, const char *argv[]) {
   if(argc != 7) {
-    printf("Usage: %s client_id replicas clients sleep_usecs server_config_prefix client_config_prefix\n", argv[0]);
+    printf("Usage: %s client_id mc replicas clients server_config_prefix client_config_prefix\n", argv[0]);
     exit(-1);
   }
   int me = atoi(argv[1]);
-  int replicas = atoi(argv[2]);
+  int mc = atoi(argv[2]);
+  int replicas = atoi(argv[3]);
   char fname_server[50];
   char fname_client[50];
   sprintf(fname_server, "%s%d.ini", argv[5], 0);
   sprintf(fname_client, "%s%d.ini", argv[6], 0);
-  boost::property_tree::ptree pt_client;
-  boost::property_tree::read_ini(fname_client, pt_client);
   void *handle = cyclone_client_init(me,
-				     me % pt_client.get<int>("machines.machines"),
+				     mc,
 				     replicas,
 				     fname_server,
 				     fname_client);

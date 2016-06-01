@@ -19,8 +19,9 @@ def launch_cmds_client_gen(f, m, c, quorums, replicas, clients, machines):
     if c % machines == m and c != (clients - 1):
         cmd='jarvis_demo_client '
         cmd=cmd + str(c) + ' '
+        cmd=cmd + str(m) + ' '
         cmd=cmd + str(replicas) + ' '
-        cmd=cmd + str(clients) + ' 0 '
+        cmd=cmd + str(clients) + ' '
         cmd=cmd + 'config_server config_client &> client_log' + str(c) + '&\n'
         f.write(cmd)
         

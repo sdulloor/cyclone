@@ -26,8 +26,9 @@ def launch_cmds_preload_gen(f, m, c, quorums, replicas, clients, machines):
             cmd=cmd + 'RBT_KEYS=' + os.environ.get('RBT_KEYS') + ' '
         cmd=cmd + 'counter_loader '
         cmd=cmd + str(c) + ' '
+        cmd=cmd + str(m) + ' '
         cmd=cmd + str(replicas) + ' '
-        cmd=cmd + str(clients - 1) + ' 0 '
+        cmd=cmd + str(clients - 1) + ' '
         cmd=cmd + str(quorums - 1) + ' '
         cmd=cmd + 'config_server config_client &> client_log' + str(c) + '\n'
         f.write(cmd)
@@ -41,8 +42,9 @@ def launch_cmds_client_gen(f, m, c, quorums, replicas, clients, machines):
             cmd=cmd + 'RBT_FRAC_READ=' + os.environ.get('RBT_FRAC_READ') + ' '
         cmd=cmd + 'counter_driver '
         cmd=cmd + str(c) + ' '
+        cmd=cmd + str(m) + ' '
         cmd=cmd + str(replicas) + ' '
-        cmd=cmd + str(clients - 1) + ' 0 '
+        cmd=cmd + str(clients - 1) + ' '
         cmd=cmd + str(quorums - 1) + ' '
         cmd=cmd + 'config_server config_client &> client_log' + str(c) + '&\n'
         f.write(cmd)
