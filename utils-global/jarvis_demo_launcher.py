@@ -11,8 +11,8 @@ def launch_cmds_server_gen(f, q, r, m, quorums, replicas, clients):
     f.write(cmd)
 
 def launch_cmds_preload_gen(f, m, c, quorums, replicas, clients, machines):
-    if c == machines:
-        cmd='rm -rf jarvis_demo_graph;jarvis_demo_setup'
+    if c == m:
+        cmd='rm -rf jarvis_demo_graph;jarvis_demo_setup\n'
         f.write(cmd)
 
 def launch_cmds_client_gen(f, m, c, quorums, replicas, clients, machines):
