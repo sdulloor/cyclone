@@ -79,7 +79,7 @@ void init_sigsegv_handler(const char *fname)
     unsigned long map_begin, map_end, offset, ino;
     int major, minor;
     char p1,p2,p3,p4;
-    int t = sscanf(buffer, "%lx-%lx %c%c%c%c %llx %x:%x %lu",
+    int t = sscanf(buffer, "%lx-%lx %c%c%c%c %lx %x:%x %lu",
 		   &map_begin, &map_end, &p1, &p2, &p3, &p4, &offset, 
 		   &major, &minor, &ino);
     if(t != 10) {
