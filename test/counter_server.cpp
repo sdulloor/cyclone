@@ -44,6 +44,7 @@ extern "C" {
 }
 #include "counter.hpp"
 #include "common.hpp"
+#include<unistd.h>
 
 TOID_DECLARE(uint64_t, TOID_NUM_BASE);
 
@@ -52,6 +53,7 @@ static TOID(struct rbtree_map) the_tree;
 extern cookies_t* cookies_root;
 static PMEMobjpool *pop;
 extern PMEMobjpool *cookies_pool;
+static unsigned long sleep_time;
 
 typedef struct heap_root_st {
   TOID(struct rbtree_map) the_tree;
@@ -213,6 +215,9 @@ void* callback(const unsigned char *data,
     exit(-1);
   }
   total_latency += (rtc_clock::current_time() - tx_begin_time);
+  if(sleep_time > 0) {
+    usleep(sleep_time);
+  }
   return NULL;
 }
 
@@ -274,6 +279,13 @@ int main(int argc, char *argv[])
   server_id = atoi(argv[1]);
   int replicas = atoi(argv[2]);
   int clients  = atoi(argv[3]);
+  const char *usleep_opt = getenv("RBT_SLEEP_USEC");
+  if(usleep_opt != NULL) {
+    sleep_time = atol(usleep_opt);
+  }
+  else {
+    sleep_time = 0;
+  }
   if(argc == 4) {
     dispatcher_start("cyclone_test.ini", 
 		     "cyclone_test.ini", 

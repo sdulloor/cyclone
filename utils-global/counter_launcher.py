@@ -4,7 +4,10 @@ def launch_cmds_startup():
 
 def launch_cmds_server_gen(f, q, r, m, quorums, replicas, clients):
     if q < (quorums - 1):
-        cmd='counter_server '
+        cmd=''
+        if os.environ.has_key('RBT_SLEEP_USEC'):
+            cmd=cmd + 'RBT_SLEEP_USEC=' + os.environ.get('RBT_SLEEP_USEC') + ' '
+        cmd=cmd + 'counter_server '
         cmd=cmd + str(r) + ' '
         cmd=cmd + str(replicas) + ' '
         cmd=cmd + str(clients) + ' '
