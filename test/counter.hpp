@@ -46,6 +46,7 @@ const int FN_LOOKUP  = 2;
 const int FN_BUMP    = 3;
 const int FN_PREPARE = 4;
 const int FN_COMMIT  = 5;
+const int FN_SET_SLEEP  = 6; // Performance testing
 
 const int CODE_OK   = 0;
 const int CODE_NOK  = 1;

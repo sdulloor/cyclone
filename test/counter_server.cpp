@@ -44,6 +44,7 @@ extern "C" {
 }
 #include "counter.hpp"
 #include "common.hpp"
+#include <time.h>
 #include<unistd.h>
 
 TOID_DECLARE(uint64_t, TOID_NUM_BASE);
@@ -103,7 +104,13 @@ void* callback(const unsigned char *data,
   cookie->ret_size   = sizeof(struct proposal);
   struct proposal *rep  = (struct proposal *)cookie->ret_value;
   memcpy(&rep->cookie, &req->cookie, sizeof(cookie_t));
-  if(code == FN_INSERT) {
+  if(code == FN_SET_SLEEP) {
+    begin_tx();
+    sleep_time = req->k_data.key;
+    BOOST_LOG_TRIVIAL(info) << "USLEEP_SET " << sleep_time;
+    rep->code = CODE_OK;
+  }
+  else if(code == FN_INSERT) {
     begin_tx();
     PMEMoid item = rbtree_map_get(pop, the_tree, req->kv_data.key);
     rep->code = CODE_OK;
@@ -130,7 +137,7 @@ void* callback(const unsigned char *data,
   else if(code == FN_DELETE) {
     begin_tx();
     PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);
-    rep->kv_data.key = req->kv_data.key;
+    rep->kv_data.key = req->k_data.key;
     if(OID_IS_NULL(item)) {
 	rep->code = CODE_NOK;
     }
@@ -216,7 +223,7 @@ void* callback(const unsigned char *data,
   }
   total_latency += (rtc_clock::current_time() - tx_begin_time);
   if(sleep_time > 0) {
-    usleep(sleep_time);
+    rtc_clock::sleep_us(sleep_time);
   }
   return NULL;
 }
