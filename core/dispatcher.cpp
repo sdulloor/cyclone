@@ -335,6 +335,38 @@ void exec_rpc_internal(rpc_info_t *rpc)
   rpc->complete = true; // note: rpc will be freed after this
 }
 
+void exec_rpc_internal_seq(rpc_info_t *rpc)
+{
+  while(building_image);
+  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+  rpc_cookie_t rpc_cookie;
+  void *tx_handle;
+  init_rpc_cookie_info(&rpc_cookie, rpc);
+  while(!rpc->rep_success && !rpc->rep_failed);
+  if(rpc->rpc->code == RPC_REQ_NODEADD) {
+    rpc->sz= 0;
+  }
+  else if(rpc->rpc->code == RPC_REQ_NODEDEL) {
+    rpc->sz = 0;
+  }
+  else {
+    tx_handle = app_callbacks.rpc_callback((const unsigned char *)(rpc->rpc + 1),
+					   rpc->len - sizeof(rpc_t),
+					   &rpc_cookie);
+    rpc->sz = rpc_cookie.ret_size;
+    rpc->ret_value = rpc_cookie.ret_value;
+  }
+  if(rpc->rep_success) {
+    app_callbacks.tx_commit(tx_handle, &rpc_cookie);
+  }
+  else {
+    app_callbacks.tx_abort(tx_handle);
+  } 
+  client_response(rpc, (rpc_t *)tx_async_buffer, 1);
+  __sync_synchronize();
+  rpc->complete = true; // note: rpc will be freed after this
+}
+
 
 void exec_rpc_internal_ro(rpc_info_t *rpc)
 {

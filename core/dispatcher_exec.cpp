@@ -55,6 +55,9 @@ static struct executor_st {
       else if(rpc->rpc->flags & RPC_FLAG_SYNCHRONOUS) {
 	exec_rpc_internal_synchronous(rpc);
       }
+      else if(rpc->rpc->flags & RPC_FLAG_SEQ) {
+	exec_rpc_internal_seq(rpc);
+      }
       else {
 	exec_rpc_internal(rpc);
       }
