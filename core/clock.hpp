@@ -40,6 +40,11 @@ class rtc_clock {
       samples = 0;
     }
   }
+  static void sleep_us(unsigned long usecs)
+  {
+    unsigned long start = current_time();
+    while(!((current_time() - start) >=  usecs));
+  }
 };
 
 #endif
