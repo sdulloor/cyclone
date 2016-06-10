@@ -80,7 +80,7 @@ void unlock_cookie()
   unlock(&cookies_lock);
 }
 
-static rtc_clock exec_clock("LOAD_EXEC", 5000000);
+static rtc_clock exec_clock("LOAD_EXEC ", 5000000);
 
 void* callback(const unsigned char *data,
 	       const int len,
