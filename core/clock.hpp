@@ -9,6 +9,7 @@ class rtc_clock {
   unsigned long dump_interval;
   unsigned long accumulator;
   unsigned long samples;
+  unsigned long start_time;
   static unsigned long get_current_rtc()
   {
     struct timeval tm;
@@ -24,22 +25,28 @@ class rtc_clock {
   {
     accumulator = 0;
     samples = 0;
+    start_time = get_current_rtc();
   }
+
   static unsigned long current_time()
   {
     return get_current_rtc();
   }
-  void sample(unsigned long sample)
+
+  void sample_interval(unsigned long sample_start)
   {
-    accumulator += sample;
+    unsigned long mark = current_time();
+    accumulator += (mark - sample_start);
     samples++;
-    if(samples >= dump_interval) {
+    if((mark - start_time) >= dump_interval) {
       BOOST_LOG_TRIVIAL(info) << msg
 			      << ((double)accumulator/samples);
       accumulator = 0;
       samples = 0;
+      start_time = mark;
     }
   }
+
   static void sleep_us(unsigned long usecs)
   {
     unsigned long start = current_time();

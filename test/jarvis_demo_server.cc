@@ -80,7 +80,7 @@ void unlock_cookie()
   unlock(&cookies_lock);
 }
 
-static rtc_clock exec_clock("LOAD_EXEC", 50000);
+static rtc_clock exec_clock("LOAD_EXEC", 5000000);
 
 void* callback(const unsigned char *data,
 	       const int len,
@@ -99,7 +99,7 @@ void* callback(const unsigned char *data,
   src.set_property("Counter", src.get_property("Counter").int_value() + 1);
   Node &dst = get_node(*db, dst_idx);
   dst.set_property("Counter", dst.get_property("Counter").int_value() + 1);
-  exec_clock.sample(rtc_clock::current_time() - exec_begin_time);
+  exec_clock.sample_interval(exec_begin_time);
   return tx;
 }
 

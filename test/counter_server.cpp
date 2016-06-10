@@ -73,7 +73,7 @@ TOID(uint64_t) new_store_item(uint64_t val)
   return item;
 }
 
-static rtc_clock timer("EXEC_LOAD ", 50000);
+static rtc_clock timer("EXEC_LOAD ", 5000000);
 
 void* callback(const unsigned char *data,
 	       const int len,
@@ -203,7 +203,7 @@ void* callback(const unsigned char *data,
     BOOST_LOG_TRIVIAL(fatal) << "Tree: unknown fn !";
     exit(-1);
   }
-  timer.sample(rtc_clock::current_time() - exec_begin);
+  timer.sample_interval(exec_begin);
   if(sleep_time > 0) {
     rtc_clock::sleep_us(sleep_time);
   }
