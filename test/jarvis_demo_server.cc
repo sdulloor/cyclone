@@ -80,33 +80,14 @@ void unlock_cookie()
   unlock(&cookies_lock);
 }
 
+static rtc_clock exec_clock("LOAD_EXEC", 50000);
 
 void* callback(const unsigned char *data,
 	       const int len,
 	       rpc_cookie_t *cookie)
 {
 
-  // Heartbeat
-  static unsigned long tx_block_cnt   = 0;
-  static unsigned long tx_block_begin = rtc_clock::current_time();
-  static unsigned long total_latency = 0;
-
-  if(rtc_clock::current_time() - tx_block_begin >= 5000000 &&
-     tx_block_cnt > 0) {
-    BOOST_LOG_TRIVIAL(info) << "LOAD = "
-			    << ((double)1000000*tx_block_cnt)/(rtc_clock::current_time() - tx_block_begin)
-			    << " tx/sec "
-			    << "LATENCY ="
-			    << ((double)total_latency)/tx_block_cnt
-			    << " us ";
-    tx_block_begin = rtc_clock::current_time();
-    tx_block_cnt   = 0;
-    total_latency  = 0;
-  }
-  tx_block_cnt++;
-  unsigned long tx_begin_time = rtc_clock::current_time();
-  //////////////
-
+  unsigned long exec_begin_time = rtc_clock::current_time();
 
   cookie->ret_value = malloc(sizeof(int));
   cookie->ret_size  = sizeof(int);
@@ -118,7 +99,7 @@ void* callback(const unsigned char *data,
   src.set_property("Counter", src.get_property("Counter").int_value() + 1);
   Node &dst = get_node(*db, dst_idx);
   dst.set_property("Counter", dst.get_property("Counter").int_value() + 1);
-  total_latency += (rtc_clock::current_time() - tx_begin_time);
+  exec_clock.sample(rtc_clock::current_time() - exec_begin_time);
   return tx;
 }
 
