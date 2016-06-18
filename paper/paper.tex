@@ -324,6 +324,35 @@ if(replication success) {
 \label{fig:sync_rep}
 \end{figure*}
 
+\section{Concurrency}
+\subsection{Network}
+The single leader in RAFT must send a message to every replica and receive a
+response from every replica to replicate a log entry. The number of
+messages the leader must handle grows therefore with the number of replicas
+while follower replicas only handle a fixed number of
+messages for each log entry. This imbalance causes the leader to become a
+bottleneck at high throughputs for even a small number of replicas.
+
+In order to ease this bottleneck, Cyclone allows clients to assist in
+replication. To do so with minimum changes to the RAFT protocol, the leader
+continues to replicate entries to clients on a timeout, with the clients
+providing best effort replication. The flow for assisted replication is
+simple. For any RPC call added to the log, the leader sends back a message to
+the client with a list of replicas. The client then sends the RPC call to
+follower replicas on behalf of the leader. It then then waits for a timeout,
+gathers and sends back a message to the leader with the list of replicas that
+have responded within the timeout. Client assisted replication is therefore best
+effort. The leader also continues to run the normal RAFT protocol - in the event
+that a log entry remains unreplicated at a follower it sends it the log entry
+for replication as usual.
+
+The only change necessary for client assisted replication from the perspective
+of RAFT is for follower replicas to be able to handle out of order arrival of
+log entries. This is accomplished by an in memory cache of replicated log
+entries. When an arriving entry completes a sequence of log entries starting at
+the next desired index, the cache attempts to append the log entries to the
+actual RAFT log. For each entry the appropriate RAFT response (accept/reject) is
+sent back to the client that had sent the entry on behalf of the leader.
 
 \section{Example Application}
 \label{sec:examples}
