@@ -7,8 +7,8 @@ CXXFLAGS = -O3 -DBOOST_LOG_DYN_LINK
 
 LIBS = -lc -lcyclone -lboost_system -lboost_date_time -lpmemobj -lpmem -lpthread
 
-BOOST_THREAD_LIB=-lboost_thread-mt
-#BOOST_THREAD_LIB=-lboost_thread
+#BOOST_THREAD_LIB=-lboost_thread-mt
+BOOST_THREAD_LIB=-lboost_thread
 
 common.o:common.cpp
 	$(CXX) $(CXXFLAGS) -c common.cpp -o $@
@@ -37,7 +37,7 @@ counter_add_node:counter_add_node.cpp
 .PHONY:clean
 
 clean:
-	rm -f counter_server counter_driver\
-counter_coordinator counter_delete_node counter_add_node\
+	rm -f counter_server counter_driver \
+counter_coordinator counter_delete_node counter_add_node \
 counter_loader common.o
 
