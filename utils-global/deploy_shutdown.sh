@@ -11,7 +11,7 @@ do
     if [ -d "$i" ] ; then
 	node=$(basename $i)
 	ip=`cat ${i}/ip_address`
-	echo "Executing preload on node $node"
+	echo "Executing shutdown on node $node"
 	clush -w ${ip} ${deploy_dir}/${node}/killall.sh
     fi
 done
