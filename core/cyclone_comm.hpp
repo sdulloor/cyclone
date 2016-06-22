@@ -207,6 +207,7 @@ static void cyclone_bind_endpoint(void *socket, const char *endpoint)
 }
 
 struct client_paths {
+  void *saved_context;
   void **sockets_out;
   int *socket_out_ports;
   int clients;
@@ -243,6 +244,11 @@ struct client_paths {
     cyclone_connect_endpoint(socket, addr.str().c_str());
     socket_out_ports[index(mc, client)] = port;
   }
+
+  void *socket(int mc, int client)
+  {
+    return sockets_out[index(mc, client)];
+  }
   
   void init()
   {
@@ -264,6 +270,7 @@ struct client_paths {
 	}
       }
     }
+    delete[] sockets_out;
   }
   
 };
@@ -435,7 +442,8 @@ public:
     
     cpaths.clients  = clients_in;
     cpaths.saved_pt_client = pt_client;
-
+    cpaths.saved_context = saved_context;
+    
     cpaths.init();
 
     // Input wire
@@ -520,18 +528,12 @@ public:
 		       sizeof(mux_state_t),
 		       "demux");
       if(cmd.op == RING_DOORBELL) {
-	cpaths.ring_doorbell_backend(cmd.mc,
-				     cmd.client,
-				     cmd.port);
+	cpaths.ring_doorbell(cmd.mc,
+			     cmd.client,
+			     cmd.port);
       }
       else {
-	if(sockets_out[index(cmd.mc, cmd.client)] == NULL) {
-	  BOOST_LOG_TRIVIAL(info) << "received rpc req without doorbell "
-				  << " mc = " << cmd.mc
-				  << " client = " << cmd.client;
-	  exit(-1);
-	}
-	cyclone_tx(sockets_out[index(cmd.mc, cmd.client)],
+	cyclone_tx(cpaths.socket(cmd.mc, cmd.client),
 		   (const unsigned char *)cmd.data,
 		   cmd.size,
 		   "demux");
@@ -547,7 +549,6 @@ public:
   {
     cpaths.teardown();
     zmq_close(socket_in);
-    delete[] sockets_out;
    }
 };
 
