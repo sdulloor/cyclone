@@ -206,6 +206,68 @@ static void cyclone_bind_endpoint(void *socket, const char *endpoint)
   }
 }
 
+struct client_paths {
+  void **sockets_out;
+  int *socket_out_ports;
+  int clients;
+  int client_machines;
+  boost::property_tree::ptree *saved_pt_client;
+
+  int index(int mc, int client)
+  {
+    return mc*clients + client;
+  }
+
+  void ring_doorbell(int mc,
+		     int client,
+		     int port)
+  {
+    if(sockets_out[index(mc, client)] != NULL && 
+       socket_out_ports[index(mc, client)] == port) {
+      return; // Already setup
+    }
+    if(sockets_out[index(mc, client)] != NULL) {
+      zmq_close(sockets_out[index(mc, client)]);
+    }
+    std::stringstream key; 
+    std::stringstream addr;
+    // output wire to client
+    void *socket = cyclone_socket_out(saved_context);
+    sockets_out[index(mc, client)] = socket;
+    key.str("");key.clear();
+    addr.str("");addr.clear();
+    key << "machines.addr" << mc;
+    addr << "tcp://";
+    addr << saved_pt_client->get<std::string>(key.str().c_str());
+    addr << ":" << port;
+    cyclone_connect_endpoint(socket, addr.str().c_str());
+    socket_out_ports[index(mc, client)] = port;
+  }
+  
+  void init()
+  {
+    sockets_out = new void *[client_machines*clients];
+    socket_out_ports = new int[client_machines*clients];
+    for(int i=0;i<client_machines;i++) {
+      for(int j=0;j<clients;j++) {
+	sockets_out[index(i,j)] = NULL;
+      }
+    }
+  }
+
+  void teardown()
+  {
+    for(int i=0;i<client_machines;i++) {
+      for(int j=0;j<clients;j++) {
+	if(sockets_out[index(i, j)] != NULL) {
+	  zmq_close(sockets_out[index(i, j)]);
+	}
+      }
+    }
+  }
+  
+};
+
 class raft_switch {
   void **sockets_out;
   void **control_sockets_out;
@@ -342,19 +404,9 @@ typedef struct mux_state_st{
 
 class server_switch {
   void *saved_context;
-  void **sockets_out;
-  int *socket_out_ports;
   void *socket_in;
-  int client_machines;
-  int server_machines;
   int clients;
-  boost::property_tree::ptree *saved_pt_client;
-
-  int index(int mc, int client)
-  {
-    return mc*clients + client;
-  }
-
+  client_paths cpaths;
   void **mux_ports;
   void *demux_port;
 
@@ -379,14 +431,12 @@ public:
 
     key.str("");key.clear();
     key << "machines.machines";
-    client_machines =  pt_client->get<int>(key.str().c_str());
-    server_machines =  pt_server->get<int>(key.str().c_str());
+    cpaths.client_machines =  pt_client->get<int>(key.str().c_str());
     
-    clients  = clients_in;
-    saved_pt_client = pt_client;
+    cpaths.clients  = clients_in;
+    cpaths.saved_pt_client = pt_client;
 
-    sockets_out = new void *[client_machines*clients];
-    socket_out_ports = new int[client_machines*clients];
+    cpaths.init();
 
     // Input wire
     socket_in   = cyclone_socket_in(context); 
@@ -398,11 +448,6 @@ public:
     port = server_baseport + me;
     addr << ":" << port;
     cyclone_bind_endpoint(socket_in, addr.str().c_str());
-    for(int i=0;i<client_machines;i++) {
-      for(int j=0;j<clients;j++) {
-	sockets_out[index(i,j)] = NULL;
-      }
-    }
     mux_ports = new void *[mux_port_cnt];
     for(int i=0;i<mux_port_cnt;i++) {
       mux_ports[i] = cyclone_socket_out_loopback(context);
@@ -411,32 +456,6 @@ public:
   }
 
   
-  
-  void ring_doorbell_backend(int mc,
-			     int client,
-			     int port)
-  {
-    if(sockets_out[index(mc, client)] != NULL && 
-       socket_out_ports[index(mc, client)] == port) {
-      return; // Already setup
-    }
-    if(sockets_out[index(mc, client)] != NULL) {
-      zmq_close(sockets_out[index(mc, client)]);
-    }
-    std::stringstream key; 
-    std::stringstream addr;
-    // output wire to client
-    void *socket = cyclone_socket_out(saved_context);
-    sockets_out[index(mc, client)] = socket;
-    key.str("");key.clear();
-    addr.str("");addr.clear();
-    key << "machines.addr" << mc;
-    addr << "tcp://";
-    addr << saved_pt_client->get<std::string>(key.str().c_str());
-    addr << ":" << port;
-    cyclone_connect_endpoint(socket, addr.str().c_str());
-    socket_out_ports[index(mc, client)] = port;
-  }
   
   void send_data(int mc,
 		 int client,
@@ -501,9 +520,9 @@ public:
 		       sizeof(mux_state_t),
 		       "demux");
       if(cmd.op == RING_DOORBELL) {
-	ring_doorbell_backend(cmd.mc,
-			      cmd.client,
-			      cmd.port);
+	cpaths.ring_doorbell_backend(cmd.mc,
+				     cmd.client,
+				     cmd.port);
       }
       else {
 	if(sockets_out[index(cmd.mc, cmd.client)] == NULL) {
@@ -526,13 +545,7 @@ public:
   
   ~server_switch()
   {
-    for(int i=0;i<client_machines;i++) {
-      for(int j=0;j<clients;j++) {
-	if(sockets_out[index(i, j)] != NULL) {
-	  zmq_close(sockets_out[index(i, j)]);
-	}
-      }
-    }
+    cpaths.teardown();
     zmq_close(socket_in);
     delete[] sockets_out;
    }
