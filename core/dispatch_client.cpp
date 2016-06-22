@@ -14,55 +14,10 @@ typedef struct rpc_client_st {
   int me_mc;
   client_switch *router;
   rpc_t *packet_out;
-  rpc_t *packet_out_doorbell;
   rpc_t *packet_in;
   int server;
   int replicas;
   unsigned long channel_seq;
-  bool *rung_doorbell;
-
-  void ring_doorbell()
-  {
-    while(true) {
-      if(rung_doorbell[server]) {
-	break;
-      }
-      BOOST_LOG_TRIVIAL(info) << "Ringing doorbell";
-      packet_out_doorbell->code = RPC_DOORBELL;
-      packet_out_doorbell->client_id   = me;
-      packet_out_doorbell->channel_seq = channel_seq++;
-      packet_out_doorbell->requestor   = me_mc;
-      packet_out_doorbell->port      = router->input_port(server);
-      cyclone_tx(router->output_socket(server), 
-		 (unsigned char *)packet_out_doorbell, 
-		 sizeof(rpc_t), 
-		 "PROPOSE");
-      int resp_sz;
-      while(true) {
-	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
-				     (unsigned char *)packet_in, 
-				     DISP_MAX_MSGSIZE, 
-				     timeout_msec*1000,
-				     "RESULT");
-	if(resp_sz == -1) {
-	  break;
-	}
-	if(packet_in->channel_seq != (channel_seq - 1)) {
-	  continue;
-	}
-	break;
-      }
-
-      if(resp_sz == -1) {
-	BOOST_LOG_TRIVIAL(info) << "Timeout doorbell";
-	server = (server + 1)%replicas;
-	BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW LEADER " << server;
-	continue;
-      }
-
-      rung_doorbell[server] = true;
-    }
-  }
   
   void update_server(const char *context)
   {
@@ -73,17 +28,11 @@ typedef struct rpc_client_st {
       << context;
     server = (server + 1)%replicas;
     BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW LEADER " << server;
-    if(!rung_doorbell[server]) {
-      ring_doorbell();
-    }
   }
 
   void set_server()
   {
     BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING LEADER " << server;
-    if(!rung_doorbell[server]) {
-      ring_doorbell();
-    }
   }
 
   int get_last_txid()
@@ -93,6 +42,7 @@ typedef struct rpc_client_st {
     while(true) {
       packet_out->code        = RPC_REQ_LAST_TXID;
       packet_out->client_id   = me;
+      packet_out->client_port = router->input_port(server);
       packet_out->client_txid = (int)packet_out->timestamp;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
@@ -136,6 +86,7 @@ typedef struct rpc_client_st {
     while(true) {
       packet_out->code        = RPC_REQ_NODEDEL;
       packet_out->client_id   = me;
+      packet_out->client_port = router->input_port(server);
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
@@ -180,6 +131,7 @@ typedef struct rpc_client_st {
     while(true) {
       packet_out->code        = RPC_REQ_NODEADD;
       packet_out->client_id   = me;
+      packet_out->client_port = router->input_port(server);
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
@@ -223,6 +175,7 @@ typedef struct rpc_client_st {
     int retcode;
     int resp_sz;
     packet_out->client_id   = me;
+    packet_out->client_port = router->input_port(server);
     packet_out->client_txid = txid;
     packet_out->channel_seq  = channel_seq++;
     packet_out->requestor   = me_mc;
@@ -277,6 +230,7 @@ typedef struct rpc_client_st {
       packet_out->code        = RPC_REQ_FN;
       packet_out->flags       = flags;
       packet_out->client_id   = me;
+      packet_out->client_port = router->input_port(server);
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
@@ -345,14 +299,8 @@ void* cyclone_client_init(int client_id,
   client->packet_out = (rpc_t *)buf;
   buf = new char[DISP_MAX_MSGSIZE];
   client->packet_in = (rpc_t *)buf;
-  buf = new char[DISP_MAX_MSGSIZE];
-  client->packet_out_doorbell = (rpc_t *)buf;
   client->replicas = replicas;
   client->channel_seq = client_id*client_mc*rtc_clock::current_time();
-  client->rung_doorbell = new bool[replicas];
-  for(int i=0;i<replicas;i++) {
-    client->rung_doorbell[i] = false;
-  }
   client->server = 0;
   client->set_server();
   return (void *)client;

@@ -29,6 +29,7 @@ struct client_ro_state_st {
   volatile unsigned long committed_txid;
   char * last_return_value;
   int last_return_size;
+  int client_port;
   bool inflight;
 } client_ro_state [MAX_CLIENTS];
 static unsigned long ro_result_lock = 0;
@@ -935,6 +936,12 @@ struct dispatcher_loop {
 	rx_sizes[requests] = sz;
 	req = (rpc_t *)ptr;
 	req->timestamp = mark;
+	if(client_ro_state[req->client_id].client_port != req->client_port) {
+	  router->ring_doorbell(req->requestor,
+				req->client_id,
+				req->client_port,
+				0);
+	}
 	if(!client_ro_state[req->client_id].inflight) { // Only one inflight per client
 	  ptr += sz;
 	  space_left -= sz;
@@ -952,24 +959,6 @@ struct dispatcher_loop {
 	    requests = 0;
 	    ptr = rx_buffers;
 	    space_left = BUFSPACE;
-	  }
-	  else if(req->code == RPC_DOORBELL) {
-	    router->ring_doorbell(req->requestor,
-				  req->client_id,
-				  req->port,
-				  0);
-	    rpc_t *rpc_rep = (rpc_t *)tx_buffer;
-	    rpc_rep->code = RPC_REP_COMPLETE;
-	    rpc_rep->client_id   = req->client_id;
-	    rpc_rep->channel_seq = req->channel_seq;
-	    router->send_data(req->requestor,
-			      req->client_id, 
-			      tx_buffer, 
-			      sizeof(rpc_t),
-			      0);
-	    ptr -= sz;
-	    space_left += sz;
-	    requests--;
 	  }
 	  else if(requests == adaptive_batch_size) {
 	    handle_batch_rpc(rx_sizes, requests);
@@ -1156,6 +1145,7 @@ void dispatcher_start(const char* config_server_path,
     client_ro_state[i].last_return_size  = 0;
     client_ro_state[i].last_return_value = NULL;
     client_ro_state[i].inflight = false;
+    client_ro_state[i].client_port = -1;
   }
 
   committed_raft_log_idx = -1;
