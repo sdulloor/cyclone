@@ -64,6 +64,7 @@ typedef struct
 struct cyclone_monitor;
 typedef struct cyclone_st {
   boost::property_tree::ptree pt;
+  boost::property_tree::ptree pt_client;
   void *zmq_context;
   raft_switch *router;
   int replicas;

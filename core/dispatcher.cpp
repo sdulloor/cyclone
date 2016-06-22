@@ -1153,12 +1153,14 @@ void dispatcher_start(const char* config_server_path,
   pending_rpc_head = pending_rpc_tail = NULL;
   // Boot cyclone -- this can lead to rep cbs on recovery
   cyclone_handle = cyclone_boot(config_server_path,
+				config_client_path,
 				&cyclone_rep_cb,
 				&cyclone_pop_cb,
 				&cyclone_commit_cb,
 				&checkpoint_callback,
 				me,
 				replicas,
+				clients,
 				NULL);
   // Listen on port
   void *zmq_context = zmq_init(zmq_threads);

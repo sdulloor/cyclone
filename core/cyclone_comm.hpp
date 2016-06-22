@@ -283,11 +283,14 @@ class raft_switch {
   void *request_socket_out;
   void *control_socket_in;
   int replicas;
+  client_paths cpaths;
 public:
   raft_switch(void *context,
 	      boost::property_tree::ptree *pt,
 	      int me,
-	      int replicas_in)
+	      int replicas_in,
+	      int clients_in,
+	      boost::property_tree::ptree *pt_client)
     :replicas(replicas_in)
   {
     std::stringstream key;
@@ -348,6 +351,12 @@ public:
       addr << ":" << port;
       cyclone_connect_endpoint(control_sockets_out[i], addr.str().c_str());
     }
+
+    cpaths.client_machines =  pt_client->get<int>(key.str().c_str());
+    cpaths.clients  = clients_in;
+    cpaths.saved_pt_client = pt_client;
+    cpaths.saved_context = context;
+    cpaths.init();
   }
 
   void * output_socket(int machine)
@@ -380,6 +389,16 @@ public:
     return control_sockets_out[machine];
   }
 
+  void client_doorbell(int mc, int client, int port)
+  {
+    cpaths.ring_doorbell(mc, client, port);
+  }
+
+  void* client_socket(int mc, int client)
+  {
+    return cpaths.socket(mc, client);
+  }
+  
   ~raft_switch()
   {
     for(int i=0;i<=replicas;i++) {

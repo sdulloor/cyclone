@@ -584,12 +584,14 @@ static struct cyclone_img_load_st {
 } cyclone_image_loader;
 
 void* cyclone_boot(const char *config_path,
+		   const char *config_path_client,
 		   cyclone_callback_t cyclone_rep_callback,
 		   cyclone_callback_t cyclone_pop_callback,
 		   cyclone_callback_t cyclone_commit_callback,
 		   cyclone_build_image_t cyclone_build_image_callback,
 		   int me,
 		   int replicas,
+		   int clients,
 		   void *user_arg)
 {
   cyclone_t *cyclone_handle;
@@ -603,6 +605,7 @@ void* cyclone_boot(const char *config_path,
   cyclone_handle->user_arg   = user_arg;
   
   boost::property_tree::read_ini(config_path, cyclone_handle->pt);
+  boost::property_tree::read_ini(config_path_client, cyclone_handle->pt_client);
   std::string path_raft           = cyclone_handle->pt.get<std::string>("storage.raftpath");
   char me_str[100];
   sprintf(me_str, "%d", me);
@@ -696,7 +699,9 @@ void* cyclone_boot(const char *config_path,
   cyclone_handle->router = new raft_switch(cyclone_handle->zmq_context,
 					   &cyclone_handle->pt,
 					   cyclone_handle->me,
-					   cyclone_handle->replicas);
+					   cyclone_handle->replicas,
+					   clients,
+					   &cyclone_handle->pt_client);
 
   bool i_am_active = false;
   for(int i=0;i<cyclone_handle->pt.get<int>("active.replicas");i++) {

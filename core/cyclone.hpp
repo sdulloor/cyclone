@@ -40,12 +40,14 @@ typedef void (*cyclone_build_image_t)(void *socket);
 					    
 // Returns a cyclone handle
 extern void* cyclone_boot(const char *config_path,
+			  const char *client_path,
 			  cyclone_callback_t cyclone_rep_callback,
 			  cyclone_callback_t cyclone_pop_callback,
 			  cyclone_callback_t cyclone_commit_callback,
 			  cyclone_build_image_t cyclone_build_image_callback,
 			  int me,
 			  int replicas,
+			  int clients,
 			  void *user_arg);
 
 extern void cyclone_shutdown(void *cyclone_handle);
