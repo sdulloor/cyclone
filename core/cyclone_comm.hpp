@@ -352,6 +352,8 @@ public:
       cyclone_connect_endpoint(control_sockets_out[i], addr.str().c_str());
     }
 
+    key.str("");key.clear();
+    key << "machines.machines";
     cpaths.client_machines =  pt_client->get<int>(key.str().c_str());
     cpaths.clients  = clients_in;
     cpaths.saved_pt_client = pt_client;
