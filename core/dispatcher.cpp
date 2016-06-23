@@ -564,9 +564,12 @@ void cyclone_rep_cb(void *user_arg,
 		    const unsigned char *data,
 		    const int len,
 		    const int raft_idx,
-		    const int raft_term)
+		    const int raft_term,
+		    const int prev_raft_idx,
+		    const int prev_raft_term)
 {
   const rpc_t *rpc = (const rpc_t *)data;
+  rpc_info_t rpc_client_assist;
   rpc_info_t *match;
   int applied_raft_idx;
 
@@ -619,6 +622,19 @@ void cyclone_rep_cb(void *user_arg,
   if(!building_image && raft_idx  <= applied_raft_idx) {
     return;
   }
+  rpc_client_assist->client_id   = rpc->rpc->client_id;
+  rpc_client_assist->client_txid = rpc->rpc->client_txid;
+  rpc_client_assist->channel_seq = rpc->rpc->channel_seq;
+  rpc_client_assist->code = RPC_REQ_ASSIST;
+  rpc_client_assist->assist_raft_idx   = prev_raft_idx;
+  rpc_client_assist->assist_raft_term  = prev_raft_term;
+  rpc_client_assist->assist_commit_idx = committed_raft_log_idx;
+  // Engage client assist
+  router->send_data(rpc->client_blocked,
+		    rpc->rpc->client_id,
+		    &rpc_client_assist, 
+		    sizeof(rpc_t),
+		    2);
   issue_rpc(rpc, len, raft_idx, raft_term, 
 	    (rpc->receiver == replica_me ? true:false));
 }
@@ -1174,7 +1190,7 @@ void dispatcher_start(const char* config_server_path,
 			     &pt_client,
 			     me,
 			     clients,
-			     2);
+			     3);
   dispatcher_loop_obj->tx_thread = 
     new boost::thread(boost::ref(*router));
   follower_req_socket = cyclone_socket_out_loopback(zmq_context);

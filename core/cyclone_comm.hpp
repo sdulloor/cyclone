@@ -415,8 +415,6 @@ public:
   }
 };
 
-// A replica on each machine
-// A version of every client on every machine
 const int RING_DOORBELL = 0;
 const int SEND_DATA     = 1;
 typedef struct mux_state_st{
@@ -430,6 +428,8 @@ typedef struct mux_state_st{
   int size;
 } mux_state_t;
 
+// A replica on each machine
+// A version of every client on every machine
 class server_switch {
   void *saved_context;
   void *socket_in;
@@ -575,6 +575,7 @@ public:
 
 class client_switch {
   void **sockets_out;
+  void **raft_sockets_out;
   void **sockets_in;
   int *ports_in;
   int server_machines;
@@ -594,7 +595,7 @@ public:
     key.str("");key.clear();
     key << "dispatch.server_baseport";
     int server_baseport =  pt_server->get<int>(key.str().c_str());
-
+    int raft_baseport = pt_server->get<int>("quorum.baseport");
     key.str("");key.clear();
     key << "machines.machines";
     server_machines = pt_server->get<int>(key.str().c_str());
@@ -603,7 +604,8 @@ public:
     sockets_in  = new void *[server_machines];
     ports_in    = new int[server_machines];
     sockets_out = new void *[server_machines];
-
+    raft_sockets_out = new void *[server_machines];
+    
     char * zmq_dsn = new char[1024];
     int port;
     for(int i=0;i<server_machines;i++) {
@@ -637,6 +639,16 @@ public:
       port = server_baseport + i;
       addr << ":" << port;
       cyclone_connect_endpoint(sockets_out[i], addr.str().c_str());
+      // output wire to raft instance
+      raft_sockets_out[i] = cyclone_socket_out(context);
+      key.str("");key.clear();
+      addr.str("");addr.clear();
+      key << "machines.addr" << i;
+      addr << "tcp://";
+      addr << pt->get<std::string>(key.str().c_str());
+      port = raft_baseport + i ;
+      addr << ":" << port;
+      cyclone_connect_endpoint(raft_sockets_out[i], addr.str().c_str());
     }
     delete zmq_dsn;
   }
@@ -646,6 +658,11 @@ public:
     return sockets_out[machine];
   }
 
+  void * raft_output_socket(int machine)
+  {
+    return raft_sockets_out[machine];
+  }
+  
   int input_port(int machine)
   {
     return ports_in[machine];
@@ -660,9 +677,11 @@ public:
   {
     for(int i=0;i<server_machines;i++) {
       zmq_close(output_socket(i));
+      zmq_close(raft_output_socket(i));
       zmq_close(input_socket(i));
     }
     delete[] sockets_out;
+    delete[] raft_sockets_out;
     delete[] sockets_in;
   }
 };

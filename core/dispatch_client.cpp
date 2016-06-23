@@ -8,12 +8,14 @@
 #include <boost/property_tree/ptree.hpp>
 #include <unistd.h>
 #include "tuning.hpp"
+#include "cyclone_context.hpp"
 
 typedef struct rpc_client_st {
   int me;
   int me_mc;
   client_switch *router;
   rpc_t *packet_out;
+  msg_t *packet_rep;
   rpc_t *packet_in;
   int server;
   int replicas;
@@ -64,6 +66,10 @@ typedef struct rpc_client_st {
 	  continue;
 	}
 
+	if(packet_in->code == RPC_REQ_ASSIST) {
+	  continue;
+	}
+	
 	break;
       }
       if(resp_sz == -1) {
@@ -109,6 +115,25 @@ typedef struct rpc_client_st {
 	if(packet_in->channel_seq != (channel_seq - 1)) {
 	  continue;
 	}
+
+	if(packet_in->code == RPC_REQ_ASSIST) {
+	  packet_rep->msg_type = MSG_ASSISTED_APPENDENTRIES;
+	  packet_rep->ae.prev_log_idx  = packet_in>assist_raft_idx;
+	  packet_rep->ae.prev_log_term = packet_in->assist_raft_term;
+	  packet_rep->ae.leader_commit = packet_in->assist_commit_idx;
+	  memcpy(packet_rep + 1,
+		 packet_out,
+		 sizeof(rpc_t) + sizeof(cfg_change_t));
+	  // best effort
+	  for(int i = 0; i < replicas; i++) {
+	    cyclone_tx(router->raft_output_socket(i),
+		       (unsigned char *)packet_rep,
+		       sizeof(msg_t) + sizeof(rpc_t) + sizeof(cfg_change_t),
+		       "ASSIST");
+	  }
+	  continue;
+	}
+	
 	break;
       }
       if(resp_sz == -1) {
@@ -155,6 +180,25 @@ typedef struct rpc_client_st {
 	if(packet_in->channel_seq != (channel_seq - 1)) {
 	  continue;
 	}
+
+	if(packet_in->code == RPC_REQ_ASSIST) {
+	  packet_rep->msg_type = MSG_ASSISTED_APPENDENTRIES;
+	  packet_rep->ae.prev_log_idx  = packet_in>assist_raft_idx;
+	  packet_rep->ae.prev_log_term = packet_in->assist_raft_term;
+	  packet_rep->ae.leader_commit = packet_in->assist_commit_idx;
+	  memcpy(packet_rep + 1,
+		 packet_out,
+		 sizeof(rpc_t) + sizeof(cfg_change_t));
+	  // best effort
+	  for(int i = 0; i < replicas; i++) {
+	    cyclone_tx(router->raft_output_socket(i),
+		       (unsigned char *)packet_rep,
+		       sizeof(msg_t) + sizeof(rpc_t) + sizeof(cfg_change_t),
+		       "ASSIST");
+	  }
+	  continue;
+	}
+	
 	break;
       }
       if(resp_sz == -1) {
@@ -199,6 +243,11 @@ typedef struct rpc_client_st {
 	if(packet_in->channel_seq != (channel_seq - 1)) {
 	  continue;
 	}
+
+	if(packet_in->code == RPC_REQ_ASSIST) {
+	  continue;
+	}
+	
 	break;
       }
       if(resp_sz == -1) {
@@ -252,6 +301,25 @@ typedef struct rpc_client_st {
 	if(packet_in->channel_seq != (channel_seq - 1)) {
 	  continue;
 	}
+
+	if(packet_in->code == RPC_REQ_ASSIST) {
+	  packet_rep->msg_type = MSG_ASSISTED_APPENDENTRIES;
+	  packet_rep->ae.prev_log_idx  = packet_in>assist_raft_idx;
+	  packet_rep->ae.prev_log_term = packet_in->assist_raft_term;
+	  packet_rep->ae.leader_commit = packet_in->assist_commit_idx;
+	  memcpy(packet_rep + 1,
+		 packet_out,
+		 sizeof(rpc_t) + sz);
+	  // best effort
+	  for(int i = 0; i < replicas; i++) {
+	    cyclone_tx(router->raft_output_socket(i),
+		       (unsigned char *)packet_rep,
+		       sizeof(msg_t) + sizeof(rpc_t) + sz,
+		       "ASSIST");
+	  }
+	  continue;
+	}
+	
 	break;
       }
       if(resp_sz == -1) {
@@ -299,6 +367,8 @@ void* cyclone_client_init(int client_id,
   client->packet_out = (rpc_t *)buf;
   buf = new char[DISP_MAX_MSGSIZE];
   client->packet_in = (rpc_t *)buf;
+  buf = new char[DISP_MAX_MSGSIZE];
+  client->packet_rep = (msg_t *)buf;
   client->replicas = replicas;
   client->channel_seq = client_id*client_mc*rtc_clock::current_time();
   client->server = 0;

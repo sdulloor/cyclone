@@ -35,13 +35,22 @@ typedef void (*cyclone_callback_t)(void *user_arg,
 				   const int len,
 				   const int raft_idx,
 				   const int raft_term);
+
+typedef void (*cyclone_rep_callback_t)(void *user_arg,
+				       const unsigned char *data,
+				       const int len,
+				       const int raft_idx,
+				       const int raft_term,
+				       const int prev_raft_idx,
+				       const int prev_raft_term);
+
 // Callback to build image
 typedef void (*cyclone_build_image_t)(void *socket);
 					    
 // Returns a cyclone handle
 extern void* cyclone_boot(const char *config_path,
 			  const char *client_path,
-			  cyclone_callback_t cyclone_rep_callback,
+			  cyclone_rep_callback_t cyclone_rep_callback,
 			  cyclone_callback_t cyclone_pop_callback,
 			  cyclone_callback_t cyclone_commit_callback,
 			  cyclone_build_image_t cyclone_build_image_callback,
@@ -62,18 +71,24 @@ typedef struct cfg_change_st {
 //////// RPC interface
 typedef struct rpc_st {
   int code;
-  int flags;
+  union {
+    int flags;
+    int assist_commit_idx;
+  }
   int client_id;
-  int client_port;
+  union {
+    int client_port;
+    int assist_raft_idx
+  }
   union {
     unsigned long client_txid;
     int parent_raft_idx;
   };
   union {
     int master;
-    int port;
     int last_client_txid;
     int parent_raft_term;
+    int assist_raft_term;
   };
   unsigned long timestamp;
   unsigned long channel_seq;
@@ -82,6 +97,8 @@ typedef struct rpc_st {
 } rpc_t; // Used for both requests and replies
 
 // Possble values for code follow
+
+// Request
 static const int RPC_REQ_FN             = 0; // Execute (block on completion)
 static const int RPC_REQ_STATUS         = 1; // Check status (block on completion)
 static const int RPC_REQ_LAST_TXID      = 2; // Get last seen txid from this client
@@ -89,6 +106,9 @@ static const int RPC_REQ_MARKER         = 3; // Dispatcher internal (do not use)
 static const int RPC_REQ_DATA           = 4; // Dispatcher internal (do not use)
 static const int RPC_REQ_NODEADD        = 5; // Add a replica (non blocking)
 static const int RPC_REQ_NODEDEL        = 6; // Delete a replica (non blocking)
+static const int RPC_REQ_ASSIST         = 7; // Assist in replication
+static const int RPC_REP_ASSIST         = 8; // Assistance response
+// Responses
 static const int RPC_REP_COMPLETE       = 7; // DONE 
 static const int RPC_REP_PENDING        = 8; // PENDING 
 static const int RPC_REP_UNKNOWN        = 9; // UNKNOWN RPC

@@ -32,7 +32,7 @@ const int  MSG_CLIENT_STATUS            = 8;
 const int  MSG_CLIENT_REQ_CFG           = 9;
 const int  MSG_CLIENT_REQ_SET_IMGBUILD  = 10;
 const int  MSG_CLIENT_REQ_UNSET_IMGBUILD= 11;
-
+const int  MSG_ASSISTED_APPENDENTRIES   = 12;
 
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 4194304;
@@ -466,6 +466,9 @@ typedef struct cyclone_st {
       e = raft_recv_appendentries_response(raft_handle, 
 					   raft_get_node(raft_handle, msg->source), 
 					   &msg->aer);
+      break;
+    case MSG_ASSISTED_APPENDENTRIES:
+      // Drop for now
       break;
     case MSG_CLIENT_REQ:
       client_req.id = rand();
