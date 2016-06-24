@@ -645,7 +645,7 @@ public:
       addr.str("");addr.clear();
       key << "machines.addr" << i;
       addr << "tcp://";
-      addr << pt->get<std::string>(key.str().c_str());
+      addr << pt_server->get<std::string>(key.str().c_str());
       port = raft_baseport + i ;
       addr << ":" << port;
       cyclone_connect_endpoint(raft_sockets_out[i], addr.str().c_str());

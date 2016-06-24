@@ -13,6 +13,7 @@ static char * log_data(struct circular_log *log)
   return (char *)(log + 1);
 }
 
+static
 void copy_from_circular_log(const struct circular_log *log,
 			    unsigned long LOGSIZE,
 			    unsigned char *dst,
@@ -29,6 +30,7 @@ void copy_from_circular_log(const struct circular_log *log,
   }
 }
 
+static
 void copy_to_circular_log(PMEMobjpool *pop, 
 			  struct circular_log* log,
 			  unsigned long LOGSIZE,
@@ -46,6 +48,7 @@ void copy_to_circular_log(PMEMobjpool *pop,
   }
 }
 
+static
 void persist_to_circular_log(PMEMobjpool *pop, 
 			     struct circular_log *log,
 			     unsigned long LOGSIZE,
@@ -61,6 +64,7 @@ void persist_to_circular_log(PMEMobjpool *pop,
   }
 }
 
+static
 unsigned long circular_log_advance_ptr(unsigned long ptr,
 				       unsigned long size,
 				       unsigned long LOGSIZE)
@@ -72,6 +76,7 @@ unsigned long circular_log_advance_ptr(unsigned long ptr,
   return ptr;
 }
 
+static
 unsigned long circular_log_recede_ptr(unsigned long ptr,
 				      unsigned long size,
 				      unsigned long LOGSIZE)

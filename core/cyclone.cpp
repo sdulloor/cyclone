@@ -226,7 +226,8 @@ static void handle_cfg_change(cyclone_t * cyclone_handle,
 static int __raft_logentry_offer(raft_server_t* raft,
 				 void *udata,
 				 raft_entry_t *ety,
-				 int ety_idx)
+				 int ety_idx,
+				 replicant_t *rep)
 {
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
@@ -244,8 +245,8 @@ static int __raft_logentry_offer(raft_server_t* raft,
 				   (const unsigned char *)chunk,
 				   ety->data.len,
 				   ety_idx,
-				   ety->term);
-    
+				   ety->term,
+				   rep);
   }
   return result;
 }
@@ -256,7 +257,8 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 				       void *udata,
 				       raft_entry_t *ety,
 				       int ety_idx,
-				       int count)
+				       int count,
+				       replicant_t *rep)
 {
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state, raft_pstate_t);
@@ -283,8 +285,12 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 				     (const unsigned char *)e->data.buf,
 				     e->data.len,
 				     ety_idx + i,
-				     e->term);
-
+				     e->term,
+				     rep);
+    }
+    if(rep != NULL) {
+      rep->prev_idx++;
+      rep->prev_term = e->term;
     }
     e->data.buf = spot;
   }
@@ -585,7 +591,7 @@ static struct cyclone_img_load_st {
 
 void* cyclone_boot(const char *config_path,
 		   const char *config_path_client,
-		   cyclone_callback_t cyclone_rep_callback,
+		   cyclone_rep_callback_t cyclone_rep_callback,
 		   cyclone_callback_t cyclone_pop_callback,
 		   cyclone_callback_t cyclone_commit_callback,
 		   cyclone_build_image_t cyclone_build_image_callback,
@@ -673,7 +679,7 @@ void* cyclone_boot(const char *config_path,
       ptr = cyclone_handle->read_from_log((unsigned char *)&ety, ptr);
       ety.data.buf = (void *)ptr;
       ptr = cyclone_handle->skip_log_entry(ptr);
-      raft_append_entry(cyclone_handle->raft_handle, &ety);
+      raft_append_entry(cyclone_handle->raft_handle, &ety, NULL);
       if(cyclone_rep_callback != NULL) {
 	unsigned char *chunk = (unsigned char *)malloc(ety.data.len);
 	(void)cyclone_handle->read_from_log(chunk, 
@@ -682,7 +688,8 @@ void* cyclone_boot(const char *config_path,
 			     (const unsigned char *)chunk,
 			     ety.data.len,
 			     ety.id,
-			     ety.term);
+			     ety.term,
+			     NULL);
 	free(chunk);
       }
     }

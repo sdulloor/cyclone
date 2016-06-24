@@ -1,6 +1,9 @@
 #ifndef _CYCLONE_
 #define _CYCLONE_
 #include<libpmemobj.h>
+extern "C" {
+ #include<raft.h>
+}
 #include "libcyclone.hpp"
 
 //////// Direct interface
@@ -41,9 +44,7 @@ typedef void (*cyclone_rep_callback_t)(void *user_arg,
 				       const int len,
 				       const int raft_idx,
 				       const int raft_term,
-				       const int prev_raft_idx,
-				       const int prev_raft_term);
-
+				       replicant_t *rep);
 // Callback to build image
 typedef void (*cyclone_build_image_t)(void *socket);
 					    
@@ -71,24 +72,18 @@ typedef struct cfg_change_st {
 //////// RPC interface
 typedef struct rpc_st {
   int code;
-  union {
-    int flags;
-    int assist_commit_idx;
-  }
+  int flags;
   int client_id;
-  union {
-    int client_port;
-    int assist_raft_idx
-  }
+  int client_port;
   union {
     unsigned long client_txid;
     int parent_raft_idx;
   };
   union {
+    replicant_t rep;
     int master;
     int last_client_txid;
     int parent_raft_term;
-    int assist_raft_term;
   };
   unsigned long timestamp;
   unsigned long channel_seq;
@@ -109,9 +104,9 @@ static const int RPC_REQ_NODEDEL        = 6; // Delete a replica (non blocking)
 static const int RPC_REQ_ASSIST         = 7; // Assist in replication
 static const int RPC_REP_ASSIST         = 8; // Assistance response
 // Responses
-static const int RPC_REP_COMPLETE       = 7; // DONE 
-static const int RPC_REP_PENDING        = 8; // PENDING 
-static const int RPC_REP_UNKNOWN        = 9; // UNKNOWN RPC
-static const int RPC_REP_INVSRV         = 10; // WRONG master  -- master set in reply
-static const int RPC_REP_OLD            = 11; // RPC too old to cache results
+static const int RPC_REP_COMPLETE       = 9; // DONE 
+static const int RPC_REP_PENDING        = 10; // PENDING 
+static const int RPC_REP_UNKNOWN        = 11; // UNKNOWN RPC
+static const int RPC_REP_INVSRV         = 12; // WRONG master  -- master set in reply
+static const int RPC_REP_OLD            = 13; // RPC too old to cache results
 #endif
