@@ -57,6 +57,7 @@ typedef struct
     msg_requestvote_response_t rvr;
     msg_appendentries_t ae;
     msg_appendentries_response_t aer;
+    replicant_t rep;
     client_t client;
   };
 } msg_t;
