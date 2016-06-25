@@ -28,9 +28,11 @@ struct client_ro_state_st {
   volatile unsigned long committed_txid;
   char * last_return_value;
   int last_return_size;
-  int client_port;
   bool inflight;
 } client_ro_state [MAX_CLIENTS];
+
+static int * client_portmap;
+
 static unsigned long ro_result_lock = 0;
 
 static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
@@ -628,8 +630,8 @@ void cyclone_rep_cb(void *user_arg,
     rpc_client_assist.code = RPC_REQ_ASSIST;
     rpc_client_assist.rep  = *rep;
     // Engage client assist
-    router->send_data(rpc->client_id,
-		      rpc->requestor,
+    router->send_data(rpc->requestor,
+		      rpc->client_id,
 		      &rpc_client_assist, 
 		      sizeof(rpc_t),
 		      2);
@@ -952,7 +954,7 @@ struct dispatcher_loop {
 	rx_sizes[requests] = sz;
 	req = (rpc_t *)ptr;
 	req->timestamp = mark;
-	if(client_ro_state[req->client_id].client_port != req->client_port) {
+	if(router->client_port(req->requestor, req->client_id) != req->client_port) {
 	  router->ring_doorbell(req->requestor,
 				req->client_id,
 				req->client_port,
@@ -1155,17 +1157,17 @@ void dispatcher_start(const char* config_server_path,
       BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered state";
     }
   }
+  
   // Setup RO state
   for(int i = 0;i < MAX_CLIENTS;i++) {
     client_ro_state[i].committed_txid    = 0UL;
     client_ro_state[i].last_return_size  = 0;
     client_ro_state[i].last_return_value = NULL;
     client_ro_state[i].inflight = false;
-    client_ro_state[i].client_port = -1;
   }
 
   committed_raft_log_idx = -1;
-  
+
   pending_rpc_head = pending_rpc_tail = NULL;
   // Boot cyclone -- this can lead to rep cbs on recovery
   cyclone_handle = cyclone_boot(config_server_path,

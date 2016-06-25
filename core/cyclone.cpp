@@ -232,7 +232,9 @@ static int __raft_logentry_offer(raft_server_t* raft,
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   void *chunk = ety->data.buf;
-  rep->server_id = cyclone_handle->me;
+  if(rep != NULL) {
+    rep->server_id = cyclone_handle->me;
+  }
   ety->id = ety_idx;
   ety->data.buf = (void *)
     cyclone_handle->double_append_to_raft_log
@@ -241,7 +243,9 @@ static int __raft_logentry_offer(raft_server_t* raft,
      (unsigned char *)ety->data.buf,
      ety->data.len);
   handle_cfg_change(cyclone_handle, ety, chunk);
-  memcpy(&rep->ety, ety, sizeof(raft_entry_t));
+  if(rep != NULL) {
+    memcpy(&rep->ety, ety, sizeof(raft_entry_t));
+  }
   if(cyclone_handle->cyclone_rep_cb != NULL && ety->type != RAFT_LOGTYPE_ADD_NODE) {    
     cyclone_handle->cyclone_rep_cb(cyclone_handle->user_arg,
 				   (const unsigned char *)chunk,
@@ -268,7 +272,9 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
   struct circular_log *log = D_RW(tmp);
   unsigned long tail = log->log_tail;
   raft_entry_t *e = ety;
-  rep->server_id = cyclone_handle->me;
+  if(rep != NULL) {
+    rep->server_id = cyclone_handle->me;
+  }
   for(int i=0; i<count;i++,e++) {
     e->id = ety_idx + i;
     tail = cyclone_handle->append_to_raft_log_noupdate(log,
@@ -282,7 +288,9 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 						       tail);
     
     handle_cfg_change(cyclone_handle, e, e->data.buf);
-    memcpy(&rep->ety, e, sizeof(raft_entry_t));
+    if(rep != NULL) {
+      memcpy(&rep->ety, e, sizeof(raft_entry_t));
+    }
     if(cyclone_handle->cyclone_rep_cb != NULL && 
        e->type != RAFT_LOGTYPE_ADD_NODE) { 
       cyclone_handle->cyclone_rep_cb(cyclone_handle->user_arg,

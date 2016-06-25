@@ -223,6 +223,7 @@ struct client_paths {
 		     int client,
 		     int port)
   {
+
     if(sockets_out[index(mc, client)] != NULL && 
        socket_out_ports[index(mc, client)] == port) {
       return; // Already setup
@@ -250,6 +251,11 @@ struct client_paths {
     return sockets_out[index(mc, client)];
   }
   
+  int client_port(int mc, int client)
+  {
+    return socket_out_ports[index(mc, client)];
+  }
+
   void init()
   {
     sockets_out = new void *[client_machines*clients];
@@ -257,6 +263,7 @@ struct client_paths {
     for(int i=0;i<client_machines;i++) {
       for(int j=0;j<clients;j++) {
 	sockets_out[index(i,j)] = NULL;
+	socket_out_ports[index(i,j)] = -1;
       }
     }
   }
@@ -283,7 +290,6 @@ class raft_switch {
   void *request_socket_out;
   void *control_socket_in;
   int replicas;
-  client_paths cpaths;
 public:
   raft_switch(void *context,
 	      boost::property_tree::ptree *pt,
@@ -352,13 +358,6 @@ public:
       cyclone_connect_endpoint(control_sockets_out[i], addr.str().c_str());
     }
 
-    key.str("");key.clear();
-    key << "machines.machines";
-    cpaths.client_machines =  pt_client->get<int>(key.str().c_str());
-    cpaths.clients  = clients_in;
-    cpaths.saved_pt_client = pt_client;
-    cpaths.saved_context = context;
-    cpaths.init();
   }
 
   void * output_socket(int machine)
@@ -391,16 +390,6 @@ public:
     return control_sockets_out[machine];
   }
 
-  void client_doorbell(int mc, int client, int port)
-  {
-    cpaths.ring_doorbell(mc, client, port);
-  }
-
-  void* client_socket(int mc, int client)
-  {
-    return cpaths.socket(mc, client);
-  }
-  
   ~raft_switch()
   {
     for(int i=0;i<=replicas;i++) {
@@ -502,11 +491,11 @@ public:
     cyclone_tx_block(mux_ports[mux_index],
 		     (const unsigned char *)&cmd,
 		     sizeof(mux_state_t),
-		     "mux");
+		     "mux data");
     cyclone_rx_block(mux_ports[mux_index],
 		     (unsigned char *)&ok,
 		     sizeof(int),
-		     "demux");
+		     "demux data");
   }
 
   void ring_doorbell(int mc,
@@ -523,17 +512,22 @@ public:
     cyclone_tx_block(mux_ports[mux_index],
 		     (const unsigned char *)&cmd,
 		     sizeof(mux_state_t),
-		     "mux");
+		     "mux doorbell");
     
     cyclone_rx_block(mux_ports[mux_index],
 		     (unsigned char *)&ok,
 		     sizeof(int),
-		     "demux");
+		     "demux doorbell");
   }
 
   void *input_socket()
   {
     return socket_in;
+  }
+
+  int client_port(int mc, int client)
+  {
+    return cpaths.client_port(mc, client);
   }
 
   void operator() ()
@@ -557,12 +551,12 @@ public:
 	cyclone_tx(cpaths.socket(cmd.mc, cmd.client),
 		   (const unsigned char *)cmd.data,
 		   cmd.size,
-		   "demux");
+		   "demux data tx");
       }
       cyclone_tx_block(demux_port, 
 		       (unsigned char *)&ok, 
 		       sizeof(int),
-		       "demux");
+		       "demux resp");
     }
   }
   
