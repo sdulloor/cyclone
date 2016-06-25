@@ -469,7 +469,8 @@ typedef struct cyclone_st {
 					   &msg->aer);
       break;
     case MSG_ASSISTED_APPENDENTRIES:
-      // Drop for now
+      msg->rep.ety.data.buf = msg + 1;
+      raft_recv_assisted_appendentries(raft_handle, &msg->rep);
       break;
     case MSG_CLIENT_REQ:
       client_req.id = rand();
