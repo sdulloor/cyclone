@@ -119,7 +119,7 @@ typedef struct rpc_client_st {
 	if(packet_in->code == RPC_REQ_ASSIST) {
 	  packet_rep->msg_type = MSG_ASSISTED_APPENDENTRIES;
 	  memcpy(&packet_rep->rep, &packet_in->rep, sizeof(replicant_t));
-	  packer_rep->rep.client_id = me;
+	  packet_rep->rep.client_id = me;
 	  packet_rep->rep.client_mc = me_mc;
 	  memcpy(packet_rep + 1,
 		 packet_out,
@@ -187,7 +187,7 @@ typedef struct rpc_client_st {
 	if(packet_in->code == RPC_REQ_ASSIST) {
 	  packet_rep->msg_type = MSG_ASSISTED_APPENDENTRIES;
 	  memcpy(&packet_rep->rep, &packet_in->rep, sizeof(replicant_t));
-	  packer_rep->rep.client_id = me;
+	  packet_rep->rep.client_id = me;
 	  packet_rep->rep.client_mc = me_mc;
 	  memcpy(packet_rep + 1,
 		 packet_out,
@@ -311,7 +311,7 @@ typedef struct rpc_client_st {
 	if(packet_in->code == RPC_REQ_ASSIST) {
 	  packet_rep->msg_type = MSG_ASSISTED_APPENDENTRIES;
 	  memcpy(&packet_rep->rep, &packet_in->rep, sizeof(replicant_t));
-	  packer_rep->rep.client_id = me;
+	  packet_rep->rep.client_id = me;
 	  packet_rep->rep.client_mc = me_mc;
 	  memcpy(packet_rep + 1,
 		 packet_out,
