@@ -104,9 +104,10 @@ static const int RPC_REQ_NODEDEL        = 6; // Delete a replica (non blocking)
 static const int RPC_REQ_ASSIST         = 7; // Assist in replication
 static const int RPC_REP_ASSIST         = 8; // Assistance response
 // Responses
-static const int RPC_REP_COMPLETE       = 9; // DONE 
-static const int RPC_REP_PENDING        = 10; // PENDING 
-static const int RPC_REP_UNKNOWN        = 11; // UNKNOWN RPC
-static const int RPC_REP_INVSRV         = 12; // WRONG master  -- master set in reply
-static const int RPC_REP_OLD            = 13; // RPC too old to cache results
+static const int RPC_REP_ASSIST_OK      = 9; // Assistance entry accepted
+static const int RPC_REP_COMPLETE       = 10; // DONE 
+static const int RPC_REP_PENDING        = 11; // PENDING 
+static const int RPC_REP_UNKNOWN        = 12; // UNKNOWN RPC
+static const int RPC_REP_INVSRV         = 13; // WRONG master  -- master set in reply
+static const int RPC_REP_OLD            = 14; // RPC too old to cache results
 #endif

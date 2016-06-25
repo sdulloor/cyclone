@@ -148,6 +148,21 @@ static int __persist_term(raft_server_t* raft,
   return status;
 }
 
+static void __client_assist_ok(void *udata,
+			       replicant_t *rep)
+{
+  cyclone_t* cyclone_handle = (cyclone_t *)udata;
+  rpc_t rpc;
+  rpc.code = RPC_REP_ASSIST_OK;
+  rpc.rep = *rep;
+  rpc.channel_seq = rep->channel_seq;
+  cyclone_tx(cyclone_handle->router->cpaths.socket(rep->client_mc, rep->client_id),
+	     (const unsigned char *)&rpc,
+	     sizeof(rpc_t),
+	     "Client assist response from replica");  
+}
+
+
 static int __applylog(raft_server_t* raft,
 		      void *udata,
 		      raft_entry_t *ety,
@@ -403,6 +418,7 @@ void __raft_log_election(raft_server_t* raft,
 raft_cbs_t raft_funcs = {
   __send_requestvote,
   __send_appendentries,
+  __client_assist_ok,
   __applylog,
   __persist_vote,
   __persist_term,

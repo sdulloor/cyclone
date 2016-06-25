@@ -117,10 +117,12 @@ typedef struct rpc_client_st {
 	}
 
 	if(packet_in->code == RPC_REQ_ASSIST) {
-	  packet_rep->msg_type = MSG_ASSISTED_APPENDENTRIES;
+	  packet_rep->msg_type    = MSG_ASSISTED_APPENDENTRIES;
+	  packet_rep->client_port = packet_out->client_port; 
 	  memcpy(&packet_rep->rep, &packet_in->rep, sizeof(replicant_t));
 	  packet_rep->rep.client_id = me;
 	  packet_rep->rep.client_mc = me_mc;
+	  packet_rep->rep.channel_seq = channel_seq - 1;
 	  memcpy(packet_rep + 1,
 		 packet_out,
 		 sizeof(rpc_t) + sizeof(cfg_change_t));
@@ -134,6 +136,10 @@ typedef struct rpc_client_st {
 		       sizeof(msg_t) + sizeof(rpc_t) + sizeof(cfg_change_t),
 		       "ASSIST");
 	  }
+	  continue;
+	}
+
+	if(packet_in->code == RPC_REP_ASSIST_OK) {
 	  continue;
 	}
 	
@@ -183,12 +189,14 @@ typedef struct rpc_client_st {
 	if(packet_in->channel_seq != (channel_seq - 1)) {
 	  continue;
 	}
-
+	
 	if(packet_in->code == RPC_REQ_ASSIST) {
 	  packet_rep->msg_type = MSG_ASSISTED_APPENDENTRIES;
+	  packet_rep->client_port = packet_out->client_port; 
 	  memcpy(&packet_rep->rep, &packet_in->rep, sizeof(replicant_t));
 	  packet_rep->rep.client_id = me;
 	  packet_rep->rep.client_mc = me_mc;
+	  packet_rep->rep.channel_seq = channel_seq - 1;
 	  memcpy(packet_rep + 1,
 		 packet_out,
 		 sizeof(rpc_t) + sizeof(cfg_change_t));
@@ -202,6 +210,10 @@ typedef struct rpc_client_st {
 		       sizeof(msg_t) + sizeof(rpc_t) + sizeof(cfg_change_t),
 		       "ASSIST");
 	  }
+	  continue;
+	}
+
+	if(packet_in->code == RPC_REP_ASSIST_OK) {
 	  continue;
 	}
 	
@@ -310,9 +322,11 @@ typedef struct rpc_client_st {
 
 	if(packet_in->code == RPC_REQ_ASSIST) {
 	  packet_rep->msg_type = MSG_ASSISTED_APPENDENTRIES;
+	  packet_rep->client_port = packet_out->client_port; 
 	  memcpy(&packet_rep->rep, &packet_in->rep, sizeof(replicant_t));
 	  packet_rep->rep.client_id = me;
 	  packet_rep->rep.client_mc = me_mc;
+	  packet_rep->rep.channel_seq = channel_seq - 1;
 	  memcpy(packet_rep + 1,
 		 packet_out,
 		 sizeof(rpc_t) + sz);
@@ -326,6 +340,10 @@ typedef struct rpc_client_st {
 		       sizeof(msg_t) + sizeof(rpc_t) + sz,
 		       "ASSIST");
 	  }
+	  continue;
+	}
+
+	if(packet_in->code == RPC_REP_ASSIST_OK) {
 	  continue;
 	}
 	

@@ -291,6 +291,7 @@ class raft_switch {
   void *control_socket_in;
   int replicas;
 public:
+  client_paths cpaths;
   raft_switch(void *context,
 	      boost::property_tree::ptree *pt,
 	      int me,
@@ -304,6 +305,17 @@ public:
     sockets_out = new void *[replicas];
     control_sockets_out = new void*[replicas];
 
+
+    key.str("");key.clear();
+    key << "machines.machines";
+    cpaths.client_machines =  pt_client->get<int>(key.str().c_str());
+    
+    cpaths.clients  = clients_in;
+    cpaths.saved_pt_client = pt_client;
+    cpaths.saved_context = context;
+
+    cpaths.init();
+    
     key.str("");key.clear();
     key << "quorum.baseport";
     int baseport =  pt->get<int>(key.str().c_str());

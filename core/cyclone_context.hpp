@@ -50,7 +50,10 @@ typedef struct client_io_st {
 typedef struct
 {
   int msg_type;
-  int source;
+  union {
+    int source;
+    int client_port; // Only used for client assist
+  };
   union
   {
     msg_requestvote_t rv;
@@ -470,6 +473,7 @@ typedef struct cyclone_st {
       break;
     case MSG_ASSISTED_APPENDENTRIES:
       msg->rep.ety.data.buf = msg + 1;
+      router->cpaths.ring_doorbell(msg->rep.client_mc, msg->rep.client_id, msg->client_port);
       raft_recv_assisted_appendentries(raft_handle, &msg->rep);
       break;
     case MSG_CLIENT_REQ:
