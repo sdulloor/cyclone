@@ -154,6 +154,7 @@ static void __client_assist_ok(void *udata,
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   rpc_t rpc;
   rpc.code = RPC_REP_ASSIST_OK;
+  rpc.requestor = cyclone_handle->me;
   rpc.rep = *rep;
   rpc.channel_seq = rep->channel_seq;
   cyclone_tx(cyclone_handle->router->cpaths.socket(rep->client_mc, rep->client_id),

@@ -33,6 +33,7 @@ const int  MSG_CLIENT_REQ_CFG           = 9;
 const int  MSG_CLIENT_REQ_SET_IMGBUILD  = 10;
 const int  MSG_CLIENT_REQ_UNSET_IMGBUILD= 11;
 const int  MSG_ASSISTED_APPENDENTRIES   = 12;
+const int  MSG_ASSISTED_QUORUM_OK       = 13;
 
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 4194304;
@@ -53,6 +54,7 @@ typedef struct
   union {
     int source;
     int client_port; // Only used for client assist
+    unsigned long quorum; // Only used for client assist rep
   };
   union
   {
@@ -475,6 +477,10 @@ typedef struct cyclone_st {
       msg->rep.ety.data.buf = msg + 1;
       router->cpaths.ring_doorbell(msg->rep.client_mc, msg->rep.client_id, msg->client_port);
       raft_recv_assisted_appendentries(raft_handle, &msg->rep);
+      break;
+
+    case MSG_ASSISTED_QUORUM_OK:
+      // Drop
       break;
     case MSG_CLIENT_REQ:
       client_req.id = rand();

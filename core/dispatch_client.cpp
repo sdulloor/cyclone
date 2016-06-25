@@ -63,7 +63,7 @@ typedef struct rpc_client_st {
   int replicas;
   unsigned long channel_seq;
   class cyclic *rep_order;
- 
+
   void update_server(const char *context)
   {
     BOOST_LOG_TRIVIAL(info) 
@@ -85,6 +85,9 @@ typedef struct rpc_client_st {
   {
     int retcode;
     int resp_sz;
+    bool sent_assist_msg   = false;
+    bool sent_assist_reply = false;
+    unsigned long response_map = 0;
     while(true) {
       resp_sz = cyclone_rx_timeout(router->input_socket(server), 
 				   (unsigned char *)packet_in, 
@@ -100,6 +103,9 @@ typedef struct rpc_client_st {
       }
 
       if(packet_in->code == RPC_REQ_ASSIST) {
+	if(sent_assist_msg) {
+	  continue;
+	}
 	packet_rep->msg_type    = MSG_ASSISTED_APPENDENTRIES;
 	packet_rep->client_port = packet_out->client_port; 
 	memcpy(&packet_rep->rep, &packet_in->rep, sizeof(replicant_t));
@@ -120,10 +126,26 @@ typedef struct rpc_client_st {
 		     sizeof(msg_t) + blob_sz,
 		     "ASSIST");
 	}
+	sent_assist_msg = true;
 	continue;
       }
 
       if(packet_in->code == RPC_REP_ASSIST_OK) {
+	if(sent_assist_reply) {
+	  continue;
+	}
+	response_map = response_map | (1 << packet_in->requestor);
+	int replicated_at = __builtin_popcount(response_map) + 1;
+	if(replicated_at > (replicas/2)) { // Majority quorum ?
+	  packet_rep->msg_type = MSG_ASSISTED_QUORUM_OK;
+	  packet_rep->quorum = response_map;
+	  memcpy(&packet_rep->rep, &packet_in->rep, sizeof(replicant_t));
+	  cyclone_tx(router->raft_output_socket(server),
+		     (unsigned char *)packet_rep,
+		     sizeof(msg_t),
+		     "ASSIST QUORUM");
+	  sent_assist_reply = true;
+	}
 	continue;
       }
       break;
