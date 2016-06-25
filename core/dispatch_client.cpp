@@ -10,6 +10,48 @@
 #include "tuning.hpp"
 #include "cyclone_context.hpp"
 
+
+
+class cyclic {
+  unsigned long *permutation;
+  unsigned long cyclic_index;
+  unsigned long machines;
+  struct drand48_data rand_buffer;
+public:
+  cyclic(unsigned long machines_in, unsigned long seed)
+    : machines(machines_in) {
+    srand48_r(seed, &rand_buffer);
+    permutation = new unsigned long[machines];
+    permutation[0] = 0;
+    for (unsigned long i = 1; i < machines; i++) {
+      permutation[i] = i;
+      double r;
+      drand48_r(&rand_buffer, &r);
+      unsigned long interchange = (unsigned long) (r * (i + 1));
+      unsigned long tmp = permutation[interchange];
+      permutation[interchange] = permutation[i];
+      permutation[i] = tmp;
+    }
+    cyclic_index = 0;
+  }
+
+  unsigned long cyclic_next() {
+    unsigned long mc = permutation[cyclic_index];
+    cyclic_index = (cyclic_index + 1) % machines;
+    return mc;
+  }
+
+  unsigned long cycle_size() {
+    return machines;
+  }
+
+  ~cyclic() {
+    delete permutation;
+  }
+};
+
+
+
 typedef struct rpc_client_st {
   int me;
   int me_mc;
@@ -20,7 +62,8 @@ typedef struct rpc_client_st {
   int server;
   int replicas;
   unsigned long channel_seq;
-  
+  class cyclic *rep_order;
+ 
   void update_server(const char *context)
   {
     BOOST_LOG_TRIVIAL(info) 
@@ -35,6 +78,57 @@ typedef struct rpc_client_st {
   void set_server()
   {
     BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING LEADER " << server;
+  }
+
+
+  int common_receive_loop(int blob_sz)
+  {
+    int retcode;
+    int resp_sz;
+    while(true) {
+      resp_sz = cyclone_rx_timeout(router->input_socket(server), 
+				   (unsigned char *)packet_in, 
+				   DISP_MAX_MSGSIZE, 
+				   timeout_msec*1000,
+				   "RESULT");
+      if(resp_sz == -1) {
+	break;
+      }
+      
+      if(packet_in->channel_seq != (channel_seq - 1)) {
+	continue;
+      }
+
+      if(packet_in->code == RPC_REQ_ASSIST) {
+	packet_rep->msg_type    = MSG_ASSISTED_APPENDENTRIES;
+	packet_rep->client_port = packet_out->client_port; 
+	memcpy(&packet_rep->rep, &packet_in->rep, sizeof(replicant_t));
+	packet_rep->rep.client_id = me;
+	packet_rep->rep.client_mc = me_mc;
+	packet_rep->rep.channel_seq = channel_seq - 1;
+	memcpy(packet_rep + 1,
+	       packet_out,
+	       blob_sz);
+	// best effort
+	for(int i = 0; i < replicas; i++) {
+	  int replica = rep_order->cyclic_next();
+	  if(replica == server) {
+	    continue;
+	  }
+	  cyclone_tx(router->raft_output_socket(replica),
+		     (unsigned char *)packet_rep,
+		     sizeof(msg_t) + blob_sz,
+		     "ASSIST");
+	}
+	continue;
+      }
+
+      if(packet_in->code == RPC_REP_ASSIST_OK) {
+	continue;
+      }
+      break;
+    }
+    return resp_sz;
   }
 
   int get_last_txid()
@@ -102,49 +196,7 @@ typedef struct rpc_client_st {
 			   (unsigned char *)packet_out, 
 			   sizeof(rpc_t) + sizeof(cfg_change_t), 
 			   "PROPOSE");
-      while(true) {
-	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
-				     (unsigned char *)packet_in, 
-				     DISP_MAX_MSGSIZE, 
-				     timeout_msec*1000,
-				     "RESULT");
-	if(resp_sz == -1) {
-	  break;
-	}
-	
-	if(packet_in->channel_seq != (channel_seq - 1)) {
-	  continue;
-	}
-
-	if(packet_in->code == RPC_REQ_ASSIST) {
-	  packet_rep->msg_type    = MSG_ASSISTED_APPENDENTRIES;
-	  packet_rep->client_port = packet_out->client_port; 
-	  memcpy(&packet_rep->rep, &packet_in->rep, sizeof(replicant_t));
-	  packet_rep->rep.client_id = me;
-	  packet_rep->rep.client_mc = me_mc;
-	  packet_rep->rep.channel_seq = channel_seq - 1;
-	  memcpy(packet_rep + 1,
-		 packet_out,
-		 sizeof(rpc_t) + sizeof(cfg_change_t));
-	  // best effort
-	  for(int i = 0; i < replicas; i++) {
-	    if(i == server) {
-	      continue;
-	    }
-	    cyclone_tx(router->raft_output_socket(i),
-		       (unsigned char *)packet_rep,
-		       sizeof(msg_t) + sizeof(rpc_t) + sizeof(cfg_change_t),
-		       "ASSIST");
-	  }
-	  continue;
-	}
-
-	if(packet_in->code == RPC_REP_ASSIST_OK) {
-	  continue;
-	}
-	
-	break;
-      }
+      resp_sz = common_receive_loop(sizeof(rpc_t) + sizeof(cfg_change_t));
       if(resp_sz == -1) {
 	update_server("rx timeout");
 	continue;
@@ -176,49 +228,7 @@ typedef struct rpc_client_st {
 			   (unsigned char *)packet_out, 
 			   sizeof(rpc_t) + sizeof(cfg_change_t), 
 			   "PROPOSE");
-      while(true) {
-	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
-				     (unsigned char *)packet_in, 
-				     DISP_MAX_MSGSIZE, 
-				     timeout_msec*1000,
-				     "RESULT");
-	if(resp_sz == -1) {
-	  break;
-	}
-	
-	if(packet_in->channel_seq != (channel_seq - 1)) {
-	  continue;
-	}
-	
-	if(packet_in->code == RPC_REQ_ASSIST) {
-	  packet_rep->msg_type = MSG_ASSISTED_APPENDENTRIES;
-	  packet_rep->client_port = packet_out->client_port; 
-	  memcpy(&packet_rep->rep, &packet_in->rep, sizeof(replicant_t));
-	  packet_rep->rep.client_id = me;
-	  packet_rep->rep.client_mc = me_mc;
-	  packet_rep->rep.channel_seq = channel_seq - 1;
-	  memcpy(packet_rep + 1,
-		 packet_out,
-		 sizeof(rpc_t) + sizeof(cfg_change_t));
-	  // best effort
-	  for(int i = 0; i < replicas; i++) {
-	    if(i == server) {
-	      continue;
-	    }
-	    cyclone_tx(router->raft_output_socket(i),
-		       (unsigned char *)packet_rep,
-		       sizeof(msg_t) + sizeof(rpc_t) + sizeof(cfg_change_t),
-		       "ASSIST");
-	  }
-	  continue;
-	}
-
-	if(packet_in->code == RPC_REP_ASSIST_OK) {
-	  continue;
-	}
-	
-	break;
-      }
+      resp_sz = common_receive_loop(sizeof(rpc_t) + sizeof(cfg_change_t));
       if(resp_sz == -1) {
 	update_server("rx timeout");
 	continue;
@@ -306,49 +316,7 @@ typedef struct rpc_client_st {
 			   (unsigned char *)packet_out, 
 			   sizeof(rpc_t) + sz, 
 			   "PROPOSE");
-      while(true) {
-	resp_sz = cyclone_rx_timeout(router->input_socket(server), 
-				     (unsigned char *)packet_in, 
-				     DISP_MAX_MSGSIZE, 
-				     timeout_msec*1000,
-				     "RESULT");
-	if(resp_sz == -1) {
-	  break;
-	}
-	
-	if(packet_in->channel_seq != (channel_seq - 1)) {
-	  continue;
-	}
-
-	if(packet_in->code == RPC_REQ_ASSIST) {
-	  packet_rep->msg_type = MSG_ASSISTED_APPENDENTRIES;
-	  packet_rep->client_port = packet_out->client_port; 
-	  memcpy(&packet_rep->rep, &packet_in->rep, sizeof(replicant_t));
-	  packet_rep->rep.client_id = me;
-	  packet_rep->rep.client_mc = me_mc;
-	  packet_rep->rep.channel_seq = channel_seq - 1;
-	  memcpy(packet_rep + 1,
-		 packet_out,
-		 sizeof(rpc_t) + sz);
-	  // best effort
-	  for(int i = 0; i < replicas; i++) {
-	    if(i == server) {
-	      continue;
-	    }
-	    cyclone_tx(router->raft_output_socket(i),
-		       (unsigned char *)packet_rep,
-		       sizeof(msg_t) + sizeof(rpc_t) + sz,
-		       "ASSIST");
-	  }
-	  continue;
-	}
-
-	if(packet_in->code == RPC_REP_ASSIST_OK) {
-	  continue;
-	}
-	
-	break;
-      }
+      resp_sz = common_receive_loop(sizeof(rpc_t) + sz);
       if(resp_sz == -1) {
 	update_server("rx timeout, make rpc");
 	continue;
@@ -400,6 +368,7 @@ void* cyclone_client_init(int client_id,
   client->channel_seq = client_id*client_mc*rtc_clock::current_time();
   client->server = 0;
   client->set_server();
+  client->rep_order = new cyclic(client->replicas, client->me);
   return (void *)client;
 }
 
