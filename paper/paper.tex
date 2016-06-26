@@ -326,52 +326,42 @@ if(replication success) {
 
 \section{Concurrency}
 \subsection{Network}
-The single leader in RAFT must send a message to every replica and receive a
-response from every replica to replicate a log entry. The number of
-messages the leader must handle grows therefore with the number of replicas
-while follower replicas only handle a fixed number of
-messages for each log entry. This imbalance causes the leader to become a
-bottleneck at high throughputs for even a small number of replicas.
+The single leader in RAFT is responsible for sending every log entry to every
+replica. Sending log entries one by one or even in batches causes inefficient
+use of the network link between the leader replica and followers when the leader
+must wait for an acknowledgment from the follower before sending the next batch
+of log entries. The solution is to send log entries from the leader as they are
+appended to its log without waiting for an acknowledgment. The result however is
+that entries can arrive out of order at follower replicas due to an unreliable
+network.
 
-In order to ease this bottleneck, Cyclone allows clients to assist in
-replication. To do so with minimum changes to the RAFT protocol, the leader
-continues to replicate entries to clients on a timeout, with the clients
-providing best effort replication. The flow for assisted replication is
-as follows. For any RPC call added to the log, the leader sends back a message
-to the client with a list of replicas. The client then sends the RPC call to
-follower replicas on behalf of the leader. It then then waits for a timeout,
-during which it gathers responses from clients and finally sends back a message
-to the leader with the list of replicas that have responded within the
-timeout. Client assisted replication is therefore best effort. The leader also
-continues to run the normal RAFT protocol - in the event
-that a log entry remains unreplicated at a follower it sends it the log entry
-for replication as usual.
+We note that RAFT as specified already tolerates out of order arrival of log
+entries at follower replicas (a newly elected leader assumed replicas are up to
+date when it starts sending out log entries). However follower replicas can only
+apply log entries \emph{in order}- dropping log entries that cannot be applied
+to extend the log at a follower replica. To bridge this gap, with no changes to
+the protocol, we added an in-memory cache of log entries (that we dub the log
+cache) at follower replicas to cache log fragments that arrive out of
+order. These are then applied opportunistically as soon as all preceding entries
+have arrived.
 
-The only change necessary for client assisted replication from the perspective
-of RAFT is for follower replicas to be able to handle out of order arrival of
-log entries. This is accomplished by an in memory cache of replicated log
-entries - a structure we dub the log cache. When an arriving entry completes a
-sequence of log entries starting at the next desired index, the cache attempts
-to append the log entries to the actual RAFT log. For each entry the appropriate
-RAFT response (accept/reject and the next desired log entry in the case of
-accept) is sent back to the client that had sent the entry on behalf of the
-leader. Pseudocode for the log cache is shown in Figure~\ref{fig:logcache}.
+Pseudocode for the log cache is shown in Figure~\ref{fig:logcache}.
 
 \begin{figure}
 { \scriptsize
 \begin{verbatim}
-on ReceiveEntry(term, entry) {
-  if (term < logcache_term) {
-    drop entry
+on ReceiveEntry(leaderTerm, entry) {
+  if (leaderTerm < logcache_term) {
+    drop entry // Stale
   }
-  else if(term > logcache_term){
+  else if(leaderTerm > logcache_term){
     drop all entries from logcache
-    logcache_term = term
+    logcache_term = leaderTerm
   }
   while(entry = canAdd(raftLog, logcache)) {
     AddEntry(raftLog, entry);
     RemoveEntry(logcache, entry)
-    Send response to client for entry;
+    Send RAFT response for entry;
   }
 }
 \end{verbatim}
@@ -380,29 +370,37 @@ on ReceiveEntry(term, entry) {
 \label{fig:logcache}
 \end{figure}
 
-Any client assists in the replication of exactly one entry at a time, dropping
-the previous entry is it receives a new entry from the leader to replicate. The
-client needs to therefore uniquely identify the entry for which a response is
-received from a replica. In RAFT, entries being replicated are uniqely
-identified by the term of the leader, the term of the entry and the index of the
-previous entry. These pieces of identifying information are carried in
-replication messages to allow RAFT to tolerate out of order and unreliable
-messages on the network. The client uses these parameters to filter out all
-reponses from replicas other than the one for the entry it is attempting to
-replicate.
+The log cache is built around the key property of RAFT that there is exactly one
+leader in any term and the log at the leader of a term can only be appended to. We
+therefore need only support adding entries to the log cache and flush the entire
+log cache on detecting a change in leadership due to a term larger than that of
+the leader whose entries are cached. Application of log entries follows the
+normal RAFT protocol where the last entry in the log must match the desired
+previous log index and previous log entry term specified in the new entry to be
+appended.
 
-Finally, we need to show that the logcache does not lead to a departure from the
-RAFT protocol. This follows from the fact that in RAFT there is exactly one
-leader for any given term number (stemming from the safety properties of the
-election protocol). Further, the leader always extens its log, it never rolls
-back log entries - entries always flow from leader to followers in RAFT (unlike
-other protocols such as Paxos). Therefore any log entry added to the logcache is
-always present at the leader in that term. We ensure stale entries do not
-survive leadership changes by flushing the cache on a change in term. Hence any
-entry appended to the actual RAFT log at the follower is one that is present at
-the leader - the protocol therefore behaves no differently than if the leader
-had actually transmitted the log entry directly to the follower replica. 
+The log cache enables leaders to send batches of log entries as soon as they are
+available rather than waiting for an acknowledgment from followers for the
+previous batch - enabling better utilization of the network link. We note
+however that the leader continues to track the last log entry \emph{known} to be
+replicated at any follower (the {\tt match index} in the RAFT protocol
+specification) as usual and resends log fragments on timeouts - tolerating
+unreliable networks that drop log fragments.
 
+In addition to better utilization of the network link out of the leader replica,
+the log cache also enables the leader replica to effectively offload the work of
+replication. To do so it simply informs the client originating the log entry of
+the list of replicas to which the entry must be sent. The client sends the
+entries, collects the responses and responds to the leader replica as soon as a
+majority quorum has responded. From the perspective of the RAFT protocol the
+client simply acts as an unreliable router. The log cache allows follower
+replicas to utilize chunks that might arrive out of order from different
+assisting clients. The benefit of such a scheme is that the replication load on
+the leader (in terms of network bandwidth) is distributed across the clients
+with a larger load (more clients) permitting more offload. As we show in the
+evaluation this is an effective technique to keeping tail latency under control
+in Cyclone deployments that can tolerate the loss in performance due to the
+extra hop but are willing to pay that price for better tail latencies.
 
 \section{Example Application}
 \label{sec:examples}
