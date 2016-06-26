@@ -480,7 +480,9 @@ typedef struct cyclone_st {
       break;
 
     case MSG_ASSISTED_QUORUM_OK:
-      // Drop
+      raft_recv_assisted_quorum(raft_handle,
+				&msg->rep,
+				msg->quorum);
       break;
     case MSG_CLIENT_REQ:
       client_req.id = rand();
