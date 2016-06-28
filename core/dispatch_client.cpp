@@ -136,7 +136,8 @@ typedef struct rpc_client_st {
 	}
 	response_map = response_map | (1 << packet_in->requestor);
 	int replicated_at = __builtin_popcount(response_map) + 1;
-	if(replicated_at > (replicas/2)) { // Majority quorum ?
+	//if(replicated_at > (replicas/2)) { // Majority quorum ?
+	if(replicated_at == (replicas - 1)) { // Full quorum ?
 	  packet_rep->msg_type = MSG_ASSISTED_QUORUM_OK;
 	  packet_rep->quorum = response_map;
 	  memcpy(&packet_rep->rep, &packet_in->rep, sizeof(replicant_t));
