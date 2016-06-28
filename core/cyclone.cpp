@@ -64,6 +64,23 @@ void cyclone_deserialize_last_applied(void *cyclone_handle, raft_entry_t *ety)
 
 
 /** Raft callback for sending appendentries message */
+static void __send_appendentries_response(void *udata,
+					  raft_node_t *node,
+					  msg_appendentries_response_t* r)
+{
+  cyclone_t* cyclone_handle = (cyclone_t *)udata;
+  msg_t resp;
+  void *socket  = raft_node_get_udata(node);
+  resp.msg_type = MSG_APPENDENTRIES_RESPONSE;
+  memcpy(&resp.aer, r, sizeof(msg_appendentries_response_t));
+  resp.source = cyclone_handle->me;
+  cyclone_tx(socket,
+	     (unsigned char *)&resp, 
+	     sizeof(msg_t), 
+	     "APPENDENTRIES RESP async");
+}
+
+/** Raft callback for sending appendentries message */
 static int __send_appendentries(raft_server_t* raft,
 				void *udata,
 				raft_node_t *node,
@@ -420,6 +437,7 @@ raft_cbs_t raft_funcs = {
   __send_requestvote,
   __send_appendentries,
   __client_assist_ok,
+  __send_appendentries_response,
   __applylog,
   __persist_vote,
   __persist_term,
