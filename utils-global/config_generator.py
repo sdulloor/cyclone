@@ -138,6 +138,8 @@ for q in range(0, quorums):
         else:
             f=open(dname + '/' + 'launch_inactive_servers','a')
         shutil.copy(config_name,  dname + '/config_server.ini')
+        if os.environ.has_key('CLIENT_ASSIST'):
+            f.write('export CLIENT_ASSIST=1\n')
         launch_cmds_server_gen(f, q, r, mc, quorums, replicas, clients)
         f.close()
 

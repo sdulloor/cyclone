@@ -651,6 +651,13 @@ void* cyclone_boot(const char *config_path,
   int baseport  = cyclone_handle->pt.get<int>("quorum.baseport"); 
   cyclone_handle->raft_handle = raft_new();
   
+  /* Set client assist */
+  const char *client_assist_env = getenv("CLIENT_ASSIST");
+  if(client_assist_env != NULL) {
+    BOOST_LOG_TRIVIAL(info) << "CLIENT ASSIST ON";
+    raft_set_client_assist(cyclone_handle->raft_handle);
+  }
+
   /* Setup raft state */
   if(access(path_raft.c_str(), F_OK)) {
     // TBD: figure out how to make this atomic
