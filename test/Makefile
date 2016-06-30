@@ -7,14 +7,14 @@ CXXFLAGS = -O3 -DBOOST_LOG_DYN_LINK
 
 LIBS = -lc -lcyclone -lboost_system -lboost_date_time -lpmemobj -lpmem -lpthread
 
-#BOOST_THREAD_LIB=-lboost_thread-mt
-BOOST_THREAD_LIB=-lboost_thread
+BOOST_THREAD_LIB=-lboost_thread-mt
+#BOOST_THREAD_LIB=-lboost_thread
 
 common.o:common.cpp
 	$(CXX) $(CXXFLAGS) -c common.cpp -o $@
 
 counter_server:counter_server.cpp common.o
-	$(CXX) $(CXXFLAGS) counter_server.cpp common.o ../nvml/src/examples/libpmemobj/tree_map/rbtree_map.o $(BOOST_THREAD_LIB) $(LIBS) -o $@
+	$(CXX) $(CXXFLAGS) counter_server.cpp common.o ../nvml/src/examples/libpmemobj/tree_map/librbtree_map.a $(BOOST_THREAD_LIB) $(LIBS) -o $@
 
 counter_coordinator:counter_coordinator.cpp common.o 
 	$(CXX) $(CXXFLAGS) counter_coordinator.cpp common.o $(BOOST_THREAD_LIB) $(LIBS) -o $@
