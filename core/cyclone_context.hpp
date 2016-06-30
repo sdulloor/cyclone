@@ -624,23 +624,21 @@ struct cyclone_monitor {
     unsigned long elapsed_time;
     while(!terminate) {
       // Handle any outstanding requests
-      for(int i=0;i<cyclone_handle->replicas;i++) {
-	int sz =
-	  cyclone_rx(cyclone_handle->router->input_socket(),
-		     cyclone_handle->cyclone_buffer_in,
-		     MSG_MAXSIZE,
-		     "Incoming");
-	if(sz != -1) {
-	  cyclone_handle->handle_incoming(sz);
-	}
-	sz =
-	  cyclone_rx(cyclone_handle->router->request_in(),
-		     cyclone_handle->cyclone_buffer_in,
-		     MSG_MAXSIZE,
-		     "Incoming");
-	if(sz != -1) {
-	  cyclone_handle->handle_incoming(sz);
-	}
+      int sz =
+	cyclone_rx(cyclone_handle->router->input_socket(),
+		   cyclone_handle->cyclone_buffer_in,
+		   MSG_MAXSIZE,
+		   "Incoming");
+      if(sz != -1) {
+	cyclone_handle->handle_incoming(sz);
+      }
+      sz =
+	cyclone_rx(cyclone_handle->router->request_in(),
+		   cyclone_handle->cyclone_buffer_in,
+		   MSG_MAXSIZE,
+		   "Incoming");
+      if(sz != -1) {
+	cyclone_handle->handle_incoming(sz);
       }
       // Handle periodic events -- - AFTER any incoming requests
       if((elapsed_time = rtc_clock::current_time() - mark) >= PERIODICITY) {
