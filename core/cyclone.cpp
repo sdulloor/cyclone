@@ -754,6 +754,7 @@ void* cyclone_boot(const char *config_path,
   raft_set_callbacks(cyclone_handle->raft_handle, &raft_funcs, cyclone_handle);
   raft_set_election_timeout(cyclone_handle->raft_handle, RAFT_ELECTION_TIMEOUT);
   raft_set_request_timeout(cyclone_handle->raft_handle, RAFT_REQUEST_TIMEOUT);
+  raft_set_nack_timeout(cyclone_handle->raft_handle, RAFT_NACK_TIMEOUT);
 
   /* setup connections */
   cyclone_handle->zmq_context  = zmq_init(zmq_threads); 

@@ -4,7 +4,8 @@
 // Server side timeouts -- usecs
 static const int PERIODICITY                = 10; 
 static const int RAFT_ELECTION_TIMEOUT      = 10000; 
-static const int RAFT_REQUEST_TIMEOUT       = 60; // this has to be high enough !
+static const int RAFT_REQUEST_TIMEOUT       = 1000; 
+static const int RAFT_NACK_TIMEOUT          = 60;
 
 // Client side timeouts
 static const int timeout_msec  = 30; // Client - failure detect
