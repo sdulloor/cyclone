@@ -7,141 +7,13 @@
 #include <unistd.h>
 #include "clock.hpp"
 
+#if NETWORK_STACK==zmq
+#include "cyclone_comm_zmq.hpp"
+#else
+#error "Need a network stack."
+#endif
+
 // Cyclone communication
-
-// Best effort
-static int cyclone_tx(void *socket,
-		      const unsigned char *data,
-		      unsigned long size,
-		      const char *context) 
-{
-  int rc = zmq_send(socket, data, size, ZMQ_DONTWAIT);
-  if(rc == -1) {
-    if (errno != EAGAIN) {
-      BOOST_LOG_TRIVIAL(fatal) 
-	<< "CYCLONE: Unable to transmit "
-	<< context << " "
-	<< zmq_strerror(zmq_errno());
-      exit(-1);
-    }
-    return -1;
-  }
-  else {
-    return 0;
-  }
-}
-
-// Keep trying until success
-static void cyclone_tx_block(void *socket,
-			     const unsigned char *data,
-			     unsigned long size,
-			     const char *context)
-{
-  int ok;
-  do {
-    ok = cyclone_tx(socket, data, size, context);
-  } while(ok != 0);
-}
-
-// Block till data available
-static int cyclone_rx_block(void *socket,
-			    unsigned char *data,
-			    unsigned long size,
-			    const char *context)
-{
-  int rc;
-  while (true) {
-    rc = zmq_recv(socket, data, size, 0);
-    if (rc == -1) {
-      if (errno != EAGAIN) {
-	BOOST_LOG_TRIVIAL(fatal) 
-	  << "CYCLONE: Unable to receive "
-	  << context << " "
-	  << zmq_strerror(zmq_errno());
-	exit(-1);
-      }
-      // Retry
-    }
-    else {
-      break;
-    }
-  }
-  return rc;
-}
-
-// Block till data available or timeout
-static int cyclone_rx_timeout(void *socket,
-			      unsigned char *data,
-			      unsigned long size,
-			      unsigned long timeout_usecs,
-			      const char *context)
-{
-  int rc;
-  unsigned long mark = rtc_clock::current_time();
-  while (true) {
-    rc = zmq_recv(socket, data, size, ZMQ_NOBLOCK);
-    if(rc >= 0) {
-      break;
-    }
-    if (errno != EAGAIN) {
-      BOOST_LOG_TRIVIAL(fatal) 
-	<< "CYCLONE: Unable to receive "
-	<< context << " "
-	<< zmq_strerror(zmq_errno());
-      exit(-1);
-    }
-    if((rtc_clock::current_time() - mark) >= timeout_usecs) {
-      break;
-    }
-  }
-  return rc;
-}
-
-// Best effort
-static int cyclone_rx(void *socket,
-		      unsigned char *data,
-		      unsigned long size,
-		      const char *context)
-{
-  int rc;
-  rc = zmq_recv(socket, data, size, ZMQ_NOBLOCK);
-  if (rc == -1) {
-    if (errno != EAGAIN) {
-      BOOST_LOG_TRIVIAL(fatal) 
-	<< "CYCLONE: Unable to receive "
-	<< context << " "
-	<< zmq_strerror(zmq_errno());
-      exit(-1);
-    }
-  }
-  return rc;
-}
-
-static void* cyclone_socket_out(void *context)
-{
-  void *socket;
-  int conflate = 1;
-  socket = zmq_socket(context, ZMQ_PUSH);
-  int e = zmq_setsockopt(socket, ZMQ_CONFLATE, &conflate, sizeof(int));
-  if (e == -1) {
-    BOOST_LOG_TRIVIAL(fatal) 
-      << "CYCLONE_COMM: Unable to set sock CONFLATE "
-      << context << " "
-      << zmq_strerror(zmq_errno());
-    exit(-1);
-  }
-
-  int linger = 0;
-  e = zmq_setsockopt(socket, ZMQ_LINGER, &linger, sizeof(int));
-  if (e == -1) {
-    BOOST_LOG_TRIVIAL(fatal) 
-      << "CYCLONE_COMM: Unable to set sock linger "
-      << zmq_strerror(zmq_errno());
-    exit(-1);
-  }
-  
-  return socket;
-}
 
 static void* cyclone_socket_out_loopback(void *context)
 {
@@ -158,22 +30,6 @@ static void* cyclone_socket_out_loopback(void *context)
   return socket;
 }
 
-static void* cyclone_socket_in(void *context)
-{
-  void *socket;
-  int recv_hwm = 50;
-  socket = zmq_socket(context, ZMQ_PULL);
-  int e = zmq_setsockopt(socket, ZMQ_RCVHWM, &recv_hwm, sizeof(int));
-  if (e == -1) {
-    BOOST_LOG_TRIVIAL(fatal) 
-      << "CYCLONE_COMM: Unable to set sock RCVHWM "
-      << context << " "
-      << zmq_strerror(zmq_errno());
-    exit(-1);
-  }
-  return socket;
-}
-
 static void* cyclone_socket_in_loopback(void *context)
 {
   void *socket;
@@ -181,7 +37,7 @@ static void* cyclone_socket_in_loopback(void *context)
   return socket;
 }
 
-static void cyclone_connect_endpoint(void *socket, const char *endpoint)
+static void cyclone_connect_endpoint_loopback(void *socket, const char *endpoint)
 {
   BOOST_LOG_TRIVIAL(info)
     << "CYCLONE::COMM Connecting to "
@@ -189,7 +45,7 @@ static void cyclone_connect_endpoint(void *socket, const char *endpoint)
   zmq_connect(socket, endpoint);
 }
 
-static void cyclone_bind_endpoint(void *socket, const char *endpoint)
+static void cyclone_bind_endpoint_loopback(void *socket, const char *endpoint)
 {
   int rc = zmq_bind(socket, endpoint);
   if (rc != 0) {
@@ -205,6 +61,8 @@ static void cyclone_bind_endpoint(void *socket, const char *endpoint)
       << endpoint;
   }
 }
+
+
 
 struct client_paths {
   void *saved_context;
@@ -333,10 +191,10 @@ public:
 
     // Create input request socket
     request_socket_in = cyclone_socket_in_loopback(context);
-    cyclone_bind_endpoint(request_socket_in, "inproc://RAFT_REQ");
+    cyclone_bind_endpoint_loopback(request_socket_in, "inproc://RAFT_REQ");
     // Create output request socket
     request_socket_out = cyclone_socket_out_loopback(context);
-    cyclone_connect_endpoint(request_socket_out, "inproc://RAFT_REQ");
+    cyclone_connect_endpoint_loopback(request_socket_out, "inproc://RAFT_REQ");
     
     for(int i=0;i<replicas;i++) {
       sockets_out[i] = cyclone_socket_out(context);
@@ -481,7 +339,7 @@ public:
     mux_ports = new void *[mux_port_cnt];
     for(int i=0;i<mux_port_cnt;i++) {
       mux_ports[i] = cyclone_socket_out_loopback(context);
-      cyclone_connect_endpoint(mux_ports[i], "inproc://MUXDEMUX");
+      cyclone_connect_endpoint_loopback(mux_ports[i], "inproc://MUXDEMUX");
     }
   }
 
@@ -548,7 +406,7 @@ public:
     int ok = 0;
     demux_port =
       cyclone_socket_in_loopback(saved_context);
-    cyclone_bind_endpoint(demux_port, "inproc://MUXDEMUX");
+    cyclone_bind_endpoint_loopback(demux_port, "inproc://MUXDEMUX");
     while(true) {
       cyclone_rx_block(demux_port, 
 		       (unsigned char *)&cmd, 
