@@ -9,6 +9,8 @@
 
 #if NETWORK_STACK==zmq
 #include "cyclone_comm_zmq.hpp"
+#elif NETWORK_STACK==dpdk
+#include "cyclone_comm_dpdk.hpp"
 #else
 #error "Need a network stack."
 #endif
@@ -62,7 +64,112 @@ static void cyclone_bind_endpoint_loopback(void *socket, const char *endpoint)
   }
 }
 
+static int cyclone_tx_loopback(void *socket,
+			       const unsigned char *data,
+			       unsigned long size,
+			       const char *context) 
+{
+  int rc = zmq_send(socket, data, size, ZMQ_DONTWAIT);
+  if(rc == -1) {
+    if (errno != EAGAIN) {
+      BOOST_LOG_TRIVIAL(fatal) 
+	<< "CYCLONE: Unable to transmit "
+	<< context << " "
+	<< zmq_strerror(zmq_errno());
+      exit(-1);
+    }
+    return -1;
+  }
+  else {
+    return 0;
+  }
+}
 
+// Keep trying until success
+static void cyclone_tx_loopback_block(void *socket,
+				      const unsigned char *data,
+				      unsigned long size,
+				      const char *context)
+{
+  int ok;
+  do {
+    ok = cyclone_tx_loopback(socket, data, size, context);
+  } while(ok != 0);
+}
+
+// Block till data available
+static int cyclone_rx_loopback_block(void *socket,
+				     unsigned char *data,
+				     unsigned long size,
+				     const char *context)
+{
+  int rc;
+  while (true) {
+    rc = zmq_recv(socket, data, size, 0);
+    if (rc == -1) {
+      if (errno != EAGAIN) {
+	BOOST_LOG_TRIVIAL(fatal) 
+	  << "CYCLONE: Unable to receive "
+	  << context << " "
+	  << zmq_strerror(zmq_errno());
+	exit(-1);
+      }
+      // Retry
+    }
+    else {
+      break;
+    }
+  }
+  return rc;
+}
+
+// Block till data available or timeout
+static int cyclone_rx_loopback_timeout(void *socket,
+				       unsigned char *data,
+				       unsigned long size,
+				       unsigned long timeout_usecs,
+				       const char *context)
+{
+  int rc;
+  unsigned long mark = rtc_clock::current_time();
+  while (true) {
+    rc = zmq_recv(socket, data, size, ZMQ_NOBLOCK);
+    if(rc >= 0) {
+      break;
+    }
+    if (errno != EAGAIN) {
+      BOOST_LOG_TRIVIAL(fatal) 
+	<< "CYCLONE: Unable to receive "
+	<< context << " "
+	<< zmq_strerror(zmq_errno());
+      exit(-1);
+    }
+    if((rtc_clock::current_time() - mark) >= timeout_usecs) {
+      break;
+    }
+  }
+  return rc;
+}
+
+// Best effort
+static int cyclone_rx_loopback(void *socket,
+			       unsigned char *data,
+			       unsigned long size,
+			       const char *context)
+{
+  int rc;
+  rc = zmq_recv(socket, data, size, ZMQ_NOBLOCK);
+  if (rc == -1) {
+    if (errno != EAGAIN) {
+      BOOST_LOG_TRIVIAL(fatal) 
+	<< "CYCLONE: Unable to receive "
+	<< context << " "
+	<< zmq_strerror(zmq_errno());
+      exit(-1);
+    }
+  }
+  return rc;
+}
 
 struct client_paths {
   void *saved_context;
@@ -358,14 +465,14 @@ public:
     cmd.client = client;
     cmd.data = data;
     cmd.size = size;
-    cyclone_tx_block(mux_ports[mux_index],
-		     (const unsigned char *)&cmd,
-		     sizeof(mux_state_t),
-		     "mux data");
-    cyclone_rx_block(mux_ports[mux_index],
-		     (unsigned char *)&ok,
-		     sizeof(int),
-		     "demux data");
+    cyclone_tx_loopback_block(mux_ports[mux_index],
+			      (const unsigned char *)&cmd,
+			      sizeof(mux_state_t),
+			      "mux data");
+    cyclone_rx_loopback_block(mux_ports[mux_index],
+			      (unsigned char *)&ok,
+			      sizeof(int),
+			      "demux data");
   }
 
   void ring_doorbell(int mc,
@@ -379,15 +486,15 @@ public:
     cmd.mc = mc;
     cmd.client = client;
     cmd.port = port;
-    cyclone_tx_block(mux_ports[mux_index],
+    cyclone_tx_loopback_block(mux_ports[mux_index],
 		     (const unsigned char *)&cmd,
 		     sizeof(mux_state_t),
 		     "mux doorbell");
     
-    cyclone_rx_block(mux_ports[mux_index],
-		     (unsigned char *)&ok,
-		     sizeof(int),
-		     "demux doorbell");
+    cyclone_rx_loopback_block(mux_ports[mux_index],
+			      (unsigned char *)&ok,
+			      sizeof(int),
+			      "demux doorbell");
   }
 
   void *input_socket()
@@ -408,25 +515,25 @@ public:
       cyclone_socket_in_loopback(saved_context);
     cyclone_bind_endpoint_loopback(demux_port, "inproc://MUXDEMUX");
     while(true) {
-      cyclone_rx_block(demux_port, 
-		       (unsigned char *)&cmd, 
-		       sizeof(mux_state_t),
-		       "demux");
+      cyclone_rx_loopback_block(demux_port, 
+				(unsigned char *)&cmd, 
+				sizeof(mux_state_t),
+				"demux");
       if(cmd.op == RING_DOORBELL) {
 	cpaths.ring_doorbell(cmd.mc,
 			     cmd.client,
 			     cmd.port);
       }
       else {
-	cyclone_tx(cpaths.socket(cmd.mc, cmd.client),
-		   (const unsigned char *)cmd.data,
-		   cmd.size,
-		   "demux data tx");
+	cyclone_tx_loopback(cpaths.socket(cmd.mc, cmd.client),
+			    (const unsigned char *)cmd.data,
+			    cmd.size,
+			    "demux data tx");
       }
-      cyclone_tx_block(demux_port, 
-		       (unsigned char *)&ok, 
-		       sizeof(int),
-		       "demux resp");
+      cyclone_tx_loopback_block(demux_port, 
+				(unsigned char *)&ok, 
+				sizeof(int),
+				"demux resp");
     }
   }
   
