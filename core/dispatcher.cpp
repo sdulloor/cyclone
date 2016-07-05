@@ -258,14 +258,14 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	follower_req.req_follower_data = (char *)follower_data;
 	follower_req.req_follower_term = execution_term;
 	follower_req.req_follower_data_size = follower_data_size + sizeof(rpc_t);
-	cyclone_tx_block(follower_req_socket, 
-			 (const unsigned char *)&follower_req,
-			 sizeof(follower_req_t),
-			 "follower req");
-	cyclone_rx_block(follower_req_socket,
-			 (unsigned char *)&follower_resp,
-			 sizeof(int),
-			 "follower req resp");
+	cyclone_tx_loopback_block(follower_req_socket, 
+				  (const unsigned char *)&follower_req,
+				  sizeof(follower_req_t),
+				  "follower req");
+	cyclone_rx_loopback_block(follower_req_socket,
+				  (unsigned char *)&follower_resp,
+				  sizeof(int),
+				  "follower req resp");
 	app_callbacks.gc_callback(tmp);
 	free(follower_data);
 	while(!rpc->rep_follower_success &&
@@ -1017,10 +1017,10 @@ struct dispatcher_loop {
       }
 
       if((mark - last_gc) >= PERIODICITY) {
-	sz = cyclone_rx(follower_rep_socket,
-			(unsigned char *)&follower_req,
-			sizeof(follower_req_t),
-			"follower req");
+	sz = cyclone_rx_loopback(follower_rep_socket,
+				 (unsigned char *)&follower_req,
+				 sizeof(follower_req_t),
+				 "follower req");
 	if(sz != -1) {
 	  void * cookie = 
 	    cyclone_add_entry_term(cyclone_handle,
@@ -1031,10 +1031,10 @@ struct dispatcher_loop {
 	    free(cookie);
 	  }
 	  follower_resp = 0;
-	  cyclone_tx_block(follower_rep_socket,
-			   (unsigned char *)&follower_resp,
-			   sizeof(int),
-			   "follower rep rep");
+	  cyclone_tx_loopback_block(follower_rep_socket,
+				    (unsigned char *)&follower_resp,
+				    sizeof(int),
+				    "follower rep rep");
 	}
 	
 	// Leadership change ?

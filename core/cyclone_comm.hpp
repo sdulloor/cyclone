@@ -375,6 +375,7 @@ typedef struct mux_state_st{
 // A version of every client on every machine
 class server_switch {
   void *saved_context;
+  void *saved_loopback_context;
   void *socket_in;
   int clients;
   client_paths cpaths;
@@ -390,7 +391,8 @@ public:
 		int me,
 		int clients_in,
 		int mux_port_cnt)
-    :saved_context(context)
+    :saved_context(context),
+     saved_loopback_context(loopback_context)
     
   {
     std::stringstream key; 
@@ -487,8 +489,7 @@ public:
   {
     mux_state_t cmd;
     int ok = 0;
-    demux_port =
-      cyclone_socket_in_loopback(saved_context);
+    demux_port = cyclone_socket_in_loopback(saved_loopback_context);
     cyclone_bind_endpoint_loopback(demux_port, "inproc://MUXDEMUX");
     while(true) {
       cyclone_rx_loopback_block(demux_port, 

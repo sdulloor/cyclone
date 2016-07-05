@@ -219,12 +219,11 @@ static int cyclone_rx(void *socket,
     m = burst[0];
     rte_prefetch0(rte_pktmbuf_mtod(m, void *));
     // Strip off headers
-    int payload_offset = 
-      sizeof(struct ether_hdr) + 
-      sizeof(struct ipv4_hdr);
+    int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
     void *payload = rte_pktmbuf_mtod_offset(m, void *, payload_offset);
     int msg_size = m->data_len - payload_offset;
     rte_memcpy(data, payload, msg_size);
+    rte_pktmbuf_free(m);
     return msg_size;
   }
   else {
@@ -271,8 +270,10 @@ static void* dpdk_context()
   dpdk_context_t *context = (dpdk_context_t *)malloc(sizeof(dpdk_context_t));
   int ret;
   
+  char* fake_argv[1] = {(char *)"./fake"};
+
   /* init EAL */
-  ret = rte_eal_init(0, NULL);
+  ret = rte_eal_init(1, fake_argv);
   if (ret < 0)
     rte_exit(EXIT_FAILURE, "Invalid EAL arguments\n");
  
@@ -286,8 +287,10 @@ static void* dpdk_context()
   // Assume port 0, core 1 ....
 
   for(int i=0;i<num_queues;i++) {
+    char pool_name[50];
+    sprintf(pool_name, "mbuf_pool%d", i);
     // Mempool
-    context->mempools[i] = rte_pktmbuf_pool_create("mbuf_pool", 
+    context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
 						   8191,
 						   32,
 						   0,
@@ -332,6 +335,7 @@ static void* dpdk_context()
       rte_exit(EXIT_FAILURE, "rte_eth_rx_queue_setup:err=%d, port=%u\n",
 	       ret, 0);
 
+    BOOST_LOG_TRIVIAL(info) << "CYCLONE_COMM:DPDK setup queue " << i;
   }
   /* Start device */
   ret = rte_eth_dev_start(0);

@@ -483,14 +483,14 @@ void* cyclone_add_entry(void *cyclone_handle, void *data, int size)
   msg.msg_type    = MSG_CLIENT_REQ;
   msg.client.ptr  = data;
   msg.client.size = size;
-  cyclone_tx_block(handle->router->request_out(), 
-		   (const unsigned char *)&msg, 
-		   sizeof(msg_t), 
-		   "client req");
-  cyclone_rx_block(handle->router->request_out(),
-		   (unsigned char *)&cookie,
-		   sizeof(void *),
-		   "CLIENT REQ recv");
+  cyclone_tx_loopback_block(handle->router->request_out(), 
+			    (const unsigned char *)&msg, 
+			    sizeof(msg_t), 
+			    "client req");
+  cyclone_rx_loopback_block(handle->router->request_out(),
+			    (unsigned char *)&cookie,
+			    sizeof(void *),
+			    "CLIENT REQ recv");
   return cookie;
 }
 
@@ -507,14 +507,14 @@ void* cyclone_add_batch(void *cyclone_handle,
   msg.client.ptr  = data;
   msg.client.size = batch_size;
   msg.client.batch_sizes = sizes;
-  cyclone_tx_block(handle->router->request_out(), 
-		   (const unsigned char *)&msg, 
-		   sizeof(msg_t), 
-		   "client req");
-  cyclone_rx_block(handle->router->request_out(),
-		   (unsigned char *)&cookies,
-		   sizeof(void *),
-		   "CLIENT REQ recv");
+  cyclone_tx_loopback_block(handle->router->request_out(), 
+			    (const unsigned char *)&msg, 
+			    sizeof(msg_t), 
+			    "client req");
+  cyclone_rx_loopback_block(handle->router->request_out(),
+			    (unsigned char *)&cookies,
+			    sizeof(void *),
+			    "CLIENT REQ recv");
   return cookies;
 }
 
@@ -528,14 +528,14 @@ void* cyclone_add_entry_cfg(void *cyclone_handle, int type, void *data, int size
   msg.client.ptr  = data;
   msg.client.size = size;
   msg.client.type = type;
-  cyclone_tx_block(handle->router->request_out(), 
-		   (const unsigned char *)&msg, 
-		   sizeof(msg_t), 
-		   "client req");
-  cyclone_rx_block(handle->router->request_out(),
-		   (unsigned char *)&cookie,
-		   sizeof(void *),
-		   "CLIENT REQ recv");
+  cyclone_tx_loopback_block(handle->router->request_out(), 
+			    (const unsigned char *)&msg, 
+			    sizeof(msg_t), 
+			    "client req");
+  cyclone_rx_loopback_block(handle->router->request_out(),
+			    (unsigned char *)&cookie,
+			    sizeof(void *),
+			    "CLIENT REQ recv");
   return cookie;
 }
 
@@ -552,14 +552,14 @@ void* cyclone_add_entry_term(void *cyclone_handle,
   msg.client.ptr  = data;
   msg.client.size = size;
   msg.client.term = term;
-  cyclone_tx_block(handle->router->request_out(), 
-		   (const unsigned char *)&msg, 
-		   sizeof(msg_t), 
-		   "client req");
-  cyclone_rx_block(handle->router->request_out(),
-		   (unsigned char *)&cookie,
-		   sizeof(void *),
-		   "CLIENT REQ recv");
+  cyclone_tx_loopback_block(handle->router->request_out(), 
+			    (const unsigned char *)&msg, 
+			    sizeof(msg_t), 
+			    "client req");
+  cyclone_rx_loopback_block(handle->router->request_out(),
+			    (unsigned char *)&cookie,
+			    sizeof(void *),
+			    "CLIENT REQ recv");
   return cookie;
 }
 
@@ -571,14 +571,14 @@ void* cyclone_set_img_build(void *cyclone_handle)
   void *cookie = NULL;
   msg.source      = handle->me;
   msg.msg_type    = MSG_CLIENT_REQ_SET_IMGBUILD;
-  cyclone_tx_block(handle->router->request_out(), 
-		   (const unsigned char *)&msg, 
-		   sizeof(msg_t), 
-		   "client req");
-  cyclone_rx_block(handle->router->request_out(),
-		   (unsigned char *)&cookie,
-		   sizeof(void *),
-		   "CLIENT REQ recv");
+  cyclone_tx_loopback_block(handle->router->request_out(), 
+			    (const unsigned char *)&msg, 
+			    sizeof(msg_t), 
+			    "client req");
+  cyclone_rx_loopback_block(handle->router->request_out(),
+			    (unsigned char *)&cookie,
+			    sizeof(void *),
+			    "CLIENT REQ recv");
   return cookie;
 }
 
@@ -590,14 +590,14 @@ void* cyclone_unset_img_build(void *cyclone_handle)
   void *cookie = NULL;
   msg.source      = handle->me;
   msg.msg_type    = MSG_CLIENT_REQ_UNSET_IMGBUILD;
-  cyclone_tx_block(handle->router->request_out(), 
-		   (const unsigned char *)&msg, 
-		   sizeof(msg_t), 
-		   "client req");
-  cyclone_rx_block(handle->router->request_out(),
-		   (unsigned char *)&cookie,
-		   sizeof(void *),
-		   "CLIENT REQ recv");
+  cyclone_tx_loopback_block(handle->router->request_out(), 
+			    (const unsigned char *)&msg, 
+			    sizeof(msg_t), 
+			    "client req");
+  cyclone_rx_loopback_block(handle->router->request_out(),
+			    (unsigned char *)&cookie,
+			    sizeof(void *),
+			    "CLIENT REQ recv");
   return cookie;
 }
 
@@ -609,14 +609,14 @@ int cyclone_check_status(void *cyclone_handle, void *cookie)
   msg.msg_type    = MSG_CLIENT_STATUS;
   msg.client.ptr  = cookie;
   int result;
-  cyclone_tx_block(handle->router->request_out(), 
-		   (unsigned char *)&msg, 
-		   sizeof(msg_t), 
-		   "client status");
-  cyclone_rx_block(handle->router->request_out(),
-		   (unsigned char *)&result,
-		   sizeof(int),
-		   "CLIENT STATUS RECV");
+  cyclone_tx_loopback_block(handle->router->request_out(), 
+			    (unsigned char *)&msg, 
+			    sizeof(msg_t), 
+			    "client status");
+  cyclone_rx_loopback_block(handle->router->request_out(),
+			    (unsigned char *)&result,
+			    sizeof(int),
+			    "CLIENT STATUS RECV");
   return result;
 }
 
