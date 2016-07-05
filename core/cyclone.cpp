@@ -4,6 +4,10 @@
 #include "tuning.hpp"
 #include "checkpoint.hpp"
 
+#if defined(DPDK_STACK)
+extern void * global_dpdk_context;
+#endif
+
 void *cyclone_control_socket_out(void *cyclone_handle, 
 				 int replica)
 {
@@ -758,7 +762,14 @@ void* cyclone_boot(const char *config_path,
 
   /* setup connections */
   cyclone_handle->zmq_context  = zmq_init(zmq_threads); 
-  cyclone_handle->router = new raft_switch(cyclone_handle->zmq_context,
+  cyclone_handle->router = new raft_switch(
+#if defined(DPDK_STACK)
+					   global_dpdk_context,
+#else
+					   cyclone_handle->zmq_context,
+#endif
+
+					   cyclone_handle->zmq_context,
 					   &cyclone_handle->pt,
 					   cyclone_handle->me,
 					   cyclone_handle->replicas,

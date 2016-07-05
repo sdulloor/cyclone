@@ -230,7 +230,8 @@ static int cyclone_rx_timeout(void *socket,
 
 static const int q_dispatcher = 0;
 static const int q_raft       = 1;
-static const int num_queues   = 2;
+static const int q_control    = 2;
+static const int num_queues   = 3;
 #define RTE_TEST_RX_DESC_DEFAULT 128
 #define RTE_TEST_TX_DESC_DEFAULT 512
 static const uint16_t nb_rxd = RTE_TEST_RX_DESC_DEFAULT;
@@ -285,7 +286,7 @@ static void* dpdk_context()
   }
   
   
-  rte_eth_dev_configure(0, 3, 3, &port_conf);
+  rte_eth_dev_configure(0, num_queues, num_queues, &port_conf);
 
   // Assume port 0, core 1 ....
 

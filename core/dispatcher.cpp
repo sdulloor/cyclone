@@ -24,6 +24,11 @@ static void *cyclone_handle;
 static boost::property_tree::ptree pt_server;
 static boost::property_tree::ptree pt_client;
 
+#if defined(DPDK_STACK)
+void * global_dpdk_context;
+#endif
+
+
 struct client_ro_state_st {
   volatile unsigned long committed_txid;
   char * last_return_value;
@@ -1098,6 +1103,11 @@ void dispatcher_start(const char* config_server_path,
   app_callbacks = *rpc_callbacks;
   dispatcher_exec_startup();
 
+  
+#if defined(DPDK_STACK)
+  global_dpdk_context = dpdk_context();
+#endif
+
   bool i_am_active = false;
   for(int i=0;i<pt_server.get<int>("active.replicas");i++) {
     char nodeidxkey[100];
@@ -1187,7 +1197,13 @@ void dispatcher_start(const char* config_server_path,
   dispatcher_loop_obj->clients  = clients;
   dispatcher_loop_obj->machines = pt_client.get<int>("machines.machines");
   replica_me = me;
-  router = new server_switch(zmq_context,
+  router = new server_switch(
+#if defined(DPDK_STACK)
+			     global_dpdk_context,
+#else
+			     zmq_context,
+#endif
+			     zmq_context,
 			     &pt_server,
 			     &pt_client,
 			     me,

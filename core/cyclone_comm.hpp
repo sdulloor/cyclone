@@ -10,9 +10,9 @@
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 2048;
 
-#if NETWORK_STACK==zmq
+#if defined(ZMQ_STACK)
 #include "cyclone_comm_zmq.hpp"
-#elif NETWORK_STACK==dpdk
+#elif defined(DPDK_STACK)
 #include "cyclone_comm_dpdk.hpp"
 #else
 #error "Need a network stack."
@@ -261,6 +261,7 @@ class raft_switch {
 public:
   client_paths cpaths;
   raft_switch(void *context,
+	      void *loopback_context,
 	      boost::property_tree::ptree *pt,
 	      int me,
 	      int replicas_in,
@@ -300,10 +301,10 @@ public:
     cyclone_bind_endpoint(socket_in, addr.str().c_str());
 
     // Create input request socket
-    request_socket_in = cyclone_socket_in_loopback(context);
+    request_socket_in = cyclone_socket_in_loopback(loopback_context);
     cyclone_bind_endpoint_loopback(request_socket_in, "inproc://RAFT_REQ");
     // Create output request socket
-    request_socket_out = cyclone_socket_out_loopback(context);
+    request_socket_out = cyclone_socket_out_loopback(loopback_context);
     cyclone_connect_endpoint_loopback(request_socket_out, "inproc://RAFT_REQ");
     
     for(int i=0;i<replicas;i++) {
@@ -317,7 +318,7 @@ public:
       addr << ":" << port;
       cyclone_connect_endpoint(sockets_out[i], addr.str().c_str());
     }
-    control_socket_in = cyclone_socket_in_loopback(context);
+    control_socket_in = cyclone_socket_in_loopback(loopback_context);
     key.str("");key.clear();
     addr.str("");addr.clear();
     key << "machines.iface" << me;
@@ -327,7 +328,7 @@ public:
     addr << ":" << port;
     cyclone_bind_endpoint(control_socket_in, addr.str().c_str());
     for(int i=0;i<replicas;i++) {
-      control_sockets_out[i] = cyclone_socket_out_loopback(context);
+      control_sockets_out[i] = cyclone_socket_out_loopback(loopback_context);
       key.str("");key.clear();
       addr.str("");addr.clear();
       key << "machines.addr" << i;
@@ -409,7 +410,8 @@ class server_switch {
 
 public:
 
-  server_switch(void *context, 
+  server_switch(void *context,
+		void *loopback_context,
 		boost::property_tree::ptree *pt_server,
 		boost::property_tree::ptree *pt_client,
 		int me,
@@ -448,7 +450,7 @@ public:
     cyclone_bind_endpoint(socket_in, addr.str().c_str());
     mux_ports = new void *[mux_port_cnt];
     for(int i=0;i<mux_port_cnt;i++) {
-      mux_ports[i] = cyclone_socket_out_loopback(context);
+      mux_ports[i] = cyclone_socket_out_loopback(loopback_context);
       cyclone_connect_endpoint_loopback(mux_ports[i], "inproc://MUXDEMUX");
     }
   }
