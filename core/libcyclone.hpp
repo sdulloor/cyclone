@@ -7,7 +7,7 @@
 TOID_DECLARE(char, 0);
 #define TOID_NUM_BASE 1000
 static const int MAX_CLIENTS      = 10000; // Should be enough ?
-static const int DISP_MAX_MSGSIZE = 4194304; // 4MB max msg size 
+static const int DISP_MAX_MSGSIZE = 1024; // 1024 bytes max msg size
 
 typedef struct rpc_cookie_st {
   volatile int raft_idx;

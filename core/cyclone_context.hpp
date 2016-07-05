@@ -35,10 +35,6 @@ const int  MSG_CLIENT_REQ_UNSET_IMGBUILD= 11;
 const int  MSG_ASSISTED_APPENDENTRIES   = 12;
 const int  MSG_ASSISTED_QUORUM_OK       = 13;
 
-/* Cyclone max message size */
-const int MSG_MAXSIZE  = 4194304;
-
-
 /* Message format */
 typedef struct client_io_st {
   void *ptr;

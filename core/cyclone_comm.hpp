@@ -7,6 +7,9 @@
 #include <unistd.h>
 #include "clock.hpp"
 
+/* Cyclone max message size */
+const int MSG_MAXSIZE  = 2048;
+
 #if NETWORK_STACK==zmq
 #include "cyclone_comm_zmq.hpp"
 #elif NETWORK_STACK==dpdk
