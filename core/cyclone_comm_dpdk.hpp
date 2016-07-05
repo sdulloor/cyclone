@@ -81,7 +81,7 @@ typedef struct {
   struct rte_eth_dev_tx_buffer *buffers[num_queues];
 } dpdk_context_t;
 
-
+#define PKT_BURST 32
 typedef struct  {
   dpdk_context_t *context;
   struct rte_mempool *mempool;
@@ -92,6 +92,9 @@ typedef struct  {
   uint32_t flow_ip_dst;
   int port_id;
   int queue_id;
+  rte_mbuf *burst[PKT_BURST];
+  int consumed;
+  int buffered;
 } dpdk_socket_t;
 
 
@@ -207,14 +210,17 @@ static int cyclone_rx(void *socket,
 		      const char *context)
 {
   int rc, nb_rx;
-  rte_mbuf *burst[1], *m;
+  rte_mbuf *m;
   dpdk_socket_t *dpdk_socket = (dpdk_socket_t *)socket;
-  nb_rx = rte_eth_rx_burst(dpdk_socket->port_id, 
-			   dpdk_socket->queue_id,
-			   burst, 
-			   1);
-  if(nb_rx == 1) {
-    m = burst[0];
+  if(dpdk_socket->buffered == dpdk_socket->consumed) {
+    dpdk_socket->consumed = 0;
+    dpdk_socket->buffered = rte_eth_rx_burst(dpdk_socket->port_id, 
+					     dpdk_socket->queue_id,
+					     &dpdk_socket->burst[0], 
+					     PKT_BURST);
+  }
+  if(dpdk_socket->consumed < dpdk_socket->buffered) {
+    m = dpdk_socket->burst[dpdk_socket->consumed++];
     rte_prefetch0(rte_pktmbuf_mtod(m, void *));
     // Strip off headers
     int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
@@ -384,6 +390,8 @@ static void* dpdk_set_socket_queue(void *socket, int q)
     s->flow_ip_dst = 101;
   else
     s->flow_ip_dst = 13203;
+  s->buffered = 0;
+  s->consumed = 0;
 }
 
 
