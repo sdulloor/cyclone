@@ -272,8 +272,7 @@ static void* dpdk_context()
   int ret;
   
   /* init EAL */
-  char* argv[3] = {(char *)"--", (char *)"-p", (char *)"0x1"};
-  ret = rte_eal_init(3, argv);
+  ret = rte_eal_init(0, NULL);
   if (ret < 0)
     rte_exit(EXIT_FAILURE, "Invalid EAL arguments\n");
  
