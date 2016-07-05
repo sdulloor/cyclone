@@ -49,6 +49,6 @@ install:libcyclone.a
 
 clean:
 	rm -f libcyclone.o dispatcher.o dispatcher_exec.o dispatch_client.o \
-	checkpoint.o checkpoint_savepage.o libcyclone.a /usr/lib/libcyclone.so\
+	checkpoint.o checkpoint_savepage.o libcyclone.a /usr/lib/libcyclone.so \
 	/usr/lib/libcyclone.a /usr/include/libcyclone.hpp
 
