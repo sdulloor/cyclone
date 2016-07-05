@@ -47,7 +47,15 @@
 #include <rte_byteorder.h>
 
 
+typedef struct {
+  struct ether_addr port_macaddr;
+  struct rte_mempool *mempools[num_queues];
+  struct rte_eth_dev_tx_buffer *buffers[num_queues];
+} dpdk_context_t;
+
+
 typedef struct  {
+  dpdk_context_t *context;
   struct rte_mempool *mempool;
   struct rte_eth_dev_tx_buffer *buffer;
   struct ether_addr remote_mac;
@@ -238,12 +246,6 @@ static const uint16_t nb_rxd = RTE_TEST_RX_DESC_DEFAULT;
 static const uint16_t nb_txd = RTE_TEST_TX_DESC_DEFAULT;
 
 
-typedef struct {
-  struct ether_addr port_macaddr;
-  struct rte_mempool *mempools[num_queues];
-  struct rte_eth_dev_tx_buffer *buffers[num_queues];
-} dpdk_context_t;
-
 static uint8_t global_rss_key[40] = {0};
 
 static const struct rte_eth_conf port_conf = {
@@ -353,6 +355,7 @@ static void* cyclone_socket_out(void *context)
   dpdk_socket_t *socket;
   dpdk_context_t *dpdk_context = (dpdk_context_t *)context;
   socket = (dpdk_socket_t *)malloc(sizeof(dpdk_context_t));
+  socket->context = context;
   ether_addr_copy(&dpdk_context->port_macaddr, &socket->local_mac);
   socket->port_id = 0;
   return socket;
@@ -363,15 +366,16 @@ static void* cyclone_socket_in(void *context)
   dpdk_socket_t *socket;
   dpdk_context_t *dpdk_context = (dpdk_context_t *)context;
   socket = (dpdk_socket_t *)malloc(sizeof(dpdk_context_t));
+  socket->context = context;
   ether_addr_copy(&dpdk_context->port_macaddr, &socket->local_mac);
   socket->port_id = 0;
   return socket;
 }
 
-static void* dpdk_set_socket_queue(void *context, void *socket, int q)
+static void* dpdk_set_socket_queue(void *socket, int q)
 {
   dpdk_socket_t *s  = (dpdk_socket_t *)socket;
-  dpdk_context_t *c = (dpdk_context_t *)context;
+  dpdk_context_t *c = s->context;
   s->mempool  = c->mempools[q];
   s->buffer   = c->buffers[q];
   s->queue_id = q; 
@@ -387,10 +391,19 @@ static void* dpdk_set_socket_queue(void *context, void *socket, int q)
 }
 
 
-static void cyclone_connect_endpoint(void *socket, const char *endpoint)
+static void cyclone_connect_endpoint(void *socket, 
+				     int mc,
+				     int queue,
+				     boost::property_tree::ptree *pt)
 {
   dpdk_socket_t *s  = (dpdk_socket_t *)socket;
-  sscanf(endpoint, 
+  dpdk_set_socket_queue(socket, queue);
+  key.str("");key.clear();
+  addr.str("");addr.clear();
+  key << "machines.addr" << i;
+  addr << pt->get<std::string>(key.str().c_str());
+  
+  sscanf(addr.str().c_str(), 
 	 "%02X:%02X:%02X:%02X:%02X:%02X",
 	 &s->remote_mac.addr_bytes[0],
 	 &s->remote_mac.addr_bytes[1],
@@ -402,6 +415,8 @@ static void cyclone_connect_endpoint(void *socket, const char *endpoint)
 
 static void cyclone_bind_endpoint(void *socket, const char *endpoint)
 {
+  dpdk_socket_t *s  = (dpdk_socket_t *)socket;
+  dpdk_set_socket_queue(socket, queue);
   // Connectionless
 }
 

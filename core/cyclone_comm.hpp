@@ -199,18 +199,14 @@ struct client_paths {
     if(sockets_out[index(mc, client)] != NULL) {
       zmq_close(sockets_out[index(mc, client)]);
     }
-    std::stringstream key; 
-    std::stringstream addr;
     // output wire to client
     void *socket = cyclone_socket_out(saved_context);
     sockets_out[index(mc, client)] = socket;
-    key.str("");key.clear();
-    addr.str("");addr.clear();
-    key << "machines.addr" << mc;
-    addr << "tcp://";
-    addr << saved_pt_client->get<std::string>(key.str().c_str());
-    addr << ":" << port;
-    cyclone_connect_endpoint(socket, addr.str().c_str());
+#if defined(DPDK_STACK)
+    cyclone_connect_endpoint(socket, mc, q_dispatcher, saved_pt_client);
+#else
+    cyclone_connect_endpoint(socket, mc, port, saved_pt_client);
+#endif
     socket_out_ports[index(mc, client)] = port;
   }
 
@@ -238,14 +234,7 @@ struct client_paths {
 
   void teardown()
   {
-    for(int i=0;i<client_machines;i++) {
-      for(int j=0;j<clients;j++) {
-	if(sockets_out[index(i, j)] != NULL) {
-	  zmq_close(sockets_out[index(i, j)]);
-	}
-      }
-    }
-    delete[] sockets_out;
+    // TBD
   }
   
 };
@@ -271,6 +260,7 @@ public:
   {
     std::stringstream key;
     std::stringstream addr;
+
     sockets_out = new void *[replicas];
     control_sockets_out = new void*[replicas];
 
@@ -291,15 +281,12 @@ public:
 
     // Create input socket
     socket_in = cyclone_socket_in(context);
-    key.str("");key.clear();
-    addr.str("");addr.clear();
-    key << "machines.iface" << me;
-    addr << "tcp://";
-    addr << pt->get<std::string>(key.str().c_str());
     int port = baseport + me;
-    addr << ":" << port;
-    cyclone_bind_endpoint(socket_in, addr.str().c_str());
-
+#if defined(DPDK_STACK)
+    cyclone_bind_endpoint(socket_in, me, q_raft, pt);
+#else
+    cyclone_bind_endpoint(socket_in, me, port, pt);
+#endif
     // Create input request socket
     request_socket_in = cyclone_socket_in_loopback(loopback_context);
     cyclone_bind_endpoint_loopback(request_socket_in, "inproc://RAFT_REQ");
@@ -309,34 +296,28 @@ public:
     
     for(int i=0;i<replicas;i++) {
       sockets_out[i] = cyclone_socket_out(context);
-      key.str("");key.clear();
-      addr.str("");addr.clear();
-      key << "machines.addr" << i;
-      addr << "tcp://";
-      addr << pt->get<std::string>(key.str().c_str());
       port = baseport + i ;
-      addr << ":" << port;
-      cyclone_connect_endpoint(sockets_out[i], addr.str().c_str());
+#if defined(DPDK_STACK)
+      cyclone_connect_endpoint(sockets_out[i], i, q_raft, pt);
+#else
+      cyclone_connect_endpoint(sockets_out[i], i, port, pt);
+#endif
     }
     control_socket_in = cyclone_socket_in_loopback(loopback_context);
-    key.str("");key.clear();
-    addr.str("");addr.clear();
-    key << "machines.iface" << me;
-    addr << "tcp://";
-    addr << pt->get<std::string>(key.str().c_str());
     port = baseport + replicas + me;
-    addr << ":" << port;
-    cyclone_bind_endpoint(control_socket_in, addr.str().c_str());
+#if defined(DPDK_STACK)
+    cyclone_bind_endpoint(control_socket_in, me, q_control, pt);
+#else
+    cyclone_bind_endpoint(control_socket_in, me, port, pt);
+#endif
     for(int i=0;i<replicas;i++) {
       control_sockets_out[i] = cyclone_socket_out_loopback(loopback_context);
-      key.str("");key.clear();
-      addr.str("");addr.clear();
-      key << "machines.addr" << i;
-      addr << "tcp://";
-      addr << pt->get<std::string>(key.str().c_str());
       port = baseport + replicas + i ;
-      addr << ":" << port;
-      cyclone_connect_endpoint(control_sockets_out[i], addr.str().c_str());
+#if defined(DPDK_STACK)
+      cyclone_connect_endpoint(control_sockets_out[i], i, q_control, pt);
+#else
+      cyclone_connect_endpoint(control_sockets_out[i], i, port, pt);
+#endif
     }
 
   }
@@ -373,15 +354,7 @@ public:
 
   ~raft_switch()
   {
-    for(int i=0;i<=replicas;i++) {
-      zmq_close(sockets_out[i]);
-      zmq_close(control_sockets_out[i]);
-    }
-    zmq_close(socket_in);
-    zmq_close(request_socket_in);
-    zmq_close(request_socket_out);
-    zmq_close(control_socket_in);
-    delete[] sockets_out;
+    // TBD
   }
 };
 
@@ -440,14 +413,12 @@ public:
 
     // Input wire
     socket_in   = cyclone_socket_in(context); 
-    key.str("");key.clear();
-    addr.str("");addr.clear();
-    key << "machines.iface" << me;
-    addr << "tcp://";
-    addr << pt_server->get<std::string>(key.str().c_str());
     port = server_baseport + me;
-    addr << ":" << port;
-    cyclone_bind_endpoint(socket_in, addr.str().c_str());
+#if defined(DPDK_STACK)
+    cyclone_bind_endpoint(socket_in, me, q_dispatcher, pt_server);
+#else
+      cyclone_bind_endpoint(socket_in, me, port, pt_server);
+#endif
     mux_ports = new void *[mux_port_cnt];
     for(int i=0;i<mux_port_cnt;i++) {
       mux_ports[i] = cyclone_socket_out_loopback(loopback_context);
@@ -544,8 +515,7 @@ public:
   
   ~server_switch()
   {
-    cpaths.teardown();
-    zmq_close(socket_in);
+    // TBD
    }
 };
 
@@ -587,13 +557,10 @@ public:
     for(int i=0;i<server_machines;i++) {
       // input wire from server 
       sockets_in[i] = cyclone_socket_in(context);
-      key.str("");key.clear();
-      addr.str("");addr.clear();
-      key << "machines.iface" << me_mc;
-      addr << "tcp://";
-      addr << pt_client->get<std::string>(key.str().c_str());
-      addr << ":*";
-      cyclone_bind_endpoint(sockets_in[i], addr.str().c_str());
+#if defined(DPDK_STACK)
+      cyclone_bind_endpoint(sockets_in[i], me_mc, q_dispatcher, pt_client);
+#else
+      cyclone_bind_endpoint(sockets_in[i], me_mc, -1, pt_client);
       size_t sz  = 1024;
       int e = zmq_getsockopt(sockets_in[i], ZMQ_LAST_ENDPOINT, zmq_dsn, &sz);
       if(e != 0) {
@@ -605,26 +572,23 @@ public:
       while((*ptr) != ':') ptr--;
       ptr++;
       ports_in[i] = atoi(ptr);
+#endif
       // output wire to server
       sockets_out[i] = cyclone_socket_out(context);
-      key.str("");key.clear();
-      addr.str("");addr.clear();
-      key << "machines.addr" << i;
-      addr << "tcp://";
-      addr << pt_server->get<std::string>(key.str().c_str());
       port = server_baseport + i;
-      addr << ":" << port;
-      cyclone_connect_endpoint(sockets_out[i], addr.str().c_str());
+#if defined(DPDK_STACK)
+      cyclone_connect_endpoint(sockets_out[i], i, q_dispatcher, pt_server);
+#else
+      cyclone_connect_endpoint(sockets_out[i], i, port, pt_server);
+#endif
       // output wire to raft instance
       raft_sockets_out[i] = cyclone_socket_out(context);
-      key.str("");key.clear();
-      addr.str("");addr.clear();
-      key << "machines.addr" << i;
-      addr << "tcp://";
-      addr << pt_server->get<std::string>(key.str().c_str());
       port = raft_baseport + i ;
-      addr << ":" << port;
-      cyclone_connect_endpoint(raft_sockets_out[i], addr.str().c_str());
+#if defined(DPDK_STACK)
+      cyclone_connect_endpoint(raft_sockets_out[i], i, q_raft, pt_server);
+#else
+      cyclone_connect_endpoint(raft_sockets_out[i], i, port, pt_server);
+#endif
     }
     delete zmq_dsn;
   }
@@ -651,14 +615,7 @@ public:
 
   ~client_switch()
   {
-    for(int i=0;i<server_machines;i++) {
-      zmq_close(output_socket(i));
-      zmq_close(raft_output_socket(i));
-      zmq_close(input_socket(i));
-    }
-    delete[] sockets_out;
-    delete[] raft_sockets_out;
-    delete[] sockets_in;
+    // TBD
   }
 };
 
