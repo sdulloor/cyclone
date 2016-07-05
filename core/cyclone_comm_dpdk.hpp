@@ -261,8 +261,8 @@ static const struct rte_eth_conf port_conf = {
   },
   .rx_adv_conf = {
     .rss_conf = {
-      .rss_key     = global_rss_key,
-      .rss_key_len = 40,
+      .rss_key     = NULL, // Set Intel RSS hash
+      .rss_key_len = 0,
       .rss_hf = ETH_RSS_IP
     }
   }
@@ -374,8 +374,15 @@ static void* dpdk_set_socket_queue(void *context, void *socket, int q)
   s->mempool  = c->mempools[q];
   s->buffer   = c->buffers[q];
   s->queue_id = q; 
-  // Assign random flow ids to match to correct queue
-  
+  // flow ids to match to correct queue
+  // assuming intel rss hash in effect at rx end
+  s->src_addr = 0;
+  if(q == 0)
+    s->dst_addr = 0;
+  else if(q == 1)
+    s->dst_addr = 101;
+  else
+    s->dst_addr = 13203;
 }
 
 
