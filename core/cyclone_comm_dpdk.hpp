@@ -407,6 +407,8 @@ static void cyclone_connect_endpoint(void *socket,
 	 &s->remote_mac.addr_bytes[3],
 	 &s->remote_mac.addr_bytes[4],
 	 &s->remote_mac.addr_bytes[5]);
+  BOOST_LOG_TRIVIAL(info) << "CYCLONE::COMM::DPDK Connecting to " 
+			  << addr.str().c_str();
 }
 
 static void cyclone_bind_endpoint(void *socket, 
@@ -416,6 +418,8 @@ static void cyclone_bind_endpoint(void *socket,
 {
   dpdk_socket_t *s  = (dpdk_socket_t *)socket;
   dpdk_set_socket_queue(socket, queue);
+  BOOST_LOG_TRIVIAL(info) << "CYCLONE::COMM::DPDK Binding to queue " 
+			  << queue;
   // Connectionless
 }
 

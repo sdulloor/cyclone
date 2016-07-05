@@ -1,4 +1,4 @@
-#ifndef _CYCLONE_COMM_ZMQ_
+#ifndef _CYCLONE_COMM_ZMQ
 #define _CYCLONE_COMM_ZMQ_
 
 // Best effort
@@ -11,7 +11,7 @@ static int cyclone_tx(void *socket,
   if(rc == -1) {
     if (errno != EAGAIN) {
       BOOST_LOG_TRIVIAL(fatal) 
-	<< "CYCLONE: Unable to transmit "
+	<< "CYCLONE_COMM::ZMQ Unable to transmit "
 	<< context << " "
 	<< zmq_strerror(zmq_errno());
       exit(-1);
@@ -47,7 +47,7 @@ static int cyclone_rx_block(void *socket,
     if (rc == -1) {
       if (errno != EAGAIN) {
 	BOOST_LOG_TRIVIAL(fatal) 
-	  << "CYCLONE: Unable to receive "
+	  << "CYCLONE_COMM::ZMQ Unable to receive "
 	  << context << " "
 	  << zmq_strerror(zmq_errno());
 	exit(-1);
@@ -76,8 +76,8 @@ static int cyclone_rx_timeout(void *socket,
       break;
     }
     if (errno != EAGAIN) {
-      BOOST_LOG_TRIVIAL(fatal) 
-	<< "CYCLONE: Unable to receive "
+      BOOST_LOG_TRIVIAL(fatal)  
+	<< "CYCLONE_COMM::ZMQ Unable to receive "
 	<< context << " "
 	<< zmq_strerror(zmq_errno());
       exit(-1);
@@ -100,7 +100,7 @@ static int cyclone_rx(void *socket,
   if (rc == -1) {
     if (errno != EAGAIN) {
       BOOST_LOG_TRIVIAL(fatal) 
-	<< "CYCLONE: Unable to receive "
+	<< "CYCLONE_COMM::ZMQ Unable to receive "
 	<< context << " "
 	<< zmq_strerror(zmq_errno());
       exit(-1);
@@ -117,7 +117,7 @@ static void* cyclone_socket_out(void *context)
   int e = zmq_setsockopt(socket, ZMQ_CONFLATE, &conflate, sizeof(int));
   if (e == -1) {
     BOOST_LOG_TRIVIAL(fatal) 
-      << "CYCLONE_COMM: Unable to set sock CONFLATE "
+      << "CYCLONE_COMM::ZMQ: Unable to set sock CONFLATE "
       << context << " "
       << zmq_strerror(zmq_errno());
     exit(-1);
@@ -127,7 +127,7 @@ static void* cyclone_socket_out(void *context)
   e = zmq_setsockopt(socket, ZMQ_LINGER, &linger, sizeof(int));
   if (e == -1) {
     BOOST_LOG_TRIVIAL(fatal) 
-      << "CYCLONE_COMM: Unable to set sock linger "
+      << "CYCLONE_COMM::ZMQ: Unable to set sock linger "
       << zmq_strerror(zmq_errno());
     exit(-1);
   }
@@ -144,7 +144,7 @@ static void* cyclone_socket_in(void *context)
   int e = zmq_setsockopt(socket, ZMQ_RCVHWM, &recv_hwm, sizeof(int));
   if (e == -1) {
     BOOST_LOG_TRIVIAL(fatal) 
-      << "CYCLONE_COMM: Unable to set sock RCVHWM "
+      << "CYCLONE_COMM::ZMQ: Unable to set sock RCVHWM "
       << context << " "
       << zmq_strerror(zmq_errno());
     exit(-1);
@@ -168,7 +168,7 @@ static void cyclone_connect_endpoint(void *socket,
   addr << pt->get<std::string>(key.str().c_str());
   addr << ":" << port;
   BOOST_LOG_TRIVIAL(info)
-    << "CYCLONE::COMM Connecting to "
+    << "CYCLONE_COMM::ZMQ Connecting to "
     << addr.str().c_str();
   zmq_connect(socket, addr.str().c_str());
 }
@@ -192,14 +192,14 @@ static void cyclone_bind_endpoint(void *socket,
   int rc = zmq_bind(socket, addr.str().c_str());
   if (rc != 0) {
     BOOST_LOG_TRIVIAL(fatal)
-      << "CYCLONE::COMM Unable to setup listening socket at "
+      << "CYCLONE_COMM::ZMQ Unable to setup listening socket at "
       << addr.str().c_str() << " "
       << zmq_strerror(zmq_errno());
     exit(-1);
   }
   else {
     BOOST_LOG_TRIVIAL(info)
-      << "CYCLONE::COMM Listening at "
+      << "CYCLONE_COMM::ZMQ Listening at "
       << addr.str().c_str();
   }
 }
