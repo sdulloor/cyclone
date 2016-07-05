@@ -247,6 +247,8 @@ static uint8_t global_rss_key[40] = {0};
 
 static const struct rte_eth_conf port_conf = {
   .rxmode = {
+    .mq_mode        = ETH_MQ_RX_RSS,
+    .max_rx_pkt_len = ETHER_MAX_LEN,
     .split_hdr_size = 0,
     .header_split   = 0, 
     .hw_ip_checksum = 0, 
