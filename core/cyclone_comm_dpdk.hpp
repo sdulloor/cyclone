@@ -46,6 +46,36 @@
 #include <rte_ip.h>
 #include <rte_byteorder.h>
 
+static const int q_dispatcher = 0;
+static const int q_raft       = 1;
+static const int q_control    = 2;
+static const int num_queues   = 3;
+#define RTE_TEST_RX_DESC_DEFAULT 128
+#define RTE_TEST_TX_DESC_DEFAULT 512
+static const uint16_t nb_rxd = RTE_TEST_RX_DESC_DEFAULT;
+static const uint16_t nb_txd = RTE_TEST_TX_DESC_DEFAULT;
+
+
+static uint8_t global_rss_key[40] = {0};
+
+static struct rte_eth_conf port_conf;
+
+// Because C++ did not see it fit to include struct inits
+static void init_port_conf()
+{
+  port_conf.rxmode.mq_mode        = ETH_MQ_RX_RSS;
+  port_conf.rxmode.max_rx_pkt_len = ETHER_MAX_LEN;
+  port_conf.rxmode.split_hdr_size = 0;
+  port_conf.rxmode.header_split   = 0; 
+  port_conf.rxmode.hw_ip_checksum = 0; 
+  port_conf.rxmode.hw_vlan_filter = 0; 
+  port_conf.rxmode.jumbo_frame    = 0; 
+  port_conf.rxmode.hw_strip_crc   = 0; 
+  port_conf.txmode.mq_mode = ETH_MQ_TX_NONE;
+  port_conf.rx_adv_conf.rss_conf.rss_key = NULL; // Set Intel RSS hash
+  port_conf.rx_adv_conf.rss_conf.rss_key_len = 0;
+  port_conf.rx_adv_conf.rss_conf.rss_hf = ETH_RSS_IP;
+}
 
 typedef struct {
   struct ether_addr port_macaddr;
@@ -137,7 +167,7 @@ static int cyclone_tx(void *socket,
   initialize_ipv4_header(ip, 
 			 dpdk_socket->flow_ip_src,
 			 dpdk_socket->flow_ip_dst,
-			 size + sizeof(struct udp_hdr));
+			 size);
   rte_memcpy(ip + 1, data, size);
   
   ///////////////////////
@@ -146,7 +176,7 @@ static int cyclone_tx(void *socket,
     sizeof(struct ipv4_hdr)  + 
     size;
   m->data_len = m->pkt_len;
-  int sent = rte_eth_tx_buffer(dpdk_spocket->port_id, 
+  int sent = rte_eth_tx_buffer(dpdk_socket->port_id, 
 			       dpdk_socket->queue_id, 
 			       dpdk_socket->buffer, 
 			       m);
@@ -203,7 +233,7 @@ static int cyclone_rx(void *socket,
 }
 
 // Block till data available
-static int cyclone_rx_block(void *socket
+static int cyclone_rx_block(void *socket,
 			    unsigned char *data,
 			    unsigned long size,
 			    const char *context)
@@ -236,49 +266,13 @@ static int cyclone_rx_timeout(void *socket,
   return rc;
 }
 
-static const int q_dispatcher = 0;
-static const int q_raft       = 1;
-static const int q_control    = 2;
-static const int num_queues   = 3;
-#define RTE_TEST_RX_DESC_DEFAULT 128
-#define RTE_TEST_TX_DESC_DEFAULT 512
-static const uint16_t nb_rxd = RTE_TEST_RX_DESC_DEFAULT;
-static const uint16_t nb_txd = RTE_TEST_TX_DESC_DEFAULT;
-
-
-static uint8_t global_rss_key[40] = {0};
-
-static const struct rte_eth_conf port_conf = {
-  .rxmode = {
-    .mq_mode        = ETH_MQ_RX_RSS,
-    .max_rx_pkt_len = ETHER_MAX_LEN,
-    .split_hdr_size = 0,
-    .header_split   = 0, 
-    .hw_ip_checksum = 0, 
-    .hw_vlan_filter = 0, 
-    .jumbo_frame    = 0, 
-    .hw_strip_crc   = 0, 
-  },
-  .txmode = {
-    .mq_mode = ETH_MQ_TX_NONE,
-  },
-  .rx_adv_conf = {
-    .rss_conf = {
-      .rss_key     = NULL, // Set Intel RSS hash
-      .rss_key_len = 0,
-      .rss_hf = ETH_RSS_IP
-    }
-  }
-};
-
-
 static void* dpdk_context()
 {
   dpdk_context_t *context = (dpdk_context_t *)malloc(sizeof(dpdk_context_t));
   int ret;
   
   /* init EAL */
-  char argv[3] = {"--", "-p", "0x1"}
+  char* argv[3] = {(char *)"--", (char *)"-p", (char *)"0x1"};
   ret = rte_eal_init(3, argv);
   if (ret < 0)
     rte_exit(EXIT_FAILURE, "Invalid EAL arguments\n");
@@ -287,7 +281,7 @@ static void* dpdk_context()
     rte_exit(EXIT_FAILURE, "No Ethernet ports - bye\n");
   }
   
-  
+  init_port_conf();
   rte_eth_dev_configure(0, num_queues, num_queues, &port_conf);
 
   // Assume port 0, core 1 ....
@@ -299,8 +293,8 @@ static void* dpdk_context()
 						   32,
 						   0,
 						   RTE_PKTMBUF_HEADROOM + MSG_MAXSIZE,
-						   rte_socket_id(0));
-    if (context->mempool == NULL)
+						   rte_socket_id());
+    if (context->mempools[i] == NULL)
       rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
 
     //tx queue
@@ -312,20 +306,21 @@ static void* dpdk_context()
 
     if (ret < 0)
       rte_exit(EXIT_FAILURE, "rte_eth_tx_queue_setup:err=%d, port=%u\n",
-	       ret, (unsigned) portid);
+	       ret, (unsigned) 0);
     
 
     
-    context->buffers[i] = rte_zmalloc_socket("tx_buffer",
-					     RTE_ETH_TX_BUFFER_SIZE(1), 
-					     0,
-					     rte_eth_dev_socket_id(0));
+    context->buffers[i] = (rte_eth_dev_tx_buffer *)
+      rte_zmalloc_socket("tx_buffer",
+			 RTE_ETH_TX_BUFFER_SIZE(1), 
+			 0,
+			 rte_eth_dev_socket_id(0));
     if (context->buffers[i] == NULL)
       rte_exit(EXIT_FAILURE, "Cannot allocate buffer for tx on port %u\n",
 	       (unsigned) 0);
 
     
-    rte_eth_tx_buffer_init(context->buffers[i], MAX_PKT_BURST);
+    rte_eth_tx_buffer_init(context->buffers[i], 1);
 
     // rx queue
     ret = rte_eth_rx_queue_setup(0, 
@@ -355,7 +350,7 @@ static void* cyclone_socket_out(void *context)
   dpdk_socket_t *socket;
   dpdk_context_t *dpdk_context = (dpdk_context_t *)context;
   socket = (dpdk_socket_t *)malloc(sizeof(dpdk_context_t));
-  socket->context = context;
+  socket->context = dpdk_context;
   ether_addr_copy(&dpdk_context->port_macaddr, &socket->local_mac);
   socket->port_id = 0;
   return socket;
@@ -366,7 +361,7 @@ static void* cyclone_socket_in(void *context)
   dpdk_socket_t *socket;
   dpdk_context_t *dpdk_context = (dpdk_context_t *)context;
   socket = (dpdk_socket_t *)malloc(sizeof(dpdk_context_t));
-  socket->context = context;
+  socket->context = dpdk_context;
   ether_addr_copy(&dpdk_context->port_macaddr, &socket->local_mac);
   socket->port_id = 0;
   return socket;
@@ -381,13 +376,13 @@ static void* dpdk_set_socket_queue(void *socket, int q)
   s->queue_id = q; 
   // flow ids to match to correct queue
   // assuming intel rss hash in effect at rx end
-  s->src_addr = 0;
+  s->flow_ip_src = 0;
   if(q == 0)
-    s->dst_addr = 0;
+    s->flow_ip_dst = 0;
   else if(q == 1)
-    s->dst_addr = 101;
+    s->flow_ip_dst = 101;
   else
-    s->dst_addr = 13203;
+    s->flow_ip_dst = 13203;
 }
 
 
@@ -396,11 +391,13 @@ static void cyclone_connect_endpoint(void *socket,
 				     int queue,
 				     boost::property_tree::ptree *pt)
 {
+  std::stringstream key; 
+  std::stringstream addr;
   dpdk_socket_t *s  = (dpdk_socket_t *)socket;
   dpdk_set_socket_queue(socket, queue);
   key.str("");key.clear();
   addr.str("");addr.clear();
-  key << "machines.addr" << i;
+  key << "machines.addr" << mc;
   addr << pt->get<std::string>(key.str().c_str());
   
   sscanf(addr.str().c_str(), 
@@ -413,7 +410,10 @@ static void cyclone_connect_endpoint(void *socket,
 	 &s->remote_mac.addr_bytes[5]);
 }
 
-static void cyclone_bind_endpoint(void *socket, const char *endpoint)
+static void cyclone_bind_endpoint(void *socket, 
+				  int mc,
+				  int queue,
+				  boost::property_tree::ptree *pt)
 {
   dpdk_socket_t *s  = (dpdk_socket_t *)socket;
   dpdk_set_socket_queue(socket, queue);

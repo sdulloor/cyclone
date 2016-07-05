@@ -1,23 +1,27 @@
-all: libcyclone.so
+all: libcyclone.a
 
 CXXFLAGS = -O3 -fPIC -DBOOST_LOG_DYN_LINK
 #CXXFLAGS = -O1 -fno-omit-frame-pointer -g -fPIC -DBOOST_LOG_DYN_LINK 
 
 #Choose your network stack
-CXXFLAGS += -DZMQ_STACK
-#CXXFLAGS += -DDPDK_STACK
+
+#Option 1: TCP/IP + ZeroMQ
+#CXXFLAGS += -DZMQ_STACK
+
+#Option 2: DPDK
+CXXFLAGS += -DDPDK_STACK -std=gnu++0x
+RTE_SDK=/root/dpdk-16.04
+CXXFLAGS += -march=native -DRTE_MACHINE_CPUFLAG_SSE -DRTE_MACHINE_CPUFLAG_SSE2 -DRTE_MACHINE_CPUFLAG_SSE3 -DRTE_MACHINE_CPUFLAG_SSSE3 -DRTE_MACHINE_CPUFLAG_SSE4_1 -DRTE_MACHINE_CPUFLAG_SSE4_2 -DRTE_MACHINE_CPUFLAG_AES -DRTE_MACHINE_CPUFLAG_PCLMULQDQ -DRTE_MACHINE_CPUFLAG_AVX  -I/root/build/include -I/root/dpdk-16.04/x86_64-native-linuxapp-gcc/include -include /root/dpdk-16.04/x86_64-native-linuxapp-gcc/include/rte_config.h
+
 
 #Depending on boost version/OS distro
 BOOST_THREAD_LIB=-lboost_thread-mt
 #BOOST_THREAD_LIB=-lboost_thread
 
 
-libcyclone.so: libcyclone.o dispatcher.o dispatcher_exec.o dispatch_client.o \
+libcyclone.a: libcyclone.o dispatcher.o dispatcher_exec.o dispatch_client.o \
 	checkpoint.o checkpoint_savepage.o
-	$(CXX) -shared -Wl,-soname,libcyclone.so -o libcyclone.so libcyclone.o\
-	 dispatcher.o dispatcher_exec.o dispatch_client.o checkpoint.o \
-	checkpoint_savepage.o -lc -lcraft -lpmemobj -lpmemlog -lpmem -lzmq \
-	-lboost_system -lboost_date_time $(BOOST_THREAD_LIB)
+	ar rcs $@ $^
 
 libcyclone.o: cyclone.cpp libcyclone.hpp
 	$(CXX) $(CXXFLAGS) cyclone.cpp -c -o $@
@@ -39,11 +43,12 @@ dispatch_client.o: dispatch_client.cpp  libcyclone.hpp
 
 .PHONY:clean install
 
-install:libcyclone.so
-	cp libcyclone.so /usr/lib
+install:libcyclone.a
+	cp libcyclone.a /usr/lib
 	cp libcyclone.hpp /usr/include
 
 clean:
 	rm -f libcyclone.o dispatcher.o dispatcher_exec.o dispatch_client.o \
-	checkpoint.o checkpoint_savepage.o libcyclone.so
+	checkpoint.o checkpoint_savepage.o libcyclone.a /usr/lib/libcyclone.so\
+	/usr/lib/libcyclone.a /usr/include/libcyclone.hpp
 
