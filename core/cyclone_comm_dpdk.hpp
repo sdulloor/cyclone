@@ -243,6 +243,30 @@ typedef struct {
   struct rte_eth_dev_tx_buffer *buffers[num_queues];
 } dpdk_context_t;
 
+static uint8_t global_rss_key[40] = {0};
+
+static const struct rte_eth_conf port_conf = {
+  .rxmode = {
+    .split_hdr_size = 0,
+    .header_split   = 0, 
+    .hw_ip_checksum = 0, 
+    .hw_vlan_filter = 0, 
+    .jumbo_frame    = 0, 
+    .hw_strip_crc   = 0, 
+  },
+  .txmode = {
+    .mq_mode = ETH_MQ_TX_NONE,
+  },
+  .rx_adv_conf = {
+    .rss_conf = {
+      .rss_key     = global_rss_key,
+      .rss_key_len = 40,
+      .rss_hf = ETH_RSS_IP
+    }
+  }
+};
+
+
 static void* dpdk_context()
 {
   dpdk_context_t *context = (dpdk_context_t *)malloc(sizeof(dpdk_context_t));
@@ -258,17 +282,47 @@ static void* dpdk_context()
     rte_exit(EXIT_FAILURE, "No Ethernet ports - bye\n");
   }
   
-  if (context->mempool == NULL)
-    rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
+  
+  rte_eth_dev_configure(0, 3, 3, &port_conf);
+
   // Assume port 0, core 1 ....
-  rte_eth_macaddr_get(0, &context->port_macaddr);
+
   for(int i=0;i<num_queues;i++) {
+    // Mempool
     context->mempools[i] = rte_pktmbuf_pool_create("mbuf_pool", 
 						   8191,
 						   32,
 						   0,
 						   RTE_PKTMBUF_HEADROOM + MSG_MAXSIZE,
 						   rte_socket_id(0));
+    if (context->mempool == NULL)
+      rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
+
+    //tx queue
+    ret = rte_eth_tx_queue_setup(0, 
+				 i, 
+				 nb_txd,
+				 rte_eth_dev_socket_id(0),
+				 NULL);
+
+    if (ret < 0)
+      rte_exit(EXIT_FAILURE, "rte_eth_tx_queue_setup:err=%d, port=%u\n",
+	       ret, (unsigned) portid);
+    
+
+    
+    context->buffers[i] = rte_zmalloc_socket("tx_buffer",
+					     RTE_ETH_TX_BUFFER_SIZE(1), 
+					     0,
+					     rte_eth_dev_socket_id(0));
+    if (context->buffers[i] == NULL)
+      rte_exit(EXIT_FAILURE, "Cannot allocate buffer for tx on port %u\n",
+	       (unsigned) 0);
+
+    
+    rte_eth_tx_buffer_init(context->buffers[i], MAX_PKT_BURST);
+
+    // rx queue
     ret = rte_eth_rx_queue_setup(0, 
 				 i, 
 				 nb_rxd,
@@ -279,23 +333,6 @@ static void* dpdk_context()
       rte_exit(EXIT_FAILURE, "rte_eth_rx_queue_setup:err=%d, port=%u\n",
 	       ret, 0);
 
-    ret = rte_eth_tx_queue_setup(0, 
-				 i, 
-				 nb_txd,
-				 rte_eth_dev_socket_id(0),
-				 NULL);
-    if (ret < 0)
-      rte_exit(EXIT_FAILURE, "rte_eth_tx_queue_setup:err=%d, port=%u\n",
-	       ret, (unsigned) portid);
-    
-    context->buffers[i] = rte_zmalloc_socket("tx_buffer",
-					     RTE_ETH_TX_BUFFER_SIZE(1), 
-					     0,
-					     rte_eth_dev_socket_id(0));
-    if (context->buffers[i] == NULL)
-      rte_exit(EXIT_FAILURE, "Cannot allocate buffer for tx on port %u\n",
-	       (unsigned) 0);
-    rte_eth_tx_buffer_init(context->buffers[i], MAX_PKT_BURST);
   }
   /* Start device */
   ret = rte_eth_dev_start(0);
@@ -303,6 +340,8 @@ static void* dpdk_context()
     rte_exit(EXIT_FAILURE, "rte_eth_dev_start:err=%d, port=%u\n",
 	     ret, (unsigned) 0);
   rte_eth_promiscuous_enable(0);
+  rte_eth_macaddr_get(0, &context->port_macaddr);
+  
   return context;
 }
 
