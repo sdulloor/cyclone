@@ -46,8 +46,8 @@
 #include <rte_ip.h>
 #include <rte_byteorder.h>
 
-static const int q_dispatcher = 0;
-static const int q_raft       = 1;
+static const int q_raft       = 0;
+static const int q_dispatcher = 1;
 static const int q_control    = 2;
 static const int num_queues   = 3;
 #define RTE_TEST_RX_DESC_DEFAULT 128
@@ -55,8 +55,6 @@ static const int num_queues   = 3;
 static const uint16_t nb_rxd = RTE_TEST_RX_DESC_DEFAULT;
 static const uint16_t nb_txd = RTE_TEST_TX_DESC_DEFAULT;
 
-
-static uint8_t global_rss_key[40] = {0};
 
 static struct rte_eth_conf port_conf;
 
