@@ -1,12 +1,13 @@
 all: libcyclone.so
 
+CXXFLAGS = -O3 -fPIC -DBOOST_LOG_DYN_LINK
+#CXXFLAGS = -O1 -fno-omit-frame-pointer -g -fPIC -DBOOST_LOG_DYN_LINK 
+
 #Choose your network stack
-NETWORK_STACK=ZMQ_STACK
-#NETWORK_STACK=DPDK_STACK
+CXXFLAGS += -DZMQ_STACK
+#CXXFLAGS += -DDPDK_STACK
 
-CXXFLAGS = -O3 -fPIC -DBOOST_LOG_DYN_LINK -D${NETWORK_STACK}
-#CXXFLAGS = -O1 -fno-omit-frame-pointer -g -fPIC -DBOOST_LOG_DYN_LINK -D{NETWORK_STACK}
-
+#Depending on boost version/OS distro
 BOOST_THREAD_LIB=-lboost_thread-mt
 #BOOST_THREAD_LIB=-lboost_thread
 

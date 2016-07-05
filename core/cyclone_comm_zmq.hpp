@@ -163,14 +163,14 @@ static void cyclone_connect_endpoint(void *socket,
   std::stringstream addr;
   key.str("");key.clear();
   addr.str("");addr.clear();
-  key << "machines.addr" << i;
+  key << "machines.addr" << mc;
   addr << "tcp://";
   addr << pt->get<std::string>(key.str().c_str());
   addr << ":" << port;
   BOOST_LOG_TRIVIAL(info)
     << "CYCLONE::COMM Connecting to "
-    << endpoint;
-  zmq_connect(socket, endpoint, addr.str().c_str());
+    << addr.str().c_str();
+  zmq_connect(socket, addr.str().c_str());
 }
 
 static void cyclone_bind_endpoint(void *socket,
@@ -182,7 +182,7 @@ static void cyclone_bind_endpoint(void *socket,
   std::stringstream addr;
   key.str("");key.clear();
   addr.str("");addr.clear();
-  key << "machines.iface" << me;
+  key << "machines.iface" << mc;
   addr << "tcp://";
   addr << pt->get<std::string>(key.str().c_str());
   if(port != -1) 
@@ -193,14 +193,14 @@ static void cyclone_bind_endpoint(void *socket,
   if (rc != 0) {
     BOOST_LOG_TRIVIAL(fatal)
       << "CYCLONE::COMM Unable to setup listening socket at "
-      << endpoint << " "
+      << addr.str().c_str() << " "
       << zmq_strerror(zmq_errno());
     exit(-1);
   }
   else {
     BOOST_LOG_TRIVIAL(info)
       << "CYCLONE::COMM Listening at "
-      << endpoint;
+      << addr.str().c_str();
   }
 }
 

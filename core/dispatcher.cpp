@@ -1212,8 +1212,8 @@ void dispatcher_start(const char* config_server_path,
   dispatcher_loop_obj->tx_thread = 
     new boost::thread(boost::ref(*router));
   follower_req_socket = cyclone_socket_out_loopback(zmq_context);
-  cyclone_connect_endpoint(follower_req_socket, "inproc://FOLLOWER");
+  cyclone_connect_endpoint_loopback(follower_req_socket, "inproc://FOLLOWER");
   follower_rep_socket = cyclone_socket_in_loopback(zmq_context);
-  cyclone_bind_endpoint(follower_rep_socket, "inproc://FOLLOWER");
+  cyclone_bind_endpoint_loopback(follower_rep_socket, "inproc://FOLLOWER");
   (*dispatcher_loop_obj)();
 }
