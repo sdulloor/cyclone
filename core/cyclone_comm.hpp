@@ -197,7 +197,13 @@ struct client_paths {
       return; // Already setup
     }
     if(sockets_out[index(mc, client)] != NULL) {
+#if defined(DPDK_STACK)
+      socket_out_ports[index(mc, client)] = port;
+      // No need to update socket on a change of port
+      return;
+#else
       zmq_close(sockets_out[index(mc, client)]);
+#endif
     }
     // output wire to client
     void *socket = cyclone_socket_out(saved_context);
