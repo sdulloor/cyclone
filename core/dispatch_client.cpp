@@ -375,8 +375,12 @@ void* cyclone_client_init(int client_id,
   boost::property_tree::ptree pt_client;
   boost::property_tree::read_ini(config_server, pt_server);
   boost::property_tree::read_ini(config_client, pt_client);
-  void *zmq_context = zmq_init(1);
-  client->router = new client_switch(zmq_context,
+#if defined(DPDK_STACK)
+  void *network_context = dpdk_context();
+#else
+  void *network_context = zmq_init(1);
+#endif
+  client->router = new client_switch(network_context,
 				     &pt_server,
 				     &pt_client,
 				     client_id,
