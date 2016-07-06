@@ -606,7 +606,11 @@ public:
   
   int input_port(int machine)
   {
+#if defined(DPDK)
+    return 0;
+#else
     return ports_in[machine];
+#endif
   }
   
   void *input_socket(int machine)
