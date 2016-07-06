@@ -502,10 +502,10 @@ public:
 			     cmd.port);
       }
       else {
-	cyclone_tx_loopback(cpaths.socket(cmd.mc, cmd.client),
-			    (const unsigned char *)cmd.data,
-			    cmd.size,
-			    "demux data tx");
+	cyclone_tx(cpaths.socket(cmd.mc, cmd.client),
+		   (const unsigned char *)cmd.data,
+		   cmd.size,
+		   "demux data tx");
       }
       cyclone_tx_loopback_block(demux_port, 
 				(unsigned char *)&ok, 
