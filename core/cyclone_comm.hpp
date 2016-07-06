@@ -612,7 +612,7 @@ public:
   
   int input_port(int machine)
   {
-#if defined(DPDK)
+#if defined(DPDK_STACK)
     return 0;
 #else
     return ports_in[machine];
