@@ -1095,17 +1095,14 @@ void dispatcher_start(const char* config_server_path,
   std::string file_path = pt_server.get<std::string>("dispatch.filepath");
   unsigned long heapsize = pt_server.get<unsigned long>("dispatch.heapsize");
   char me_str[100];
+#if defined(DPDK_STACK)
+  global_dpdk_context = dpdk_context();
+#endif
   sprintf(me_str,"%d", me);
   file_path.append(me_str);
   init_checkpoint(file_path.c_str(), me);
   app_callbacks = *rpc_callbacks;
   dispatcher_exec_startup();
-
-  
-#if defined(DPDK_STACK)
-  global_dpdk_context = dpdk_context();
-#endif
-
   bool i_am_active = false;
   for(int i=0;i<pt_server.get<int>("active.replicas");i++) {
     char nodeidxkey[100];

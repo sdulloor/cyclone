@@ -628,6 +628,13 @@ static void init_log(PMEMobjpool *pop, void *ptr, void *arg)
 }
 
 
+int dpdk_raft_monitor(void *arg)
+{
+  struct cyclone_monitor *monitor = (struct cyclone_monitor *)arg;
+  (*monitor)();
+  return 0;
+}
+
 static struct cyclone_img_load_st {
   cyclone_t * cyclone_handle;
   cyclone_build_image_t cyclone_build_image_callback;
@@ -825,7 +832,15 @@ void* cyclone_boot(const char *config_path,
   }
   /* Launch cyclone service */
   __sync_synchronize(); // Going to give the thread control over the socket
+#if defined(DPDK_STACK)
+  int e = rte_eal_remote_launch(dpdk_raft_monitor, (void *)cyclone_handle->monitor_obj, 1);
+  if(e != 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "Failed to launch raft monitor on remote lcore";
+    exit(-1);
+  }
+#else
   cyclone_handle->monitor_thread = new boost::thread(boost::ref(*cyclone_handle->monitor_obj));
+#endif
   return cyclone_handle;
 }
 
