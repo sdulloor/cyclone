@@ -222,6 +222,12 @@ static int cyclone_rx(void *socket,
   if(dpdk_socket->consumed < dpdk_socket->buffered) {
     m = dpdk_socket->burst[dpdk_socket->consumed++];
     rte_prefetch0(rte_pktmbuf_mtod(m, void *));
+    struct ether_hdr *e = rte_pktmbuf_mtod(m, struct ether_hdr *);
+    // drop unless this is for me
+    if(!is_same_ether_addr(&e->d_addr, &dpdk_socket->local_mac)) {
+      rte_pktmbuf_free(m);
+      return -1;
+    }
     // Strip off headers
     int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
     void *payload = rte_pktmbuf_mtod_offset(m, void *, payload_offset);

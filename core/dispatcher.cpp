@@ -36,8 +36,6 @@ struct client_ro_state_st {
   bool inflight;
 } client_ro_state [MAX_CLIENTS];
 
-static int * client_portmap;
-
 static unsigned long ro_result_lock = 0;
 
 static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
