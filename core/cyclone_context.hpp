@@ -592,6 +592,7 @@ typedef struct cyclone_st {
     }
     __sync_synchronize();
     msg->complete = 1;
+    __sync_synchronize();
   }
   
 }cyclone_t;

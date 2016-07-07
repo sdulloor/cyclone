@@ -48,7 +48,7 @@ boost::thread *executor_thread;
 void dispatcher_exec_startup()
 {
 #if defined(DPDK_STACK)
-  int e = rte_eal_remote_launch(dpdk_executor, NULL, 2);
+  int e = rte_eal_remote_launch(dpdk_executor, NULL, 4);
   if(e != 0) {
     BOOST_LOG_TRIVIAL(fatal) << "Failed to launch executor on remote lcore";
     exit(-1);

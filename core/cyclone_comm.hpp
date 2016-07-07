@@ -6,6 +6,7 @@
 #include <zmq.h>
 #include <unistd.h>
 #include "clock.hpp"
+#include "runq.hpp"
 
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 2048;
@@ -19,160 +20,6 @@ const int MSG_MAXSIZE  = 2048;
 #endif
 
 // Cyclone communication
-
-static void* cyclone_socket_out_loopback(void *context)
-{
-  void *socket;
-  socket = zmq_socket(context, ZMQ_REQ);
-  int linger = 0;
-  int e = zmq_setsockopt(socket, ZMQ_LINGER, &linger, sizeof(int));
-  if (e == -1) {
-    BOOST_LOG_TRIVIAL(fatal) 
-      << "CYCLONE_COMM: Unable to set sock linger "
-      << zmq_strerror(zmq_errno());
-    exit(-1);
-  }
-  return socket;
-}
-
-static void* cyclone_socket_in_loopback(void *context)
-{
-  void *socket;
-  socket = zmq_socket(context, ZMQ_REP);
-  return socket;
-}
-
-static void cyclone_connect_endpoint_loopback(void *socket, const char *endpoint)
-{
-  BOOST_LOG_TRIVIAL(info)
-    << "CYCLONE::COMM Connecting to "
-    << endpoint;
-  zmq_connect(socket, endpoint);
-}
-
-static void cyclone_bind_endpoint_loopback(void *socket, const char *endpoint)
-{
-  int rc = zmq_bind(socket, endpoint);
-  if (rc != 0) {
-    BOOST_LOG_TRIVIAL(fatal)
-      << "CYCLONE::COMM Unable to setup listening socket at "
-      << endpoint << " "
-      << zmq_strerror(zmq_errno());
-    exit(-1);
-  }
-  else {
-    BOOST_LOG_TRIVIAL(info)
-      << "CYCLONE::COMM Listening at "
-      << endpoint;
-  }
-}
-
-static int cyclone_tx_loopback(void *socket,
-			       const unsigned char *data,
-			       unsigned long size,
-			       const char *context) 
-{
-  int rc = zmq_send(socket, data, size, ZMQ_DONTWAIT);
-  if(rc == -1) {
-    if (errno != EAGAIN) {
-      BOOST_LOG_TRIVIAL(fatal) 
-	<< "CYCLONE: Unable to transmit "
-	<< context << " "
-	<< zmq_strerror(zmq_errno());
-      exit(-1);
-    }
-    return -1;
-  }
-  else {
-    return 0;
-  }
-}
-
-// Keep trying until success
-static void cyclone_tx_loopback_block(void *socket,
-				      const unsigned char *data,
-				      unsigned long size,
-				      const char *context)
-{
-  int ok;
-  do {
-    ok = cyclone_tx_loopback(socket, data, size, context);
-  } while(ok != 0);
-}
-
-// Block till data available
-static int cyclone_rx_loopback_block(void *socket,
-				     unsigned char *data,
-				     unsigned long size,
-				     const char *context)
-{
-  int rc;
-  while (true) {
-    rc = zmq_recv(socket, data, size, 0);
-    if (rc == -1) {
-      if (errno != EAGAIN) {
-	BOOST_LOG_TRIVIAL(fatal) 
-	  << "CYCLONE: Unable to receive "
-	  << context << " "
-	  << zmq_strerror(zmq_errno());
-	exit(-1);
-      }
-      // Retry
-    }
-    else {
-      break;
-    }
-  }
-  return rc;
-}
-
-// Block till data available or timeout
-static int cyclone_rx_loopback_timeout(void *socket,
-				       unsigned char *data,
-				       unsigned long size,
-				       unsigned long timeout_usecs,
-				       const char *context)
-{
-  int rc;
-  unsigned long mark = rtc_clock::current_time();
-  while (true) {
-    rc = zmq_recv(socket, data, size, ZMQ_NOBLOCK);
-    if(rc >= 0) {
-      break;
-    }
-    if (errno != EAGAIN) {
-      BOOST_LOG_TRIVIAL(fatal) 
-	<< "CYCLONE: Unable to receive "
-	<< context << " "
-	<< zmq_strerror(zmq_errno());
-      exit(-1);
-    }
-    if((rtc_clock::current_time() - mark) >= timeout_usecs) {
-      break;
-    }
-  }
-  return rc;
-}
-
-// Best effort
-static int cyclone_rx_loopback(void *socket,
-			       unsigned char *data,
-			       unsigned long size,
-			       const char *context)
-{
-  int rc;
-  rc = zmq_recv(socket, data, size, ZMQ_NOBLOCK);
-  if (rc == -1) {
-    if (errno != EAGAIN) {
-      BOOST_LOG_TRIVIAL(fatal) 
-	<< "CYCLONE: Unable to receive "
-	<< context << " "
-	<< zmq_strerror(zmq_errno());
-      exit(-1);
-    }
-  }
-  return rc;
-}
 
 struct client_paths {
   void *saved_context;
@@ -254,7 +101,6 @@ class raft_switch {
 public:
   client_paths cpaths;
   raft_switch(void *context,
-	      void *loopback_context,
 	      boost::property_tree::ptree *pt,
 	      int me,
 	      int replicas_in,
@@ -300,7 +146,7 @@ public:
       cyclone_connect_endpoint(sockets_out[i], i, port, pt);
 #endif
     }
-    control_socket_in = cyclone_socket_in_loopback(loopback_context);
+    control_socket_in = cyclone_socket_in(context);
     port = baseport + replicas + me;
 #if defined(DPDK_STACK)
     cyclone_bind_endpoint(control_socket_in, me, q_control, pt);
@@ -308,7 +154,7 @@ public:
     cyclone_bind_endpoint(control_socket_in, me, port, pt);
 #endif
     for(int i=0;i<replicas;i++) {
-      control_sockets_out[i] = cyclone_socket_out_loopback(loopback_context);
+      control_sockets_out[i] = cyclone_socket_out(context);
       port = baseport + replicas + i ;
 #if defined(DPDK_STACK)
       cyclone_connect_endpoint(control_sockets_out[i], i, q_control, pt);
@@ -356,31 +202,27 @@ typedef struct mux_state_st{
   // Send data
   void *data;
   int size;
+  struct mux_state_st * volatile next_issue;
+  volatile int complete;
 } mux_state_t;
 
 // A replica on each machine
 // A version of every client on every machine
 class server_switch {
   void *saved_context;
-  void *saved_loopback_context;
   void *socket_in;
   int clients;
   client_paths cpaths;
-  void **mux_ports;
-  void *demux_port;
+  runq_t<mux_state_t> muxq;
 
 public:
 
   server_switch(void *context,
-		void *loopback_context,
 		boost::property_tree::ptree *pt_server,
 		boost::property_tree::ptree *pt_client,
 		int me,
-		int clients_in,
-		int mux_port_cnt)
-    :saved_context(context),
-     saved_loopback_context(loopback_context)
-    
+		int clients_in)
+    :saved_context(context)
   {
     std::stringstream key; 
     std::stringstream addr;
@@ -408,11 +250,6 @@ public:
 #else
       cyclone_bind_endpoint(socket_in, me, port, pt_server);
 #endif
-    mux_ports = new void *[mux_port_cnt];
-    for(int i=0;i<mux_port_cnt;i++) {
-      mux_ports[i] = cyclone_socket_out_loopback(loopback_context);
-      cyclone_connect_endpoint_loopback(mux_ports[i], "inproc://MUXDEMUX");
-    }
   }
 
   
@@ -430,14 +267,9 @@ public:
     cmd.client = client;
     cmd.data = data;
     cmd.size = size;
-    cyclone_tx_loopback_block(mux_ports[mux_index],
-			      (const unsigned char *)&cmd,
-			      sizeof(mux_state_t),
-			      "mux data");
-    cyclone_rx_loopback_block(mux_ports[mux_index],
-			      (unsigned char *)&ok,
-			      sizeof(int),
-			      "demux data");
+    cmd.complete = 0;
+    muxq.add_to_runqueue(&cmd);
+    while(!cmd.complete);
   }
 
   void ring_doorbell(int mc,
@@ -451,15 +283,9 @@ public:
     cmd.mc = mc;
     cmd.client = client;
     cmd.port = port;
-    cyclone_tx_loopback_block(mux_ports[mux_index],
-		     (const unsigned char *)&cmd,
-		     sizeof(mux_state_t),
-		     "mux doorbell");
-    
-    cyclone_rx_loopback_block(mux_ports[mux_index],
-			      (unsigned char *)&ok,
-			      sizeof(int),
-			      "demux doorbell");
+    cmd.complete = 0;
+    muxq.add_to_runqueue(&cmd);
+    while(!cmd.complete);
   }
 
   void *input_socket()
@@ -474,30 +300,27 @@ public:
 
   void operator() ()
   {
-    mux_state_t cmd;
+    mux_state_t *cmd;
     int ok = 0;
-    demux_port = cyclone_socket_in_loopback(saved_loopback_context);
-    cyclone_bind_endpoint_loopback(demux_port, "inproc://MUXDEMUX");
     while(true) {
-      cyclone_rx_loopback_block(demux_port, 
-				(unsigned char *)&cmd, 
-				sizeof(mux_state_t),
-				"demux");
-      if(cmd.op == RING_DOORBELL) {
-	cpaths.ring_doorbell(cmd.mc,
-			     cmd.client,
-			     cmd.port);
+      cmd = muxq.get_from_runqueue();
+      if(cmd == NULL) {
+	continue;
+      }
+      if(cmd->op == RING_DOORBELL) {
+	cpaths.ring_doorbell(cmd->mc,
+			     cmd->client,
+			     cmd->port);
       }
       else {
-	cyclone_tx(cpaths.socket(cmd.mc, cmd.client),
-		   (const unsigned char *)cmd.data,
-		   cmd.size,
+	cyclone_tx(cpaths.socket(cmd->mc, cmd->client),
+		   (const unsigned char *)cmd->data,
+		   cmd->size,
 		   "demux data tx");
       }
-      cyclone_tx_loopback_block(demux_port, 
-				(unsigned char *)&ok, 
-				sizeof(int),
-				"demux resp");
+      __sync_synchronize();
+      cmd->complete = 1;
+      __sync_synchronize();
     }
   }
   
@@ -506,6 +329,13 @@ public:
     // TBD
    }
 };
+
+static int dpdk_server_tx(void * arg)
+{
+  server_switch *sw = (server_switch *)arg;
+  (*sw)();
+  return 0;
+}
 
 class client_switch {
   void **sockets_out;

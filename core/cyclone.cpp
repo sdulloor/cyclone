@@ -732,15 +732,16 @@ void* cyclone_boot(const char *config_path,
   raft_set_nack_timeout(cyclone_handle->raft_handle, RAFT_NACK_TIMEOUT);
 
   /* setup connections */
+#if defined(DPDK_STACK)
+#else
   cyclone_handle->zmq_context  = zmq_init(zmq_threads); 
+#endif
   cyclone_handle->router = new raft_switch(
 #if defined(DPDK_STACK)
 					   global_dpdk_context,
 #else
 					   cyclone_handle->zmq_context,
 #endif
-
-					   cyclone_handle->zmq_context,
 					   &cyclone_handle->pt,
 					   cyclone_handle->me,
 					   cyclone_handle->replicas,

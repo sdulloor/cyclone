@@ -1181,7 +1181,10 @@ void dispatcher_start(const char* config_server_path,
 				clients,
 				NULL);
   // Listen on port
+#if defined(DPDK_STACK)
+#else
   void *zmq_context = zmq_init(zmq_threads);
+#endif
   dispatcher_loop_obj    = new dispatcher_loop();
   dispatcher_loop_obj->zmq_context = zmq_context;
   dispatcher_loop_obj->clients  = clients;
@@ -1193,22 +1196,25 @@ void dispatcher_start(const char* config_server_path,
 #else
 			     zmq_context,
 #endif
-			     zmq_context,
 			     &pt_server,
 			     &pt_client,
 			     me,
-			     clients,
-			     3);
-  dispatcher_loop_obj->tx_thread = 
-    new boost::thread(boost::ref(*router));
+			     clients);
 #if defined(DPDK_STACK)
-  int e = rte_eal_remote_launch(dpdk_disp_loop, (void *)dispatcher_loop_obj, 3);
+  int e = rte_eal_remote_launch(dpdk_disp_loop, (void *)dispatcher_loop_obj, 2);
   if(e != 0) {
-    BOOST_LOG_TRIVIAL(fatal) << "Failed to launch raft monitor on remote lcore";
+    BOOST_LOG_TRIVIAL(fatal) << "Failed to launch disp loop on remote lcore";
+    exit(-1);
+  }
+  int e = rte_eal_remote_launch(dpdk_server_tx, (void *)router, 3);
+  if(e != 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "Failed to launch tx loop on remote lcore";
     exit(-1);
   }
   rte_eal_mp_wait_lcore();
 #else
+  dispatcher_loop_obj->tx_thread = 
+    new boost::thread(boost::ref(*router));
   (*dispatcher_loop_obj)();
 #endif
 }
