@@ -1082,6 +1082,13 @@ void checkpoint_callback(void *socket)
   building_image = false;
 }
 
+int dpdk_disp_loop(void *arg)
+{
+  dispatcher_loop *loop = (dispatcher_loop *)arg;
+  (*loop)();
+  return 0;
+}
+
 void dispatcher_start(const char* config_server_path,
 		      const char* config_client_path,
 		      rpc_callbacks_t *rpc_callbacks,
@@ -1210,5 +1217,14 @@ void dispatcher_start(const char* config_server_path,
   cyclone_connect_endpoint_loopback(follower_req_socket, "inproc://FOLLOWER");
   follower_rep_socket = cyclone_socket_in_loopback(zmq_context);
   cyclone_bind_endpoint_loopback(follower_rep_socket, "inproc://FOLLOWER");
+#if defined(DPDK_STACK)
+  int e = rte_eal_remote_launch(dpdk_disp_loop, (void *)dispatcher_loop_obj, 3);
+  if(e != 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "Failed to launch raft monitor on remote lcore";
+    exit(-1);
+  }
+  rte_eal_mp_wait_lcore();
+#else
   (*dispatcher_loop_obj)();
+#endif
 }
