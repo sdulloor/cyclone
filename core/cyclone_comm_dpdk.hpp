@@ -279,7 +279,8 @@ static int cyclone_rx_timeout(void *socket,
 
 static void* dpdk_context()
 {
-  dpdk_context_t *context = (dpdk_context_t *)malloc(sizeof(dpdk_context_t));
+  dpdk_context_t *context = 
+    (dpdk_context_t *)rte_malloc("context", sizeof(dpdk_context_t), 0);
   int ret;
   
   char* fake_argv[1] = {(char *)"./fake"};
@@ -366,7 +367,7 @@ static void* cyclone_socket_out(void *context)
 {
   dpdk_socket_t *socket;
   dpdk_context_t *dpdk_context = (dpdk_context_t *)context;
-  socket = (dpdk_socket_t *)malloc(sizeof(dpdk_context_t));
+  socket = (dpdk_socket_t *)rte_malloc("socket", sizeof(dpdk_context_t), 0);
   socket->context = dpdk_context;
   ether_addr_copy(&dpdk_context->port_macaddr, &socket->local_mac);
   socket->port_id = 0;
@@ -377,7 +378,7 @@ static void* cyclone_socket_in(void *context)
 {
   dpdk_socket_t *socket;
   dpdk_context_t *dpdk_context = (dpdk_context_t *)context;
-  socket = (dpdk_socket_t *)malloc(sizeof(dpdk_context_t));
+  socket = (dpdk_socket_t *)rte_malloc("socket", sizeof(dpdk_context_t), 0);
   socket->context = dpdk_context;
   ether_addr_copy(&dpdk_context->port_macaddr, &socket->local_mac);
   socket->port_id = 0;
