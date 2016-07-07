@@ -2,6 +2,7 @@
 #define _DISPATCHER_EXEC_
 #include "cyclone.hpp"
 #include "clock.hpp"
+#include "runq.hpp"
 
 typedef struct rpc_info_st {
   rpc_t *rpc;
@@ -27,6 +28,8 @@ typedef struct follower_req_st {
   char * req_follower_data;
   int req_follower_data_size;
   int req_follower_term;
+  struct follower_req_st * volatile next_issue;
+  volatile int done;
 } follower_req_t;
 
 extern void dispatcher_exec_startup();
@@ -36,21 +39,5 @@ extern void exec_rpc_internal_synchronous(rpc_info_t *rpc);
 extern void exec_rpc_internal_ro(rpc_info_t *rpc);
 extern void exec_rpc_internal_seq(rpc_info_t *rpc);
 extern void exec_send_checkpoint(void *socket, void *handle);
-
-static void lock(volatile unsigned long *lockp)
-{
-  // TEST + TEST&SET
-  do {
-    while((*lockp) != 0);
-  } while(!__sync_bool_compare_and_swap(lockp, 0, 1));
-  __sync_synchronize();
-}
-
-static void unlock(volatile unsigned long *lockp)
-{
-  __sync_synchronize();
-  __sync_bool_compare_and_swap(lockp, 1, 0);
-  __sync_synchronize();
-}
 
 #endif

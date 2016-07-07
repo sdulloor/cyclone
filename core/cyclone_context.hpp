@@ -19,6 +19,7 @@ extern "C" {
 #include "clock.hpp"
 #include "cyclone_comm.hpp"
 #include "tuning.hpp"
+#include "runq.hpp"
 
 /* Message types */
 const int  MSG_REQUESTVOTE              = 1;
@@ -44,7 +45,7 @@ typedef struct client_io_st {
   int* batch_sizes;
 } client_t;
 
-typedef struct
+typedef struct msg_st
 {
   int msg_type;
   union {
@@ -61,6 +62,10 @@ typedef struct
     replicant_t rep;
     client_t client;
   };
+  struct msg_st * volatile next_issue;
+  msg_entry_response_t * volatile client_rep;
+  volatile int status;
+  volatile int complete;
 } msg_t;
 
 struct cyclone_monitor;
@@ -83,6 +88,7 @@ typedef struct cyclone_st {
   unsigned char* cyclone_buffer_out;
   unsigned char* cyclone_buffer_in;
   cyclone_monitor *monitor_obj;
+  runq_t<msg_t> comm;
 
   cyclone_st()
   {}
@@ -480,23 +486,34 @@ typedef struct cyclone_st {
 				&msg->rep,
 				msg->quorum);
       break;
+    default:
+      printf("unknown msg in handle remote\n");
+      exit(0);
+    }
+  }
+
+  /* Handle incoming message and send appropriate response */
+  void handle_incoming_local(msg_t * msg)
+  {
+    int e; // TBD: need to handle errors
+    char *ptr;
+    msg_entry_t client_req;
+    msg_entry_t *messages; 
+    
+    switch (msg->msg_type) {
     case MSG_CLIENT_REQ:
       client_req.id = rand();
       client_req.data.buf = msg->client.ptr;
       client_req.data.len = msg->client.size;
       client_req.type = RAFT_LOGTYPE_NORMAL;
-      client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
+      msg->client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
       e = raft_recv_entry(raft_handle, 
 			  &client_req, 
-			  client_rep);
+			  msg->client_rep);
       if(e != 0) {
-	free(client_rep);
-	client_rep = NULL;
+	free(msg->client_rep);
+	msg->client_rep = NULL;
       }
-      cyclone_tx_loopback_block(router->request_in(),
-				(unsigned char *)&client_rep,
-				sizeof(void *),
-				"CLIENT COOKIE SEND");
       break;
     case MSG_CLIENT_REQ_BATCH:
       messages = 
@@ -510,98 +527,73 @@ typedef struct cyclone_st {
 	ptr = ptr + msg_size;
 	messages[i].type = RAFT_LOGTYPE_NORMAL;
       }
-      client_rep = (msg_entry_response_t *)
+      msg->client_rep = (msg_entry_response_t *)
 	malloc(msg->client.size*sizeof(msg_entry_response_t));
       e = raft_recv_entry_batch(raft_handle, 
 				messages, 
-				client_rep,
+				msg->client_rep,
 				msg->client.size);
       if(e != 0) {
-	free(client_rep);
-	client_rep = NULL;
+	free(msg->client_rep);
+	msg->client_rep = NULL;
       }
       free(messages);
-      cyclone_tx_loopback_block(router->request_in(),
-				(unsigned char *)&client_rep,
-				sizeof(void *),
-				"CLIENT COOKIE SEND");
       break;
     case MSG_CLIENT_REQ_CFG:
       client_req.id = rand();
       client_req.data.buf = msg->client.ptr;
       client_req.data.len = msg->client.size;
       client_req.type = msg->client.type;
-      client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
+      msg->client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
       e = raft_recv_entry(raft_handle, 
 			  &client_req, 
-			  client_rep);
+			  msg->client_rep);
       if(e != 0) {
-	free(client_rep);
-	client_rep = NULL;
+	free(msg->client_rep);
+	msg->client_rep = NULL;
       }
-      cyclone_tx_loopback_block(router->request_in(),
-				(unsigned char *)&client_rep,
-				sizeof(void *),
-				"CLIENT COOKIE SEND");
       break;
     case MSG_CLIENT_REQ_TERM:
       if(raft_get_current_term(raft_handle) != msg->client.term) {
-	client_rep = NULL;
-	cyclone_tx_loopback_block(router->request_in(),
-				  (unsigned char *)&client_rep,
-				  sizeof(void *),
-				  "CLIENT COOKIE SEND");
+	msg->client_rep = NULL;
       }
       else {
 	client_req.id = rand();
 	client_req.data.buf = msg->client.ptr;
 	client_req.data.len = msg->client.size;
 	client_req.type = RAFT_LOGTYPE_NORMAL;
-	client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
+	msg->client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
 	e = raft_recv_entry(raft_handle, 
-			      &client_req, 
-			      client_rep);
+			    &client_req, 
+			    msg->client_rep);
 	if(e != 0) {
-	  free(client_rep);
-	  client_rep = NULL;
+	  free(msg->client_rep);
+	  msg->client_rep = NULL;
 	}
-	cyclone_tx_loopback_block(router->request_in(),
-				  (unsigned char *)&client_rep,
-				  sizeof(void *),
-				  "CLIENT COOKIE SEND");
       }
       break;
 
     case MSG_CLIENT_STATUS:
-      e = raft_msg_entry_response_committed
+      msg->status = raft_msg_entry_response_committed
 	(raft_handle, (const msg_entry_response_t *)msg->client.ptr);
-      cyclone_tx_loopback_block(router->request_in(),
-				(unsigned char *)&e,
-				sizeof(int),
-				"CLIENT COOKIE SEND");
       break;
 
     case MSG_CLIENT_REQ_SET_IMGBUILD:
       raft_set_img_build(raft_handle);
-      client_rep = NULL;
-      cyclone_tx_loopback_block(router->request_in(),
-				(unsigned char *)&e,
-				sizeof(int),
-				"CLIENT COOKIE SEND");
+      msg->client_rep = NULL;
       break;
     case MSG_CLIENT_REQ_UNSET_IMGBUILD:
       raft_unset_img_build(raft_handle);
-      client_rep = NULL;
-      cyclone_tx_loopback_block(router->request_in(),
-				(unsigned char *)&e,
-				sizeof(int),
-				"CLIENT COOKIE SEND");
+      msg->client_rep = NULL;
       break;
     default:
-      printf("unknown msg\n");
+      printf("unknown msg in handle local\n");
       exit(0);
     }
+    __sync_synchronize();
+    msg->complete = 1;
   }
+  
 }cyclone_t;
 
 
@@ -628,13 +620,9 @@ struct cyclone_monitor {
       if(sz != -1) {
 	cyclone_handle->handle_incoming(sz);
       }
-      sz =
-	cyclone_rx_loopback(cyclone_handle->router->request_in(),
-			    cyclone_handle->cyclone_buffer_in,
-			    MSG_MAXSIZE,
-			    "Incoming");
-      if(sz != -1) {
-	cyclone_handle->handle_incoming(sz);
+      msg_t *work = cyclone_handle->comm.get_from_runqueue();
+      if(work != NULL) {
+	cyclone_handle->handle_incoming_local(work);
       }
       // Handle periodic events -- - AFTER any incoming requests
       if((elapsed_time = rtc_clock::current_time() - mark) >= PERIODICITY) {

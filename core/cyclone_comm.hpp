@@ -249,8 +249,6 @@ class raft_switch {
   void **sockets_out;
   void **control_sockets_out;
   void *socket_in;
-  void *request_socket_in;
-  void *request_socket_out;
   void *control_socket_in;
   int replicas;
 public:
@@ -293,13 +291,6 @@ public:
 #else
     cyclone_bind_endpoint(socket_in, me, port, pt);
 #endif
-    // Create input request socket
-    request_socket_in = cyclone_socket_in_loopback(loopback_context);
-    cyclone_bind_endpoint_loopback(request_socket_in, "inproc://RAFT_REQ");
-    // Create output request socket
-    request_socket_out = cyclone_socket_out_loopback(loopback_context);
-    cyclone_connect_endpoint_loopback(request_socket_out, "inproc://RAFT_REQ");
-    
     for(int i=0;i<replicas;i++) {
       sockets_out[i] = cyclone_socket_out(context);
       port = baseport + i ;
@@ -338,16 +329,6 @@ public:
     return socket_in;
   }
 
-  void * request_in()
-  {
-    return request_socket_in;
-  }
-
-  void *request_out()
-  {
-    return request_socket_out;
-  }
-  
   void* control_input_socket()
   {
     return control_socket_in;

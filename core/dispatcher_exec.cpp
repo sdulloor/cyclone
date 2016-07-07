@@ -10,45 +10,13 @@
 boost::asio::io_service ioService2;
 boost::asio::io_service::work work2(ioService2);
 
-static rpc_info_t *volatile run_queue_head = NULL;
-static rpc_info_t *volatile run_queue_tail = NULL;
-static unsigned long runqueue_lock = 0;
-
-void add_to_runqueue(rpc_info_t *work)
-{
-  work->next_issue = NULL;
-  lock(&runqueue_lock);
-  if(run_queue_head == NULL) {
-    run_queue_head = run_queue_tail = work;
-  }
-  else {
-    run_queue_tail->next_issue = work;
-    run_queue_tail = work;
-  }
-  unlock(&runqueue_lock);
-}
-
-rpc_info_t * get_from_runqueue()
-{
-  rpc_info_t *work;
-  if(run_queue_head == NULL) {
-    return NULL;
-  }
-  lock(&runqueue_lock);
-  work = run_queue_head;
-  run_queue_head = work->next_issue;
-  if(run_queue_head == NULL) {
-    run_queue_tail = NULL;
-  }
-  unlock(&runqueue_lock);
-  return work;
-}
+static runq_t<rpc_info_t> issue_q;
 
 static struct executor_st {
   void operator() ()
   {
     while(true) {
-      rpc_info_t *rpc = get_from_runqueue();
+      rpc_info_t *rpc = issue_q.get_from_runqueue();
       if(rpc == NULL) {
 	continue;
       }
@@ -94,7 +62,7 @@ void dispatcher_exec_startup()
 
 void exec_rpc(rpc_info_t *rpc)
 {
-  add_to_runqueue(rpc);
+  issue_q.add_to_runqueue(rpc);
 }
 
 void exec_send_checkpoint(void *socket, void *handle)
