@@ -1181,9 +1181,10 @@ void dispatcher_start(const char* config_server_path,
 				clients,
 				NULL);
   // Listen on port
+  void *zmq_context;
 #if defined(DPDK_STACK)
 #else
-  void *zmq_context = zmq_init(zmq_threads);
+  zmq_context = zmq_init(zmq_threads);
 #endif
   dispatcher_loop_obj    = new dispatcher_loop();
   dispatcher_loop_obj->zmq_context = zmq_context;
@@ -1206,7 +1207,7 @@ void dispatcher_start(const char* config_server_path,
     BOOST_LOG_TRIVIAL(fatal) << "Failed to launch disp loop on remote lcore";
     exit(-1);
   }
-  int e = rte_eal_remote_launch(dpdk_server_tx, (void *)router, 3);
+  e = rte_eal_remote_launch(dpdk_server_tx, (void *)router, 3);
   if(e != 0) {
     BOOST_LOG_TRIVIAL(fatal) << "Failed to launch tx loop on remote lcore";
     exit(-1);
