@@ -279,8 +279,6 @@ static int cyclone_rx_timeout(void *socket,
 
 static void* dpdk_context()
 {
-  dpdk_context_t *context = 
-    (dpdk_context_t *)rte_malloc("context", sizeof(dpdk_context_t), 0);
   int ret;
   
   char* fake_argv[1] = {(char *)"./fake"};
@@ -296,6 +294,9 @@ static void* dpdk_context()
   
   init_port_conf();
   rte_eth_dev_configure(0, num_queues, num_queues, &port_conf);
+
+  dpdk_context_t *context = 
+    (dpdk_context_t *)rte_malloc("context", sizeof(dpdk_context_t), 0);
 
   // Assume port 0, core 1 ....
 
