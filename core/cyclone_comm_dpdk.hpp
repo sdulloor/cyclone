@@ -223,11 +223,13 @@ static int cyclone_rx(void *socket,
     m = dpdk_socket->burst[dpdk_socket->consumed++];
     rte_prefetch0(rte_pktmbuf_mtod(m, void *));
     struct ether_hdr *e = rte_pktmbuf_mtod(m, struct ether_hdr *);
+    
+    // Turn on following check if the NIC is left in promiscous mode
     // drop unless this is for me
-    if(!is_same_ether_addr(&e->d_addr, &dpdk_socket->local_mac)) {
-      rte_pktmbuf_free(m);
-      return -1;
-    }
+    //if(!is_same_ether_addr(&e->d_addr, &dpdk_socket->local_mac)) {
+    //  rte_pktmbuf_free(m);
+    //  return -1;
+    //}
     // Strip off headers
     int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
     void *payload = rte_pktmbuf_mtod_offset(m, void *, payload_offset);
@@ -352,6 +354,8 @@ static void* dpdk_context()
   if (ret < 0)
     rte_exit(EXIT_FAILURE, "rte_eth_dev_start:err=%d, port=%u\n",
 	     ret, (unsigned) 0);
+  // NOTE:DO NOT ENABLE PROMISCOUS MODE
+  // OW need to check eth addr on all incoming packets
   //rte_eth_promiscuous_enable(0);
   rte_eth_macaddr_get(0, &context->port_macaddr);
   
