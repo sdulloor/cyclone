@@ -74,7 +74,7 @@ for i in range(machines):
     dname=output + '/cyclone_' + str(i)
     cond_abs_dir(dname)
     f=open(dname + '/ip_address', 'w')
-    m=mc_config.get('machines','addr' + str(i))
+    m=mc_config.get('machines','config' + str(i))
     f.write(m)
     f.close()
     f=open(dname + '/kill_all', 'w')
