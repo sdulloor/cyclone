@@ -82,11 +82,13 @@ void dispatcher_start(const char* config_server_path,
 
 ////// RPC client side interface
 static const int CLIENT_MAXPAYLOAD = (DISP_MAX_MSGSIZE - 512);
+void cyclone_client_global_init(); // NOT THREAD SAFE
 void* cyclone_client_init(int client_id,
 			  int client_mc,
 			  int replicas,
 			  const char *config_server,
 			  const char *config_client);
+void *cyclone_client_dup(void *handle, int me);
 // Make an rpc call -- returns size of response
 int make_rpc(void *handle,
 	     void *payload,
