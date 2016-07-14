@@ -68,7 +68,7 @@ int main(int argc, const char *argv[]) {
 				     fname_server,
 				     fname_client);
   }
-  char *buffer = new char[CLIENT_MAXPAYLOAD];
+  char *buffer = new char[DISP_MAX_MSGSIZE];
   struct proposal *prop = (struct proposal *)buffer;
   srand(time(NULL));
   int sz;

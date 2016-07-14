@@ -9,7 +9,7 @@
 #include "runq.hpp"
 
 /* Cyclone max message size */
-const int MSG_MAXSIZE  = 2048;
+const int MSG_MAXSIZE  = 700; // Maximum user data in pkt
 
 #if defined(ZMQ_STACK)
 #include "cyclone_comm_zmq.hpp"

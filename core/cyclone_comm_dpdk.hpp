@@ -304,11 +304,15 @@ static void* dpdk_context()
     char pool_name[50];
     sprintf(pool_name, "mbuf_pool%d", i);
     // Mempool
+    int pktsize = sizeof(struct ether_hdr) + MSG_MAXSIZE;
+    if(pktsize < 2048) {
+      pktsize = 2048;
+    }
     context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
 						   8191,
 						   32,
 						   0,
-						   RTE_PKTMBUF_HEADROOM + MSG_MAXSIZE,
+						   RTE_PKTMBUF_HEADROOM + pktsize,
 						   rte_socket_id());
     if (context->mempools[i] == NULL)
       rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");

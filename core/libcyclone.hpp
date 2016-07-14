@@ -7,7 +7,8 @@
 TOID_DECLARE(char, 0);
 #define TOID_NUM_BASE 1000
 static const int MAX_CLIENTS      = 10000; // Should be enough ?
-static const int DISP_MAX_MSGSIZE = 1024; // 1024 bytes max msg size
+static const int DISP_MAX_MSGSIZE = 512; // 512 bytes max msg size
+//Note: DISP_MAX_MSGSIZE must be within MSG_MAXSIZE with room for rpc_t header
 
 typedef struct rpc_cookie_st {
   volatile int raft_idx;
@@ -81,7 +82,6 @@ void dispatcher_start(const char* config_server_path,
 		      int clients);
 
 ////// RPC client side interface
-static const int CLIENT_MAXPAYLOAD = (DISP_MAX_MSGSIZE - 512);
 void cyclone_client_global_init(); // NOT THREAD SAFE
 void* cyclone_client_init(int client_id,
 			  int client_mc,

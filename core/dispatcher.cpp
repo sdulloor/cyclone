@@ -38,10 +38,10 @@ struct client_ro_state_st {
 
 static unsigned long ro_result_lock = 0;
 
-static unsigned char tx_buffer[DISP_MAX_MSGSIZE];
+static unsigned char tx_buffer[MSG_MAXSIZE];
 static unsigned char *rx_buffer;
 static unsigned char *rx_buffers;
-static unsigned char tx_async_buffer[DISP_MAX_MSGSIZE];
+static unsigned char tx_async_buffer[MSG_MAXSIZE];
 static server_switch *router;
 static int replica_me;
 
@@ -932,7 +932,7 @@ struct dispatcher_loop {
     int *rx_sizes = (int *)malloc(MAX_BATCH_SIZE*sizeof(int));
     need_issue_rpc = (bool *)malloc(MAX_BATCH_SIZE*sizeof(bool));
     rpc_t *req;
-    const int BUFSPACE = MIN_BATCH_BUFFERS*DISP_MAX_MSGSIZE;
+    const int BUFSPACE = MIN_BATCH_BUFFERS*MSG_MAXSIZE;
     int adaptive_batch_size = MIN_BATCH_BUFFERS;
     int space_left = BUFSPACE;
     follower_req_t *follower_req;
@@ -944,7 +944,7 @@ struct dispatcher_loop {
     while(true) {
       int sz = cyclone_rx(router->input_socket(),
 			  ptr,
-			  DISP_MAX_MSGSIZE,
+			  MSG_MAXSIZE,
 			  "DISP RCV");
       unsigned long mark = rtc_clock::current_time();
       if(sz != -1) {
@@ -985,7 +985,7 @@ struct dispatcher_loop {
 	      adaptive_batch_size = MAX_BATCH_SIZE;
 	    }
 	  }
-	  else if(space_left < DISP_MAX_MSGSIZE) {
+	  else if(space_left < MSG_MAXSIZE) {
 	    handle_batch_rpc(rx_sizes, requests);
 	    requests = 0;
 	    ptr = rx_buffers;

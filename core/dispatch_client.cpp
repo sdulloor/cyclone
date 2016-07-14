@@ -494,7 +494,7 @@ void* cyclone_client_init(int client_id,
 #if defined(DPDK_STACK)
   client->input_channels[0] = 
       new buffered_socket(client->router->input_socket(0),
-			  DISP_MAX_MSGSIZE);
+			  MSG_MAXSIZE);
   for(int i=1;i<replicas;i++) {
     client->input_channels[i] = client->input_channels[0];
   }
@@ -502,14 +502,14 @@ void* cyclone_client_init(int client_id,
   for(int i=0;i<replicas;i++) {
     client->input_channels[i] = 
       new buffered_socket(client->router->input_socket(i),
-			  DISP_MAX_MSGSIZE);
+			  MSG_MAXSIZE);
   }
 #endif
-  void *buf = new char[DISP_MAX_MSGSIZE];
+  void *buf = new char[MSG_MAXSIZE];
   client->packet_out = (rpc_t *)buf;
-  buf = new char[DISP_MAX_MSGSIZE];
+  buf = new char[MSG_MAXSIZE];
   client->packet_in = (rpc_t *)buf;
-  buf = new char[DISP_MAX_MSGSIZE];
+  buf = new char[MSG_MAXSIZE];
   client->packet_rep = (msg_t *)buf;
   client->replicas = replicas;
   client->channel_seq = client_id*client_mc*rtc_clock::current_time();
@@ -544,14 +544,14 @@ void* cyclone_client_dup(void *handle, int me)
   for(int i=0;i<replicas;i++) {
     client->input_channels[i] = 
       new buffered_socket(client->router->input_socket(i),
-			  DISP_MAX_MSGSIZE);
+			  MSG_MAXSIZE);
   }
 #endif
-  void *buf = new char[DISP_MAX_MSGSIZE];
+  void *buf = new char[MSG_MAXSIZE];
   client->packet_out = (rpc_t *)buf;
-  buf = new char[DISP_MAX_MSGSIZE];
+  buf = new char[MSG_MAXSIZE];
   client->packet_in = (rpc_t *)buf;
-  buf = new char[DISP_MAX_MSGSIZE];
+  buf = new char[MSG_MAXSIZE];
   client->packet_rep = (msg_t *)buf;
   client->replicas = orig->replicas;
   client->channel_seq = client->me*client->me_mc*rtc_clock::current_time();
@@ -569,6 +569,12 @@ int make_rpc(void *handle,
 	     int flags)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
+  if(sz > DISP_MAX_MSGSIZE) {
+    BOOST_LOG_TRIVIAL(fatal) << "rpc call params too large "
+			     << " param size =  " << sz
+			     << " DISP_MAX_MSGSIZE = " << DISP_MAX_MSGSIZE;
+    exit(-1);
+  }
   return client->make_rpc(payload, sz, response, txid, flags);
 }
 

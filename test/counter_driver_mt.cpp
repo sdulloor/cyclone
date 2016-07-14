@@ -69,7 +69,7 @@ int driver(void *arg)
   int clients = dargs->clients;
   int partitions = dargs->partitions;
   void **handles = dargs->handles;
-  char *buffer = new char[CLIENT_MAXPAYLOAD];
+  char *buffer = new char[DISP_MAX_MSGSIZE];
   struct proposal *prop = (struct proposal *)buffer;
   srand(time(NULL));
   int sz;
