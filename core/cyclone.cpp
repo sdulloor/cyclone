@@ -651,6 +651,10 @@ void* cyclone_boot(const char *config_path,
     raft_set_client_assist(cyclone_handle->raft_handle);
   }
 
+#if defined(DPDK_STACK)
+  raft_set_multi_inflight(cyclone_handle->raft_handle);
+#endif
+
   /* Setup raft state */
   if(access(path_raft.c_str(), F_OK)) {
     // TBD: figure out how to make this atomic
