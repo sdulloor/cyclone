@@ -56,7 +56,7 @@ struct client_paths {
     void *socket = cyclone_socket_out(saved_context);
     sockets_out[index(mc, client)] = socket;
 #if defined(DPDK_STACK)
-    cyclone_connect_endpoint(socket, mc, q_dispatcher, saved_pt_client);
+    cyclone_connect_endpoint(socket, mc, q_client, saved_pt_client);
 #else
     cyclone_connect_endpoint(socket, mc, port, saved_pt_client);
 #endif
@@ -376,7 +376,7 @@ public:
       // input wire from server 
       sockets_in[i] = cyclone_socket_in(context);
 #if defined(DPDK_STACK)
-      cyclone_bind_endpoint(sockets_in[i], me_mc, q_dispatcher, pt_client);
+      cyclone_bind_endpoint(sockets_in[i], me_mc, q_client, pt_client);
 #else
       cyclone_bind_endpoint(sockets_in[i], me_mc, -1, pt_client);
       size_t sz  = 1024;

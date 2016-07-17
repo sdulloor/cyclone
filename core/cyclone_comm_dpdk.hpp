@@ -49,7 +49,8 @@
 static const int q_raft       = 0;
 static const int q_dispatcher = 1;
 static const int q_control    = 2;
-static const int num_queues   = 3;
+static const int q_client     = 3;
+static const int num_queues   = 4;
 #define RTE_TEST_RX_DESC_DEFAULT 128
 #define RTE_TEST_TX_DESC_DEFAULT 512
 static const uint16_t nb_rxd = RTE_TEST_RX_DESC_DEFAULT;
@@ -403,9 +404,11 @@ static void* dpdk_set_socket_queue(void *socket, int q)
   if(q == 0)
     s->flow_ip_dst = 0;
   else if(q == 1)
-    s->flow_ip_dst = 101;
+    s->flow_ip_dst = 556;
+  else if(q == 2)
+    s->flow_ip_dst = 8100;
   else
-    s->flow_ip_dst = 13203;
+    s->flow_ip_dst = 122;
   s->buffered = 0;
   s->consumed = 0;
 }
