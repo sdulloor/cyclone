@@ -125,7 +125,7 @@ static int __send_appendentries(raft_server_t* raft,
 	      cyclone_handle->cyclone_buffer_out, 
 	      ptr - cyclone_handle->cyclone_buffer_out, 
 	      "__send_requestvote");
-  return 0;
+  return m->n_entries;
 }
 
 
