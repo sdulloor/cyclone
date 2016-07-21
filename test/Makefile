@@ -1,6 +1,6 @@
 all: counter_server counter_driver counter_coordinator\
 counter_loader counter_add_node counter_delete_node\
-counter_coordinator_driver counter_driver_mt
+counter_coordinator_driver counter_driver_mt counter_driver_noop_mt
 
 
 
@@ -36,6 +36,9 @@ counter_driver:counter_driver.cpp
 
 counter_driver_mt:counter_driver_mt.cpp 
 	$(CXX) $(CXXFLAGS) counter_driver_mt.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
+
+counter_driver_noop_mt:counter_driver_noop_mt.cpp 
+	$(CXX) $(CXXFLAGS) counter_driver_noop_mt.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
 
 counter_coordinator_driver:counter_coordinator_driver.cpp 
 	$(CXX) $(CXXFLAGS) counter_coordinator_driver.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@

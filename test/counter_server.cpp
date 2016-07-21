@@ -146,6 +146,10 @@ void* callback(const unsigned char *data,
       rep->kv_data.value = *(uint64_t *)pmemobj_direct(item);
     }
   }
+  else if(code == FN_NOOP) {
+    begin_tx();
+    rep->code = CODE_OK;
+  }
   else if(code == FN_BUMP) {
     begin_tx();
     PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);

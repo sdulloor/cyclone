@@ -40,16 +40,17 @@
 #include <libpmemobj.h>
 #include <libcyclone.hpp>
 
-const int FN_INSERT  = 0;
-const int FN_DELETE  = 1;
-const int FN_LOOKUP  = 2;
-const int FN_BUMP    = 3;
-const int FN_PREPARE = 4;
-const int FN_COMMIT  = 5;
+const int FN_INSERT     = 0;
+const int FN_DELETE     = 1;
+const int FN_LOOKUP     = 2;
+const int FN_BUMP       = 3;
+const int FN_PREPARE    = 4;
+const int FN_COMMIT     = 5;
 const int FN_SET_SLEEP  = 6; // Performance testing
+const int FN_NOOP       = 7; //
 
-const int CODE_OK   = 0;
-const int CODE_NOK  = 1;
+const int CODE_OK       = 0;
+const int CODE_NOK      = 1;
 
 struct k {uint64_t key;};
 struct kv {uint64_t key; uint64_t value;};
