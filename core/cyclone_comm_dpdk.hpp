@@ -46,11 +46,6 @@
 #include <rte_ip.h>
 #include <rte_byteorder.h>
 
-static const int q_raft       = 0;
-static const int q_dispatcher = 1;
-static const int q_control    = 2;
-static const int q_client     = 3;
-static const int num_queues   = 4;
 #define RTE_TEST_RX_DESC_DEFAULT 128
 #define RTE_TEST_TX_DESC_DEFAULT 512
 static const uint16_t nb_rxd = RTE_TEST_RX_DESC_DEFAULT;
@@ -196,6 +191,51 @@ static int cyclone_tx(void *socket,
     return -1;
 }
 
+static int cyclone_tx_queue(void *socket,
+			    const unsigned char *data,
+			    unsigned long size,
+			    int q_index,
+			    const char *context) 
+{
+  dpdk_socket_t *dpdk_socket = (dpdk_socket_t *)socket;
+  rte_mbuf *m = rte_pktmbuf_alloc(dpdk_socket->mempool);
+  if(m == NULL) {
+    BOOST_LOG_TRIVIAL(warning) << "Unable to allocate pktmbuf "
+			       << "for queue:" << dpdk_socket->queue_id;
+    return -1;
+  }
+  struct ether_hdr *eth;
+  eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
+  memset(eth, 0, sizeof(struct ether_hdr));
+  ether_addr_copy(&dpdk_socket->remote_mac, &eth->d_addr);
+  ether_addr_copy(&dpdk_socket->local_mac, &eth->s_addr);
+  eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
+  struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
+  initialize_ipv4_header(ip, 
+			 dpdk_socket->flow_ip_src,
+			 dpdk_socket->flow_ip_dst,
+			 size);
+  rte_memcpy(ip + 1, data, size);
+  
+  ///////////////////////
+  m->pkt_len = 
+    sizeof(struct ether_hdr) + 
+    sizeof(struct ipv4_hdr)  + 
+    size;
+  m->data_len = m->pkt_len;
+  int sent = rte_eth_tx_buffer(dpdk_socket->port_id, 
+			       q_index, 
+			       dpdk_socket->buffer, 
+			       m);
+  sent += rte_eth_tx_buffer_flush(dpdk_socket->port_id, 
+				  q_index,
+				  dpdk_socket->buffer);
+  if(sent)
+    return 0;
+  else
+    return -1;
+}
+
 // Keep trying until success
 static void cyclone_tx_block(void *socket,
 			     const unsigned char *data,
@@ -299,7 +339,7 @@ static void* dpdk_context()
   }
   
   init_port_conf();
-  rte_eth_dev_configure(0, num_queues, num_queues, &port_conf);
+  rte_eth_dev_configure(0, num_queues, num_queues + 1 + executor_threads, &port_conf);
 
   dpdk_context_t *context = 
     (dpdk_context_t *)rte_malloc("context", sizeof(dpdk_context_t), 0);
@@ -361,6 +401,21 @@ static void* dpdk_context()
 
     BOOST_LOG_TRIVIAL(info) << "CYCLONE_COMM:DPDK setup queue " << i;
   }
+
+  // Per execution thread tx queues
+  for(int i=0;i<=executor_threads;i++) {
+    ret = rte_eth_tx_queue_setup(0, 
+				 num_queues + i, 
+				 nb_txd,
+				 rte_eth_dev_socket_id(0),
+				 NULL);
+    
+    if (ret < 0)
+      rte_exit(EXIT_FAILURE, "rte_eth_tx_queue_setup:err=%d, port=%u\n",
+	       ret, (unsigned) 0);
+  }
+
+
   /* Start device */
   ret = rte_eth_dev_start(0);
   if (ret < 0)

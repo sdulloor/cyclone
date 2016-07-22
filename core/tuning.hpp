@@ -14,8 +14,17 @@ static const int timeout_msec  = 30; // Client - failure detect
 static const int MIN_BATCH_BUFFERS = 2;
 static const int MAX_BATCH_SIZE    = 5; // Ultimately bounded by MAX_MSGSIZE
 static const int DISP_BATCHING_INTERVAL = 10;
+static const int executor_threads = 4;
 
 // ZMQ specific tuning
-static const int zmq_threads = 3;
+static const int zmq_threads = 4;
+
+// DPDK specific tuning
+static const int q_raft       = 0;
+static const int q_dispatcher = 1;
+static const int q_control    = 2;
+static const int q_client     = 3;
+static const int num_queues   = 4;
+
 
 #endif

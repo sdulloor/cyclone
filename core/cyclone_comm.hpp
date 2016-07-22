@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include "clock.hpp"
 #include "runq.hpp"
+#include "tuning.hpp"
 
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 700; // Maximum user data in pkt
@@ -272,6 +273,22 @@ public:
     while(!cmd.complete);
   }
 
+#if defined(DPDK_STACK)
+  void direct_send_data(int mc,
+			int client,
+			void *data,
+			int size,
+			int q_index)
+  {
+    cyclone_tx_queue(cpaths.socket(mc, client),
+		     (const unsigned char *)data,
+		     size,
+		     q_index,
+		     "direct data tx");
+  }
+
+#endif
+
   void ring_doorbell(int mc,
 		     int client,
 		     int port,
@@ -296,6 +313,11 @@ public:
   int client_port(int mc, int client)
   {
     return cpaths.client_port(mc, client);
+  }
+
+  void direct_ring_doorbell(int mc, int client, int port)
+  {
+    cpaths.ring_doorbell(mc, client, port);
   }
 
   void operator() ()

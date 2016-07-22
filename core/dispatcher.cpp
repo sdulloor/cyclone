@@ -95,11 +95,19 @@ static void client_response(rpc_info_t *rpc,
       rep_sz += rpc->sz;
     }
   }
+#if defined(DPDK_STACK)
+  router->direct_send_data(rpc->client_blocked,
+			   rpc->rpc->client_id,
+			   (void *)rpc_rep, 
+			   rep_sz,
+			   rpc->tx_queue); 
+#else
   router->send_data(rpc->client_blocked,
 		    rpc->rpc->client_id,
 		    (void *)rpc_rep, 
 		    rep_sz,
-		    mux_index); 
+		    mux_index);
+#endif
   rpc->client_blocked = -1;
   unlock(&rpc->pending_lock);
 }
@@ -638,11 +646,19 @@ void cyclone_rep_cb(void *user_arg,
     rpc_client_assist.code = RPC_REQ_ASSIST;
     rpc_client_assist.rep  = *rep;
     // Engage client assist
+#if defined(DPDK_STACK)
+    router->direct_send_data(rpc->requestor,
+			     rpc->client_id,
+			     &rpc_client_assist, 
+			     sizeof(rpc_t),
+			     num_queues);
+#else
     router->send_data(rpc->requestor,
 		      rpc->client_id,
 		      &rpc_client_assist, 
 		      sizeof(rpc_t),
 		      2);
+#endif
   }
 
   issue_rpc(rpc, len, raft_idx, raft_term, 
@@ -867,11 +883,20 @@ struct dispatcher_loop {
       rep_sz = 0;
     }
     if(rep_sz > 0) {
+#if defined(DPDK_STACK)
+      router->direct_send_data(requestor,
+			       rpc_req->client_id, 
+			       (void *)tx_buffer, 
+			       rep_sz,
+			       q_dispatcher);
+#else
       router->send_data(requestor,
 			rpc_req->client_id, 
 			(void *)tx_buffer, 
 			rep_sz,
 			0); 
+#endif
+
     }
     return batch_issue;
   }
@@ -888,11 +913,19 @@ struct dispatcher_loop {
 	rpc_t *rpc_rep = (rpc_t *)tx_buffer;
 	rpc_rep->code = RPC_REP_INVSRV;
 	rpc_rep->master = cyclone_get_leader(cyclone_handle);
+#if defined(DPDK_STACK)
+	router->direct_send_data(rpc_req->requestor,
+				 rpc_req->client_id,
+				 (void *)tx_buffer, 
+				 sizeof(rpc_t),
+				 q_dispatcher);
+#else
 	router->send_data(rpc_req->requestor,
 			  rpc_req->client_id,
 			  (void *)tx_buffer, 
 			  sizeof(rpc_t),
 			  0);
+#endif
 	ptr = ptr + sizes[i];
       }
     }
@@ -962,10 +995,16 @@ struct dispatcher_loop {
 	req = (rpc_t *)ptr;
 	req->timestamp = mark;
 	if(router->client_port(req->requestor, req->client_id) != req->client_port) {
+#if defined(DPDK_STACK)
+	  router->direct_ring_doorbell(req->requestor,
+				       req->client_id,
+				       req->client_port);
+#else
 	  router->ring_doorbell(req->requestor,
 				req->client_id,
 				req->client_port,
 				0);
+#endif
 	}
 	if(!client_ro_state[req->client_id].inflight) { // Only one inflight per client
 	  ptr += sz;
@@ -1215,11 +1254,6 @@ void dispatcher_start(const char* config_server_path,
   int e = rte_eal_remote_launch(dpdk_disp_loop, (void *)dispatcher_loop_obj, 2);
   if(e != 0) {
     BOOST_LOG_TRIVIAL(fatal) << "Failed to launch disp loop on remote lcore";
-    exit(-1);
-  }
-  e = rte_eal_remote_launch(dpdk_server_tx, (void *)router, 3);
-  if(e != 0) {
-    BOOST_LOG_TRIVIAL(fatal) << "Failed to launch tx loop on remote lcore";
     exit(-1);
   }
   rte_eal_mp_wait_lcore();

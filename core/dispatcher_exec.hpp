@@ -22,6 +22,7 @@ typedef struct rpc_info_st {
   volatile int client_blocked;
   unsigned long ticket;
   unsigned char *client_buffer;
+  int tx_queue;
   struct rpc_info_st *next;
   struct rpc_info_st *volatile next_issue;
 } rpc_info_t;
