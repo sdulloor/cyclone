@@ -10,6 +10,8 @@
 #include "tuning.hpp"
 #include "cyclone_context.hpp"
 
+
+static volatile int threads = 0;
 class buffered_socket {
   void *socket;
   int bufsize;
@@ -148,6 +150,7 @@ typedef struct rpc_client_st {
   void* network_context;
   const char *config_server;
   const char *config_client;
+  int thread;
 
   void update_server(const char *context)
   {
@@ -205,10 +208,11 @@ typedef struct rpc_client_st {
 	    continue;
 	  }
 	  input_channels[replica]->grab_tx_lock();
-	  cyclone_tx(router->raft_output_socket(replica),
-		     (unsigned char *)packet_rep,
-		     sizeof(msg_t) + blob_sz,
-		     "ASSIST");
+	  cyclone_tx_queue(router->raft_output_socket(replica),
+			   (unsigned char *)packet_rep,
+			   sizeof(msg_t) + blob_sz,
+			   num_queues + thread,
+			   "ASSIST");
 	  input_channels[replica]->release_tx_lock();
 	}
 	sent_assist_msg = true;
@@ -227,10 +231,11 @@ typedef struct rpc_client_st {
 	  packet_rep->quorum = response_map;
 	  memcpy(&packet_rep->rep, &packet_in->rep, sizeof(replicant_t));
 	  input_channels[server]->grab_tx_lock();
-	  cyclone_tx(router->raft_output_socket(server),
-		     (unsigned char *)packet_rep,
-		     sizeof(msg_t),
-		     "ASSIST QUORUM");
+	  cyclone_tx_queue(router->raft_output_socket(server),
+			   (unsigned char *)packet_rep,
+			   sizeof(msg_t),
+			   num_queues + thread,
+			   "ASSIST QUORUM");
 	  input_channels[server]->release_tx_lock();
 	  sent_assist_reply = true;
 	}
@@ -253,10 +258,11 @@ typedef struct rpc_client_st {
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
       input_channels[server]->grab_tx_lock();
-      retcode = cyclone_tx(router->output_socket(server), 
-			   (unsigned char *)packet_out, 
-			   sizeof(rpc_t), 
-			   "PROPOSE");
+      retcode = cyclone_tx_queue(router->output_socket(server), 
+				 (unsigned char *)packet_out, 
+				 sizeof(rpc_t), 
+				 num_queues + thread,
+				 "PROPOSE");
       input_channels[server]->release_tx_lock();
       while(true) {
 	resp_sz = input_channels[server]->recv_timeout(me, 
@@ -455,10 +461,10 @@ typedef struct rpc_client_st {
 
 static void * network_context = NULL;
 
-void cyclone_client_global_init()
+void cyclone_client_global_init(int threads)
 {
 #if defined(DPDK_STACK)
-  network_context = dpdk_context();
+  network_context = dpdk_context_client(threads);
 #else
   network_context = zmq_init(1);
 #endif
@@ -472,6 +478,7 @@ void* cyclone_client_init(int client_id,
 			  const char *config_client)
 {
   rpc_client_t * client = new rpc_client_t();
+  client->thread = threads++;
   client->me = client_id;
   client->me_mc = client_mc;
   boost::property_tree::ptree pt_server;
@@ -523,6 +530,7 @@ void* cyclone_client_dup(void *handle, int me)
 {
   rpc_client_t *orig = (rpc_client_t *)handle;
   rpc_client_t * client = new rpc_client_t();
+  client->thread = threads++;
   client->me = me;
   client->me_mc = orig->me_mc;
   client->network_context = orig->network_context;

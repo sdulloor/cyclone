@@ -429,6 +429,113 @@ static void* dpdk_context()
   return context;
 }
 
+
+static void* dpdk_context_client(int threads)
+{
+  int ret;
+  
+  char* fake_argv[1] = {(char *)"./fake"};
+
+  /* init EAL */
+  ret = rte_eal_init(1, fake_argv);
+  if (ret < 0)
+    rte_exit(EXIT_FAILURE, "Invalid EAL arguments\n");
+ 
+  if(rte_eth_dev_count() == 0) {
+    rte_exit(EXIT_FAILURE, "No Ethernet ports - bye\n");
+  }
+  
+  init_port_conf();
+  rte_eth_dev_configure(0, num_queues, num_queues + threads, &port_conf);
+
+  dpdk_context_t *context = 
+    (dpdk_context_t *)rte_malloc("context", sizeof(dpdk_context_t), 0);
+
+  // Assume port 0, core 1 ....
+
+  for(int i=0;i<num_queues;i++) {
+    char pool_name[50];
+    sprintf(pool_name, "mbuf_pool%d", i);
+    // Mempool
+    int pktsize = sizeof(struct ether_hdr) + MSG_MAXSIZE;
+    if(pktsize < 2048) {
+      pktsize = 2048;
+    }
+    context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
+						   8191,
+						   32,
+						   0,
+						   RTE_PKTMBUF_HEADROOM + pktsize,
+						   rte_socket_id());
+    if (context->mempools[i] == NULL)
+      rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
+
+    //tx queue
+    ret = rte_eth_tx_queue_setup(0, 
+				 i, 
+				 nb_txd,
+				 rte_eth_dev_socket_id(0),
+				 NULL);
+
+    if (ret < 0)
+      rte_exit(EXIT_FAILURE, "rte_eth_tx_queue_setup:err=%d, port=%u\n",
+	       ret, (unsigned) 0);
+    
+
+    
+    context->buffers[i] = (rte_eth_dev_tx_buffer *)
+      rte_zmalloc_socket("tx_buffer",
+			 RTE_ETH_TX_BUFFER_SIZE(1), 
+			 0,
+			 rte_eth_dev_socket_id(0));
+    if (context->buffers[i] == NULL)
+      rte_exit(EXIT_FAILURE, "Cannot allocate buffer for tx on port %u\n",
+	       (unsigned) 0);
+
+    
+    rte_eth_tx_buffer_init(context->buffers[i], 1);
+
+    // rx queue
+    ret = rte_eth_rx_queue_setup(0, 
+				 i, 
+				 nb_rxd,
+				 rte_eth_dev_socket_id(0),
+				 NULL,
+				 context->mempools[i]);
+    if (ret < 0)
+      rte_exit(EXIT_FAILURE, "rte_eth_rx_queue_setup:err=%d, port=%u\n",
+	       ret, 0);
+
+    BOOST_LOG_TRIVIAL(info) << "CYCLONE_COMM:DPDK setup queue " << i;
+  }
+
+  // Per execution thread tx queues
+  for(int i=0;i< threads;i++) {
+    ret = rte_eth_tx_queue_setup(0, 
+				 num_queues + i, 
+				 nb_txd,
+				 rte_eth_dev_socket_id(0),
+				 NULL);
+    
+    if (ret < 0)
+      rte_exit(EXIT_FAILURE, "rte_eth_tx_queue_setup:err=%d, port=%u\n",
+	       ret, (unsigned) 0);
+  }
+
+
+  /* Start device */
+  ret = rte_eth_dev_start(0);
+  if (ret < 0)
+    rte_exit(EXIT_FAILURE, "rte_eth_dev_start:err=%d, port=%u\n",
+	     ret, (unsigned) 0);
+  // NOTE:DO NOT ENABLE PROMISCOUS MODE
+  // OW need to check eth addr on all incoming packets
+  //rte_eth_promiscuous_enable(0);
+  rte_eth_macaddr_get(0, &context->port_macaddr);
+  
+  return context;
+}
+
 static void* cyclone_socket_out(void *context)
 {
   dpdk_socket_t *socket;

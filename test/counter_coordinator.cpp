@@ -177,7 +177,7 @@ int main(int argc, char *argv[])
   char fname_server[50];
   char fname_client[50];
   clients  = atoi(argv[3]);
-  cyclone_client_global_init();
+  cyclone_client_global_init(1);
   for(int i=0;i<partitions;i++) {
     sprintf(fname_server, "%s%d.ini", argv[6], i);
     sprintf(fname_client, "%s%d.ini", argv[7], i);

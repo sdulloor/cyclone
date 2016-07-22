@@ -82,7 +82,7 @@ void dispatcher_start(const char* config_server_path,
 		      int clients);
 
 ////// RPC client side interface
-void cyclone_client_global_init(); // NOT THREAD SAFE
+void cyclone_client_global_init(int threads); // NOT THREAD SAFE
 void* cyclone_client_init(int client_id,
 			  int client_mc,
 			  int replicas,

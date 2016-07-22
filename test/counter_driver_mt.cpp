@@ -184,7 +184,7 @@ int main(int argc, const char *argv[]) {
   
   int client_id_start = atoi(argv[1]);
   int client_id_stop  = atoi(argv[2]);
-  cyclone_client_global_init();
+  cyclone_client_global_init(client_id_stop - client_id_start);
   driver_args_t *dargs;
   void **prev_handles;
   
