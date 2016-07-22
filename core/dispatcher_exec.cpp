@@ -3,6 +3,7 @@
 #include <boost/thread.hpp>
 #include "dispatcher_exec.hpp"
 #include "checkpoint.hpp"
+#include "cyclone_comm.hpp"
 #if defined(DPDK_STACK)
 #include <rte_launch.h>
 #endif
@@ -12,14 +13,21 @@ boost::asio::io_service::work work2(ioService2);
 
 static runq_t<rpc_info_t> issue_q;
 
+ticket_t ticket_window;
+
 static struct executor_st {
+  unsigned char *client_buffer;
   void operator() ()
   {
+    client_buffer = (unsigned char *)malloc(MSG_MAXSIZE);
     while(true) {
-      rpc_info_t *rpc = issue_q.get_from_runqueue();
+      unsigned long ticket;
+      rpc_info_t *rpc = issue_q.get_from_runqueue(&ticket);
       if(rpc == NULL) {
 	continue;
       }
+      rpc->ticket = ticket;
+      rpc->client_buffer = client_buffer;
       if(rpc->rpc->flags & RPC_FLAG_RO) {
 	exec_rpc_internal_ro(rpc);
       }
@@ -44,20 +52,25 @@ int dpdk_executor(void *arg)
 
 boost::thread_group threadpool;
 boost::thread *executor_thread;
+const int executor_threads = 2;
 
 void dispatcher_exec_startup()
 {
+  ticket_window.go_ticket   = 0;
+  issue_q.ticket            = 0;
+  for(int i=0;i < executor_threads;i++) {
 #if defined(DPDK_STACK)
-  int e = rte_eal_remote_launch(dpdk_executor, NULL, 4);
-  if(e != 0) {
-    BOOST_LOG_TRIVIAL(fatal) << "Failed to launch executor on remote lcore";
-    exit(-1);
-  }
+    int e = rte_eal_remote_launch(dpdk_executor, NULL, 4 + i);
+    if(e != 0) {
+      BOOST_LOG_TRIVIAL(fatal) << "Failed to launch executor on remote lcore";
+      exit(-1);
+    }
 #else
-  executor_thread = new boost::thread(boost::ref(executor));
-  threadpool.create_thread
-    (boost::bind(&boost::asio::io_service::run, &ioService2));
+    executor_thread = new boost::thread(boost::ref(executor));
+    threadpool.create_thread
+      (boost::bind(&boost::asio::io_service::run, &ioService2));
 #endif
+  }
 }
 
 void exec_rpc(rpc_info_t *rpc)

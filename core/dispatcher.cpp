@@ -37,11 +37,10 @@ struct client_ro_state_st {
 } client_ro_state [MAX_CLIENTS];
 
 static unsigned long ro_result_lock = 0;
-
 static unsigned char tx_buffer[MSG_MAXSIZE];
+
 static unsigned char *rx_buffer;
 static unsigned char *rx_buffers;
-static unsigned char tx_async_buffer[MSG_MAXSIZE];
 static server_switch *router;
 static int replica_me;
 
@@ -287,6 +286,7 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
 	}
       }
       if(!repeat) {
+	while(ticket_window.go_ticket != rpc->ticket);
 	app_callbacks.tx_commit(tx_handle, &rpc_cookie);
       }
       else {
@@ -298,8 +298,9 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
       }
     }
   }
-  client_response(rpc, (rpc_t *)tx_async_buffer, 1);
+  ticket_window.go_ticket++;
   __sync_synchronize();
+  client_response(rpc, (rpc_t *)rpc->client_buffer, 1);
   rpc->complete = true; // note: rpc will be freed after this
 }
 
@@ -324,14 +325,17 @@ void exec_rpc_internal(rpc_info_t *rpc)
     rpc->ret_value = rpc_cookie.ret_value;
   }
   while(!rpc->rep_success && !rpc->rep_failed);
+  // Wait for ticket
+  while(ticket_window.go_ticket != rpc->ticket);
   if(rpc->rep_success) {
     app_callbacks.tx_commit(tx_handle, &rpc_cookie);
   }
   else {
     app_callbacks.tx_abort(tx_handle);
   } 
-  client_response(rpc, (rpc_t *)tx_async_buffer, 1);
+  ticket_window.go_ticket++;
   __sync_synchronize();
+  client_response(rpc, (rpc_t *)rpc->client_buffer, 1);
   rpc->complete = true; // note: rpc will be freed after this
 }
 
@@ -356,14 +360,17 @@ void exec_rpc_internal_seq(rpc_info_t *rpc)
     rpc->sz = rpc_cookie.ret_size;
     rpc->ret_value = rpc_cookie.ret_value;
   }
+  // Wait for ticket
+  while(ticket_window.go_ticket != rpc->ticket);
   if(rpc->rep_success) {
     app_callbacks.tx_commit(tx_handle, &rpc_cookie);
   }
   else {
     app_callbacks.tx_abort(tx_handle);
   } 
-  client_response(rpc, (rpc_t *)tx_async_buffer, 1);
+  ticket_window.go_ticket++;
   __sync_synchronize();
+  client_response(rpc, (rpc_t *)rpc->client_buffer, 1);
   rpc->complete = true; // note: rpc will be freed after this
 }
 
@@ -381,6 +388,8 @@ void exec_rpc_internal_ro(rpc_info_t *rpc)
   rpc->sz  = rpc_cookie.ret_size;
   rpc->rep_success = true; // No replication needed
   struct client_ro_state_st *cstate = &client_ro_state[rpc->rpc->client_id];
+  // Wait for ticket
+  while(ticket_window.go_ticket != rpc->ticket);
   lock(&ro_result_lock);
   if(cstate->last_return_size != 0) {
     free(cstate->last_return_value);
@@ -395,8 +404,9 @@ void exec_rpc_internal_ro(rpc_info_t *rpc)
   }
   cstate->committed_txid = rpc->rpc->client_txid;
   unlock(&ro_result_lock);
-  client_response(rpc, (rpc_t *)tx_async_buffer, 1);
+  ticket_window.go_ticket++;
   __sync_synchronize();
+  client_response(rpc, (rpc_t *)rpc->client_buffer, 1);
   rpc->complete = true; // note: rpc will be freed after this
 }
 

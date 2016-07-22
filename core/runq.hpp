@@ -23,6 +23,7 @@ struct runq_t {
   T* volatile run_queue_head;
   T* volatile run_queue_tail;
   volatile unsigned long runqueue_lock;
+  volatile unsigned long ticket;
 
   runq_t()
   {
@@ -51,7 +52,32 @@ struct runq_t {
       return NULL;
     }
     lock(&runqueue_lock);
+    if(run_queue_head == NULL) {
+      unlock(&runqueue_lock);
+      return NULL;
+    }
     work = run_queue_head;
+    run_queue_head = work->next_issue;
+    if(run_queue_head == NULL) {
+      run_queue_tail = NULL;
+    }
+    unlock(&runqueue_lock);
+    return work;
+  }
+
+  T* get_from_runqueue(unsigned long *ticketp)
+  {
+    T *work;
+    if(run_queue_head == NULL) {
+      return NULL;
+    }
+    lock(&runqueue_lock);
+    if(run_queue_head == NULL) {
+      unlock(&runqueue_lock);
+      return NULL;
+    }
+    work = run_queue_head;
+    *ticketp = ticket++;
     run_queue_head = work->next_issue;
     if(run_queue_head == NULL) {
       run_queue_tail = NULL;

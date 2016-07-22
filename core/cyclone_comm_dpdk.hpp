@@ -160,7 +160,8 @@ static int cyclone_tx(void *socket,
   dpdk_socket_t *dpdk_socket = (dpdk_socket_t *)socket;
   rte_mbuf *m = rte_pktmbuf_alloc(dpdk_socket->mempool);
   if(m == NULL) {
-    BOOST_LOG_TRIVIAL(warning) << "Unable to allocated pktmbuf";
+    BOOST_LOG_TRIVIAL(warning) << "Unable to allocate pktmbuf "
+			       << "for queue:" << dpdk_socket->queue_id;
     return -1;
   }
   struct ether_hdr *eth;
