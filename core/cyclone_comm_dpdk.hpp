@@ -166,9 +166,9 @@ static int cyclone_tx(void *socket,
   ether_addr_copy(&dpdk_socket->local_mac, &eth->s_addr);
   eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
   struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
-  initialize_ipv4_header(ip, 
-			 dpdk_socket->flow_ip_src,
-			 dpdk_socket->flow_ip_dst,
+  initialize_ipv4_header(ip,
+			 0, 
+			 dpdk_socket->queue_id,
 			 size);
   rte_memcpy(ip + 1, data, size);
   
@@ -212,8 +212,8 @@ static int cyclone_tx_queue(void *socket,
   eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
   struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
   initialize_ipv4_header(ip, 
-			 dpdk_socket->flow_ip_src,
-			 dpdk_socket->flow_ip_dst,
+			 0,
+			 dpdk_socket->queue_id,
 			 size);
   rte_memcpy(ip + 1, data, size);
   
@@ -429,6 +429,23 @@ static void* dpdk_context()
   return context;
 }
 
+struct rte_eth_ntuple_filter filter_clean = {
+  .flags = RTE_5TUPLE_FLAGS,
+  .dst_ip = 0, // To be set
+  .dst_ip_mask = UINT32_MAX, /* Enable */
+  .src_ip = 0,
+  .src_ip_mask = 0, /* Disable */
+  .dst_port = 0,
+  .dst_port_mask = 0, /* Disable */
+  .src_port = 0,
+  .src_port_mask = 0, /* Disable */
+  .proto = 0,
+  .proto_mask = 0, /* Disable */
+  .tcp_flags = 0,
+  .priority = 1, /* Lowest */
+  .queue = 0, // To be set
+};
+
 
 static void* dpdk_context_client(int threads)
 {
@@ -522,6 +539,18 @@ static void* dpdk_context_client(int threads)
 	       ret, (unsigned) 0);
   }
 
+  
+  /* Prep queue steering */
+  struct rte_eth_ntuple_filter filter;
+  for(int i=0;i < num_queues;i++) {
+    memcpy(&filter, &filter_clean, sizeof(rte_eth_ntuple_filter));
+    filter.dst_ip = rte_bswap32(i);
+    filter.queue  = i;
+    rte_eth_dev_filter_ctrl(0,
+			    RTE_ETH_FILTER_NTUPLE,
+			    RTE_ETH_FILTER_DELETE,
+			    &filter);
+  }
 
   /* Start device */
   ret = rte_eth_dev_start(0);
