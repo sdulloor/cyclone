@@ -20,11 +20,12 @@ static const int executor_threads = 10;
 static const int zmq_threads = 4;
 
 // DPDK specific tuning
-static const int q_raft       = 0;
-static const int q_dispatcher = 1;
-static const int q_control    = 2;
-static const int q_client     = 3;
-static const int num_queues   = 4;
+static const int q_junk       = 0;
+static const int q_raft       = 1;
+static const int q_dispatcher = 2;
+static const int q_control    = 3;
+static const int q_client     = 4;
+static const int num_queues   = 5;
 
 
 #endif

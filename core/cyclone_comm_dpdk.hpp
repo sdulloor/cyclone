@@ -40,6 +40,7 @@
 #include <rte_debug.h>
 #include <rte_ether.h>
 #include <rte_ethdev.h>
+#include <rte_eth_ctrl.h>
 #include <rte_ring.h>
 #include <rte_mempool.h>
 #include <rte_mbuf.h>
@@ -51,13 +52,14 @@
 static const uint16_t nb_rxd = RTE_TEST_RX_DESC_DEFAULT;
 static const uint16_t nb_txd = RTE_TEST_TX_DESC_DEFAULT;
 
+const unsigned long magic_src_ip = 0xdeadbeef;
 
 static struct rte_eth_conf port_conf;
 
 // Because C++ did not see it fit to include struct inits
 static void init_port_conf()
 {
-  port_conf.rxmode.mq_mode        = ETH_MQ_RX_RSS;
+  port_conf.rxmode.mq_mode        = ETH_MQ_RX_NONE;
   port_conf.rxmode.max_rx_pkt_len = ETHER_MAX_LEN;
   port_conf.rxmode.split_hdr_size = 0;
   port_conf.rxmode.header_split   = 0; 
@@ -66,10 +68,31 @@ static void init_port_conf()
   port_conf.rxmode.jumbo_frame    = 0; 
   port_conf.rxmode.hw_strip_crc   = 0; 
   port_conf.txmode.mq_mode = ETH_MQ_TX_NONE;
-  port_conf.rx_adv_conf.rss_conf.rss_key = NULL; // Set Intel RSS hash
-  port_conf.rx_adv_conf.rss_conf.rss_key_len = 0;
-  port_conf.rx_adv_conf.rss_conf.rss_hf = ETH_RSS_IP;
+  //port_conf.rx_adv_conf.rss_conf.rss_key = NULL; // Set Intel RSS hash
+  //port_conf.rx_adv_conf.rss_conf.rss_key_len = 0;
+  //port_conf.rx_adv_conf.rss_conf.rss_hf = ETH_RSS_IP;
 }
+
+static struct rte_fdir_conf fdir_conf;
+static void init_fdir_conf()
+{
+  fdir_conf.mode = RTE_FDIR_MODE_PERFECT;
+  fdir_conf.pballoc = RTE_FDIR_PBALLOC_64K;
+  fdir_conf.status = RTE_FDIR_REPORT_STATUS;
+  fdir_conf.mask.vlan_tci_mask = 0x0;
+  fdir_conf.mask.ipv4_mask.src_ip = 0xFFFFFFFF;
+  fdir_conf.mask.ipv4_mask.dst_ip = 0xFFFFFFFF;
+  fdir_conf.mask.ipv6_mask.src_ip = {0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF};
+  fdir_conf.mask.ipv6_mask.dst_ip = {0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF};
+  fdir_conf.mask.src_port_mask = 0xFFFF;
+  fdir_conf.mask.dst_port_mask = 0xFFFF;
+  fdir_conf.mask.mac_addr_byte_mask = 0xFF;
+  fdir_conf.mask.tunnel_type_mask = 1;
+  fdir_conf.mask.tunnel_id_mask = 0xFFFFFFFF;
+  fdir_conf.drop_queue = 127;
+};
+
+
 
 typedef struct {
   struct ether_addr port_macaddr;
@@ -84,8 +107,6 @@ typedef struct  {
   struct rte_eth_dev_tx_buffer *buffer;
   struct ether_addr remote_mac;
   struct ether_addr local_mac;
-  uint32_t flow_ip_src;
-  uint32_t flow_ip_dst;
   int port_id;
   int queue_id;
   rte_mbuf *burst[PKT_BURST];
@@ -120,8 +141,10 @@ static void initialize_ipv4_header(struct ipv4_hdr *ip_hdr,
   ip_hdr->next_proto_id = IPPROTO_IP;
   ip_hdr->packet_id = 0;
   ip_hdr->total_length   = rte_cpu_to_be_16(pkt_len);
-  ip_hdr->src_addr = rte_cpu_to_be_32(src_addr);
-  ip_hdr->dst_addr = rte_cpu_to_be_32(dst_addr);
+  //ip_hdr->src_addr = rte_cpu_to_be_32(src_addr);
+  //ip_hdr->dst_addr = rte_cpu_to_be_32(dst_addr);
+  ip_hdr->src_addr = src_addr;
+  ip_hdr->dst_addr = dst_addr;
 
   /*
    * Compute IP header checksum.
@@ -167,7 +190,7 @@ static int cyclone_tx(void *socket,
   eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
   struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
   initialize_ipv4_header(ip,
-			 0, 
+			 magic_src_ip, 
 			 dpdk_socket->queue_id,
 			 size);
   rte_memcpy(ip + 1, data, size);
@@ -212,7 +235,7 @@ static int cyclone_tx_queue(void *socket,
   eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
   struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
   initialize_ipv4_header(ip, 
-			 0,
+			 magic_src_ip,
 			 dpdk_socket->queue_id,
 			 size);
   rte_memcpy(ip + 1, data, size);
@@ -269,7 +292,17 @@ static int cyclone_rx(void *socket,
     m = dpdk_socket->burst[dpdk_socket->consumed++];
     rte_prefetch0(rte_pktmbuf_mtod(m, void *));
     struct ether_hdr *e = rte_pktmbuf_mtod(m, struct ether_hdr *);
-    
+    struct ipv4_hdr *ip = (struct ipv4_hdr *)(e + 1);
+    if(e->ether_type != rte_cpu_to_be_16(ETHER_TYPE_IPv4)) {
+      BOOST_LOG_TRIVIAL(warning) << "Dropping junk. Protocol mismatch";
+      rte_pktmbuf_free(m);
+      return -1;
+    }
+    else if(ip->src_addr != magic_src_ip) {
+      BOOST_LOG_TRIVIAL(warning) << "Dropping junk. non magic ip";
+      rte_pktmbuf_free(m);
+      return -1;
+    }
     // Turn on following check if the NIC is left in promiscous mode
     // drop unless this is for me
     //if(!is_same_ether_addr(&e->d_addr, &dpdk_socket->local_mac)) {
@@ -323,6 +356,53 @@ static int cyclone_rx_timeout(void *socket,
   return rc;
 }
 
+
+static struct rte_eth_ntuple_filter filter_clean;
+
+
+static void init_filter_clean()
+{
+  filter_clean.flags = RTE_5TUPLE_FLAGS;
+  filter_clean.dst_ip = 0; // To be set
+  filter_clean.dst_ip_mask = UINT32_MAX; /* Enable */
+  filter_clean.src_ip = 0;
+  filter_clean.src_ip_mask = 0; /* Disable */
+  filter_clean.dst_port = 0;
+  filter_clean.dst_port_mask = 0; /* Disable */
+  filter_clean.src_port = 0;
+  filter_clean.src_port_mask = 0; /* Disable */
+  filter_clean.proto = 0;
+  filter_clean.proto_mask = 0; /* Disable */
+  filter_clean.tcp_flags = 0;
+  filter_clean.priority = 7; /* Highest */
+  filter_clean.queue = 0; // To be set
+}
+
+static void install_eth_filters()
+{
+  struct rte_eth_ntuple_filter filter;
+  init_filter_clean();
+  if(rte_eth_dev_filter_supported(0, RTE_ETH_FILTER_NTUPLE) != 0) {
+    rte_exit(EXIT_FAILURE, "rte_eth_dev does not support ntuple filter");
+  }
+  for(int i=0;i < num_queues;i++) {
+    memcpy(&filter, &filter_clean, sizeof(rte_eth_ntuple_filter));
+    filter.dst_ip = i;
+    filter.queue  = i;
+    int ret = rte_eth_dev_filter_ctrl(0,
+				      RTE_ETH_FILTER_NTUPLE,
+				      RTE_ETH_FILTER_ADD,
+				      &filter);
+    
+    if (ret != 0)
+      rte_exit(EXIT_FAILURE, "rte_eth_dev_filter_ctrl:err=%d, port=%u\n",
+	       ret, (unsigned) 0);
+    else
+      BOOST_LOG_TRIVIAL(info) << "Added filter for rxq " << i;
+    
+  }
+}
+
 static void* dpdk_context()
 {
   int ret;
@@ -339,6 +419,8 @@ static void* dpdk_context()
   }
   
   init_port_conf();
+  //init_fdir_conf();
+  //port_conf.fdir_conf = fdir_conf;
   rte_eth_dev_configure(0, num_queues, num_queues + 1 + executor_threads, &port_conf);
 
   dpdk_context_t *context = 
@@ -424,28 +506,11 @@ static void* dpdk_context()
   // NOTE:DO NOT ENABLE PROMISCOUS MODE
   // OW need to check eth addr on all incoming packets
   //rte_eth_promiscuous_enable(0);
+  install_eth_filters();
   rte_eth_macaddr_get(0, &context->port_macaddr);
   
   return context;
 }
-
-struct rte_eth_ntuple_filter filter_clean = {
-  .flags = RTE_5TUPLE_FLAGS,
-  .dst_ip = 0, // To be set
-  .dst_ip_mask = UINT32_MAX, /* Enable */
-  .src_ip = 0,
-  .src_ip_mask = 0, /* Disable */
-  .dst_port = 0,
-  .dst_port_mask = 0, /* Disable */
-  .src_port = 0,
-  .src_port_mask = 0, /* Disable */
-  .proto = 0,
-  .proto_mask = 0, /* Disable */
-  .tcp_flags = 0,
-  .priority = 1, /* Lowest */
-  .queue = 0, // To be set
-};
-
 
 static void* dpdk_context_client(int threads)
 {
@@ -461,8 +526,12 @@ static void* dpdk_context_client(int threads)
   if(rte_eth_dev_count() == 0) {
     rte_exit(EXIT_FAILURE, "No Ethernet ports - bye\n");
   }
+
+  
   
   init_port_conf();
+  //init_fdir_conf();
+  //port_conf.fdir_conf = fdir_conf;
   rte_eth_dev_configure(0, num_queues, num_queues + threads, &port_conf);
 
   dpdk_context_t *context = 
@@ -539,19 +608,6 @@ static void* dpdk_context_client(int threads)
 	       ret, (unsigned) 0);
   }
 
-  
-  /* Prep queue steering */
-  struct rte_eth_ntuple_filter filter;
-  for(int i=0;i < num_queues;i++) {
-    memcpy(&filter, &filter_clean, sizeof(rte_eth_ntuple_filter));
-    filter.dst_ip = rte_bswap32(i);
-    filter.queue  = i;
-    rte_eth_dev_filter_ctrl(0,
-			    RTE_ETH_FILTER_NTUPLE,
-			    RTE_ETH_FILTER_DELETE,
-			    &filter);
-  }
-
   /* Start device */
   ret = rte_eth_dev_start(0);
   if (ret < 0)
@@ -560,8 +616,8 @@ static void* dpdk_context_client(int threads)
   // NOTE:DO NOT ENABLE PROMISCOUS MODE
   // OW need to check eth addr on all incoming packets
   //rte_eth_promiscuous_enable(0);
+  install_eth_filters();
   rte_eth_macaddr_get(0, &context->port_macaddr);
-  
   return context;
 }
 
@@ -594,17 +650,6 @@ static void* dpdk_set_socket_queue(void *socket, int q)
   s->mempool  = c->mempools[q];
   s->buffer   = c->buffers[q];
   s->queue_id = q; 
-  // flow ids to match to correct queue
-  // assuming intel rss hash in effect at rx end
-  s->flow_ip_src = 0;
-  if(q == 0)
-    s->flow_ip_dst = 0;
-  else if(q == 1)
-    s->flow_ip_dst = 556;
-  else if(q == 2)
-    s->flow_ip_dst = 8100;
-  else
-    s->flow_ip_dst = 122;
   s->buffered = 0;
   s->consumed = 0;
 }

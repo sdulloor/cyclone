@@ -487,7 +487,7 @@ typedef struct cyclone_st {
 				msg->quorum);
       break;
     default:
-      printf("unknown msg in handle remote\n");
+      printf("unknown msg in handle remote size=%d code=%d\n", size, msg->msg_type);
       exit(0);
     }
   }

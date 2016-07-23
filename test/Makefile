@@ -54,6 +54,6 @@ counter_add_node:counter_add_node.cpp
 clean:
 	rm -f counter_server counter_driver \
 counter_coordinator counter_delete_node counter_add_node \
-counter_loader counter_driver_mt common.o counter_driver_mt\
+counter_loader counter_driver_mt common.o counter_driver_mt \
 counter_driver_noop_mt
 
