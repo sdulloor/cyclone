@@ -39,6 +39,9 @@ static struct executor_st {
       else if(rpc->rpc->flags & RPC_FLAG_SEQ) {
 	exec_rpc_internal_seq(rpc);
       }
+      else if(rpc->rpc->flags & RPC_FLAG_REP_RO) {
+	exec_rpc_internal_rep_ro(rpc);
+      }
       else {
 	exec_rpc_internal(rpc);
       }

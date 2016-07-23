@@ -108,7 +108,7 @@ int driver(void *arg)
 		  sizeof(struct proposal),
 		  (void **)&resp,
 		  ctr[partition],
-		  0);
+		  RPC_FLAG_REP_RO);
     ctr[partition]++;
     tx_block_cnt++;
     if(sz != sizeof(struct proposal)) {
@@ -143,7 +143,7 @@ int main(int argc, const char *argv[]) {
   
   int client_id_start = atoi(argv[1]);
   int client_id_stop  = atoi(argv[2]);
-  cyclone_client_global_init();
+  cyclone_client_global_init(client_id_stop - client_id_start);
   driver_args_t *dargs;
   void **prev_handles;
   

@@ -112,6 +112,7 @@ int add_node(void *handle, int txid, int node);
 static const int RPC_FLAG_SYNCHRONOUS   = 1; // Synchronous execution across replicas
 static const int RPC_FLAG_RO            = 2; // Read-only RPC
 static const int RPC_FLAG_SEQ           = 4;
+static const int RPC_FLAG_REP_RO        = 8; // Read-only replicated RPC
 
 // Possible error codes
 static const int RPC_EOLD               = -1; // RPC too old to cache result

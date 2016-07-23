@@ -74,11 +74,16 @@ static void client_response(rpc_info_t *rpc,
 			    rpc_t *rpc_rep,
 			    int mux_index)
 {
+#if defined(DPDK_STACK)
+  if(rpc->client_blocked == -1)
+    return;
+#else
   lock(&rpc->pending_lock);
   if(rpc->client_blocked == -1) {
     unlock(&rpc->pending_lock);
     return;
   }
+#endif
   rpc_rep->client_id   = rpc->rpc->client_id;
   rpc_rep->client_txid = rpc->rpc->client_txid;
   rpc_rep->channel_seq = rpc->rpc->channel_seq;
@@ -101,15 +106,17 @@ static void client_response(rpc_info_t *rpc,
 			   (void *)rpc_rep, 
 			   rep_sz,
 			   rpc->tx_queue); 
+  rpc->client_blocked = -1;
 #else
   router->send_data(rpc->client_blocked,
 		    rpc->rpc->client_id,
 		    (void *)rpc_rep, 
 		    rep_sz,
 		    mux_index);
-#endif
   rpc->client_blocked = -1;
   unlock(&rpc->pending_lock);
+
+#endif
 }
 
 static rpc_info_t * locate_rpc_internal(int raft_idx,
@@ -412,6 +419,43 @@ void exec_rpc_internal_ro(rpc_info_t *rpc)
   }
   cstate->committed_txid = rpc->rpc->client_txid;
   unlock(&ro_result_lock);
+  ticket_window.go_ticket++;
+  __sync_synchronize();
+  client_response(rpc, (rpc_t *)rpc->client_buffer, 1);
+  rpc->complete = true; // note: rpc will be freed after this
+}
+
+void exec_rpc_internal_rep_ro(rpc_info_t *rpc)
+{
+  while(building_image);
+  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+  rpc_cookie_t rpc_cookie;
+  init_rpc_cookie_info(&rpc_cookie, rpc);
+  app_callbacks.rpc_callback((const unsigned char *)(rpc->rpc + 1),
+			     rpc->len - sizeof(rpc_t),
+			     &rpc_cookie);
+  rpc->ret_value = rpc_cookie.ret_value;
+  rpc->sz  = rpc_cookie.ret_size;
+  while(!rpc->rep_success && !rpc->rep_failed);
+  struct client_ro_state_st *cstate = &client_ro_state[rpc->rpc->client_id];
+  // Wait for ticket
+  while(ticket_window.go_ticket != rpc->ticket);
+  if(rpc->rep_success) {
+    lock(&ro_result_lock);
+    if(cstate->last_return_size != 0) {
+      free(cstate->last_return_value);
+      cstate->last_return_size = 0;
+    }
+    if(rpc->sz > 0) {
+      cstate->last_return_value = (char *)malloc(rpc->sz);
+      memcpy(cstate->last_return_value,
+	     rpc->ret_value,
+	     rpc->sz);
+      cstate->last_return_size = rpc->sz;
+    }
+    cstate->committed_txid = rpc->rpc->client_txid;
+    unlock(&ro_result_lock);
+  }
   ticket_window.go_ticket++;
   __sync_synchronize();
   client_response(rpc, (rpc_t *)rpc->client_buffer, 1);

@@ -46,6 +46,7 @@ extern void exec_rpc(rpc_info_t *rpc);
 extern void exec_rpc_internal(rpc_info_t *rpc);
 extern void exec_rpc_internal_synchronous(rpc_info_t *rpc);
 extern void exec_rpc_internal_ro(rpc_info_t *rpc);
+extern void exec_rpc_internal_rep_ro(rpc_info_t *rpc);
 extern void exec_rpc_internal_seq(rpc_info_t *rpc);
 extern void exec_send_checkpoint(void *socket, void *handle);
 
