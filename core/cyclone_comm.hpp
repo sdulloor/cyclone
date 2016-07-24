@@ -211,10 +211,11 @@ typedef struct mux_state_st{
 // A version of every client on every machine
 class server_switch {
   void *saved_context;
-  void *socket_in;
+  void **sockets_in;
   int clients;
-  client_paths cpaths;
+  void **sockets_out;
   runq_t<mux_state_t> muxq;
+  client_paths cpaths;
 
 public:
 
@@ -235,19 +236,22 @@ public:
 
     key.str("");key.clear();
     key << "machines.machines";
-    cpaths.client_machines =  pt_client->get<int>(key.str().c_str());
     
-    cpaths.clients  = clients_in;
-    cpaths.saved_pt_client = pt_client;
-    cpaths.saved_context = saved_context;
+    int client_machines =  pt_client->get<int>(key.str().c_str());
     
-    cpaths.init();
-
+    sockets_out = new void *[client_machines];
+    for(int i=0;i<client_machines;i++) {
+      sockets_out[i] = cyclone_socket_out(context);
+      cyclone_connect_endpoint(sockets_out[i], i, q_client, pt_client);
+    }
     // Input wire
-    socket_in   = cyclone_socket_in(context); 
+    sockets_in = (void **)malloc(executor_threads*sizeof(void *));
     port = server_baseport + me;
 #if defined(DPDK_STACK)
-    cyclone_bind_endpoint(socket_in, me, q_dispatcher, pt_server);
+    for(int i=0;i<executor_threads;i++) {
+      sockets_in[i] = cyclone_socket_in(context);
+      cyclone_bind_endpoint(sockets_in[i], me, num_queues + i, pt_server);
+    }
 #else
       cyclone_bind_endpoint(socket_in, me, port, pt_server);
 #endif
@@ -275,16 +279,17 @@ public:
 
 #if defined(DPDK_STACK)
   void direct_send_data(int mc,
-			int client,
+			int queue,
 			void *data,
 			int size,
 			int q_index)
   {
-    cyclone_tx_queue(cpaths.socket(mc, client),
-		     (const unsigned char *)data,
-		     size,
-		     q_index,
-		     "direct data tx");
+    cyclone_tx_queue_queue(sockets_out[mc],
+			   (const unsigned char *)data,
+			   size,
+			   q_index,
+			   queue,
+			   "direct data tx");
   }
 
 #endif
@@ -305,9 +310,9 @@ public:
     while(!cmd.complete);
   }
 
-  void *input_socket()
+  void *input_socket(int tid)
   {
-    return socket_in;
+    return sockets_in[tid];
   }
 
   int client_port(int mc, int client)
@@ -366,13 +371,15 @@ class client_switch {
   int *ports_in;
   int server_machines;
   int client_machines;
+  int input_queue;
 
 public:
   client_switch(void *context, 
 		boost::property_tree::ptree *pt_server,
 		boost::property_tree::ptree *pt_client,
 		int me,
-		int me_mc)
+		int me_mc,
+		int input_queue_in)
     
   {
     std::stringstream key; 
@@ -393,12 +400,13 @@ public:
     raft_sockets_out = new void *[server_machines];
     
     char * zmq_dsn = new char[1024];
+    input_queue = input_queue_in;
     int port;
     for(int i=0;i<server_machines;i++) {
       // input wire from server 
       sockets_in[i] = cyclone_socket_in(context);
 #if defined(DPDK_STACK)
-      cyclone_bind_endpoint(sockets_in[i], me_mc, q_client, pt_client);
+      cyclone_bind_endpoint(sockets_in[i], me_mc, input_queue, pt_client);
 #else
       cyclone_bind_endpoint(sockets_in[i], me_mc, -1, pt_client);
       size_t sz  = 1024;
@@ -446,7 +454,7 @@ public:
   int input_port(int machine)
   {
 #if defined(DPDK_STACK)
-    return 0;
+    return input_queue;
 #else
     return ports_in[machine];
 #endif
@@ -454,7 +462,7 @@ public:
   
   void *input_socket(int machine)
   {
-    return sockets_in[machine];
+    return sockets_in[0];
   }
 
   ~client_switch()

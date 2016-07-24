@@ -16,44 +16,7 @@ static runq_t<rpc_info_t> issue_q;
 
 ticket_t ticket_window;
 
-static struct executor_st {
-  void operator() (unsigned long tid)
-  {
-    unsigned char *client_buffer;
-    client_buffer = (unsigned char *)malloc(MSG_MAXSIZE);
-    while(true) {
-      unsigned long ticket;
-      rpc_info_t *rpc = issue_q.get_from_runqueue(&ticket);
-      if(rpc == NULL) {
-	continue;
-      }
-      rpc->ticket = ticket;
-      rpc->client_buffer = client_buffer;
-      rpc->tx_queue = num_queues + 1 + tid;
-      if(rpc->rpc->flags & RPC_FLAG_RO) {
-	exec_rpc_internal_ro(rpc);
-      }
-      else if(rpc->rpc->flags & RPC_FLAG_SYNCHRONOUS) {
-	exec_rpc_internal_synchronous(rpc);
-      }
-      else if(rpc->rpc->flags & RPC_FLAG_SEQ) {
-	exec_rpc_internal_seq(rpc);
-      }
-      else if(rpc->rpc->flags & RPC_FLAG_REP_RO) {
-	exec_rpc_internal_rep_ro(rpc);
-      }
-      else {
-	exec_rpc_internal(rpc);
-      }
-    }
-  }
-} executor;
-
-int dpdk_executor(void *arg)
-{
-  executor((unsigned long)arg);
-  return 0;
-}
+extern int dpdk_executor(void *arg);
 
 boost::thread_group threadpool;
 boost::thread *executor_thread;

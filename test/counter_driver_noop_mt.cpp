@@ -108,7 +108,7 @@ int driver(void *arg)
 		  sizeof(struct proposal),
 		  (void **)&resp,
 		  ctr[partition],
-		  RPC_FLAG_REP_RO);
+		  RPC_FLAG_RO);
     ctr[partition]++;
     tx_block_cnt++;
     if(sz != sizeof(struct proposal)) {

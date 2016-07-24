@@ -259,6 +259,99 @@ static int cyclone_tx_queue(void *socket,
     return -1;
 }
 
+
+static int cyclone_tx_rand_queue(void *socket,
+				 const unsigned char *data,
+				 unsigned long size,
+				 int q_index,
+				 const char *context) 
+{
+  dpdk_socket_t *dpdk_socket = (dpdk_socket_t *)socket;
+  rte_mbuf *m = rte_pktmbuf_alloc(dpdk_socket->mempool);
+  if(m == NULL) {
+    BOOST_LOG_TRIVIAL(warning) << "Unable to allocate pktmbuf "
+			       << "for queue:" << dpdk_socket->queue_id;
+    return -1;
+  }
+  struct ether_hdr *eth;
+  eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
+  memset(eth, 0, sizeof(struct ether_hdr));
+  ether_addr_copy(&dpdk_socket->remote_mac, &eth->d_addr);
+  ether_addr_copy(&dpdk_socket->local_mac, &eth->s_addr);
+  eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
+  struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
+  initialize_ipv4_header(ip, 
+			 magic_src_ip,
+			 num_queues + rand()%executor_threads,
+			 size);
+  rte_memcpy(ip + 1, data, size);
+  
+  ///////////////////////
+  m->pkt_len = 
+    sizeof(struct ether_hdr) + 
+    sizeof(struct ipv4_hdr)  + 
+    size;
+  m->data_len = m->pkt_len;
+  int sent = rte_eth_tx_buffer(dpdk_socket->port_id, 
+			       q_index, 
+			       dpdk_socket->buffer, 
+			       m);
+  sent += rte_eth_tx_buffer_flush(dpdk_socket->port_id, 
+				  q_index,
+				  dpdk_socket->buffer);
+  if(sent)
+    return 0;
+  else
+    return -1;
+}
+
+
+static int cyclone_tx_queue_queue(void *socket,
+				  const unsigned char *data,
+				  unsigned long size,
+				  int q_index,
+				  int q_remote,
+				  const char *context) 
+{
+  dpdk_socket_t *dpdk_socket = (dpdk_socket_t *)socket;
+  rte_mbuf *m = rte_pktmbuf_alloc(dpdk_socket->mempool);
+  if(m == NULL) {
+    BOOST_LOG_TRIVIAL(warning) << "Unable to allocate pktmbuf "
+			       << "for queue:" << dpdk_socket->queue_id;
+    return -1;
+  }
+  struct ether_hdr *eth;
+  eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
+  memset(eth, 0, sizeof(struct ether_hdr));
+  ether_addr_copy(&dpdk_socket->remote_mac, &eth->d_addr);
+  ether_addr_copy(&dpdk_socket->local_mac, &eth->s_addr);
+  eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
+  struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
+  initialize_ipv4_header(ip, 
+			 magic_src_ip,
+			 q_remote,
+			 size);
+  rte_memcpy(ip + 1, data, size);
+  
+  ///////////////////////
+  m->pkt_len = 
+    sizeof(struct ether_hdr) + 
+    sizeof(struct ipv4_hdr)  + 
+    size;
+  m->data_len = m->pkt_len;
+  int sent = rte_eth_tx_buffer(dpdk_socket->port_id, 
+			       q_index, 
+			       dpdk_socket->buffer, 
+			       m);
+  sent += rte_eth_tx_buffer_flush(dpdk_socket->port_id, 
+				  q_index,
+				  dpdk_socket->buffer);
+  if(sent)
+    return 0;
+  else
+    return -1;
+}
+
 // Keep trying until success
 static void cyclone_tx_block(void *socket,
 			     const unsigned char *data,
@@ -303,6 +396,11 @@ static int cyclone_rx(void *socket,
       rte_pktmbuf_free(m);
       return -1;
     }
+    else if(m->data_len <= sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr)) {
+      BOOST_LOG_TRIVIAL(warning) << "Dropping junk = pkt size too small";
+      rte_pktmbuf_free(m);
+      return -1;
+    }
     // Turn on following check if the NIC is left in promiscous mode
     // drop unless this is for me
     //if(!is_same_ether_addr(&e->d_addr, &dpdk_socket->local_mac)) {
@@ -343,6 +441,7 @@ static int cyclone_rx_timeout(void *socket,
 			      const char *context)
 {
   int rc;
+  dpdk_socket_t *dpdk_socket = (dpdk_socket_t *)socket;
   unsigned long mark = rtc_clock::current_time();
   while (true) {
     rc = cyclone_rx(socket, data, size, context);
@@ -378,14 +477,39 @@ static void init_filter_clean()
   filter_clean.queue = 0; // To be set
 }
 
-static void install_eth_filters()
+static void install_eth_filters_server()
 {
   struct rte_eth_ntuple_filter filter;
   init_filter_clean();
   if(rte_eth_dev_filter_supported(0, RTE_ETH_FILTER_NTUPLE) != 0) {
     rte_exit(EXIT_FAILURE, "rte_eth_dev does not support ntuple filter");
   }
-  for(int i=0;i < num_queues;i++) {
+  for(int i=0;i < num_queues + executor_threads;i++) {
+    memcpy(&filter, &filter_clean, sizeof(rte_eth_ntuple_filter));
+    filter.dst_ip = i;
+    filter.queue  = i;
+    int ret = rte_eth_dev_filter_ctrl(0,
+				      RTE_ETH_FILTER_NTUPLE,
+				      RTE_ETH_FILTER_ADD,
+				      &filter);
+    
+    if (ret != 0)
+      rte_exit(EXIT_FAILURE, "rte_eth_dev_filter_ctrl:err=%d, port=%u\n",
+	       ret, (unsigned) 0);
+    else
+      BOOST_LOG_TRIVIAL(info) << "Added filter for rxq " << i;
+    
+  }
+}
+
+static void install_eth_filters_client(int threads)
+{
+  struct rte_eth_ntuple_filter filter;
+  init_filter_clean();
+  if(rte_eth_dev_filter_supported(0, RTE_ETH_FILTER_NTUPLE) != 0) {
+    rte_exit(EXIT_FAILURE, "rte_eth_dev does not support ntuple filter");
+  }
+  for(int i=0;i < (num_queues + threads);i++) {
     memcpy(&filter, &filter_clean, sizeof(rte_eth_ntuple_filter));
     filter.dst_ip = i;
     filter.queue  = i;
@@ -421,14 +545,14 @@ static void* dpdk_context()
   init_port_conf();
   //init_fdir_conf();
   //port_conf.fdir_conf = fdir_conf;
-  rte_eth_dev_configure(0, num_queues, num_queues + 1 + executor_threads, &port_conf);
+  rte_eth_dev_configure(0, num_queues + executor_threads, num_queues + executor_threads, &port_conf);
 
   dpdk_context_t *context = 
     (dpdk_context_t *)rte_malloc("context", sizeof(dpdk_context_t), 0);
 
   // Assume port 0, core 1 ....
 
-  for(int i=0;i<num_queues;i++) {
+  for(int i=0;i<num_queues + executor_threads;i++) {
     char pool_name[50];
     sprintf(pool_name, "mbuf_pool%d", i);
     // Mempool
@@ -444,6 +568,7 @@ static void* dpdk_context()
 						   rte_socket_id());
     if (context->mempools[i] == NULL)
       rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
+
 
     //tx queue
     ret = rte_eth_tx_queue_setup(0, 
@@ -484,20 +609,6 @@ static void* dpdk_context()
     BOOST_LOG_TRIVIAL(info) << "CYCLONE_COMM:DPDK setup queue " << i;
   }
 
-  // Per execution thread tx queues
-  for(int i=0;i<=executor_threads;i++) {
-    ret = rte_eth_tx_queue_setup(0, 
-				 num_queues + i, 
-				 nb_txd,
-				 rte_eth_dev_socket_id(0),
-				 NULL);
-    
-    if (ret < 0)
-      rte_exit(EXIT_FAILURE, "rte_eth_tx_queue_setup:err=%d, port=%u\n",
-	       ret, (unsigned) 0);
-  }
-
-
   /* Start device */
   ret = rte_eth_dev_start(0);
   if (ret < 0)
@@ -506,7 +617,7 @@ static void* dpdk_context()
   // NOTE:DO NOT ENABLE PROMISCOUS MODE
   // OW need to check eth addr on all incoming packets
   //rte_eth_promiscuous_enable(0);
-  install_eth_filters();
+  install_eth_filters_server();
   rte_eth_macaddr_get(0, &context->port_macaddr);
   
   return context;
@@ -532,14 +643,14 @@ static void* dpdk_context_client(int threads)
   init_port_conf();
   //init_fdir_conf();
   //port_conf.fdir_conf = fdir_conf;
-  rte_eth_dev_configure(0, num_queues, num_queues + threads, &port_conf);
+  rte_eth_dev_configure(0, num_queues + threads, num_queues + threads, &port_conf);
 
   dpdk_context_t *context = 
     (dpdk_context_t *)rte_malloc("context", sizeof(dpdk_context_t), 0);
 
   // Assume port 0, core 1 ....
 
-  for(int i=0;i<num_queues;i++) {
+  for(int i=0;i< (num_queues + threads);i++) {
     char pool_name[50];
     sprintf(pool_name, "mbuf_pool%d", i);
     // Mempool
@@ -594,20 +705,7 @@ static void* dpdk_context_client(int threads)
 
     BOOST_LOG_TRIVIAL(info) << "CYCLONE_COMM:DPDK setup queue " << i;
   }
-
-  // Per execution thread tx queues
-  for(int i=0;i< threads;i++) {
-    ret = rte_eth_tx_queue_setup(0, 
-				 num_queues + i, 
-				 nb_txd,
-				 rte_eth_dev_socket_id(0),
-				 NULL);
-    
-    if (ret < 0)
-      rte_exit(EXIT_FAILURE, "rte_eth_tx_queue_setup:err=%d, port=%u\n",
-	       ret, (unsigned) 0);
-  }
-
+ 
   /* Start device */
   ret = rte_eth_dev_start(0);
   if (ret < 0)
@@ -616,7 +714,7 @@ static void* dpdk_context_client(int threads)
   // NOTE:DO NOT ENABLE PROMISCOUS MODE
   // OW need to check eth addr on all incoming packets
   //rte_eth_promiscuous_enable(0);
-  install_eth_filters();
+  install_eth_filters_client(threads);
   rte_eth_macaddr_get(0, &context->port_macaddr);
   return context;
 }
