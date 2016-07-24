@@ -102,7 +102,7 @@ typedef struct rpc_client_st {
       if(resp_sz == -1) {
 	break;
       }
-      
+
       if(packet_in->channel_seq != (channel_seq - 1)) {
 	continue;
       }
@@ -129,7 +129,6 @@ typedef struct rpc_client_st {
 	  cyclone_tx_rand_queue(router->raft_output_socket(replica),
 				(unsigned char *)packet_rep,
 				sizeof(msg_t) + blob_sz,
-				num_queues + thread,
 				"ASSIST");
 	}
 	sent_assist_msg = true;
@@ -150,7 +149,6 @@ typedef struct rpc_client_st {
 	  cyclone_tx_rand_queue(router->raft_output_socket(server),
 				(unsigned char *)packet_rep,
 				sizeof(msg_t),
-				num_queues + thread,
 				"ASSIST QUORUM");
 	  sent_assist_reply = true;
 	}
@@ -175,7 +173,6 @@ typedef struct rpc_client_st {
       retcode = cyclone_tx_rand_queue(router->output_socket(server), 
 				      (unsigned char *)packet_out, 
 				      sizeof(rpc_t), 
-				      num_queues + thread,
 				      "PROPOSE");
       while(true) {
 	resp_sz = cyclone_rx_timeout(router->input_socket(server),
@@ -345,7 +342,6 @@ typedef struct rpc_client_st {
       retcode = cyclone_tx_rand_queue(router->output_socket(server), 
 				      (unsigned char *)packet_out, 
 				      sizeof(rpc_t) + sz, 
-				      num_queues + thread,
 				      "PROPOSE");
       resp_sz = common_receive_loop(sizeof(rpc_t) + sz);
       if(resp_sz == -1) {

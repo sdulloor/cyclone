@@ -3,7 +3,6 @@
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include "logging.hpp"
-#include <zmq.h>
 #include <unistd.h>
 #include "clock.hpp"
 #include "runq.hpp"
@@ -279,16 +278,16 @@ public:
 
 #if defined(DPDK_STACK)
   void direct_send_data(int mc,
-			int queue,
+			int remote_queue,
 			void *data,
 			int size,
-			int q_index)
+			int local_queue)
   {
     cyclone_tx_queue_queue(sockets_out[mc],
 			   (const unsigned char *)data,
 			   size,
-			   q_index,
-			   queue,
+			   remote_queue,
+			   local_queue,
 			   "direct data tx");
   }
 
@@ -425,7 +424,7 @@ public:
       sockets_out[i] = cyclone_socket_out(context);
       port = server_baseport + i;
 #if defined(DPDK_STACK)
-      cyclone_connect_endpoint(sockets_out[i], i, q_dispatcher, pt_server);
+      cyclone_connect_endpoint(sockets_out[i], i, input_queue, pt_server);
 #else
       cyclone_connect_endpoint(sockets_out[i], i, port, pt_server);
 #endif
