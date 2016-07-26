@@ -96,8 +96,8 @@ typedef struct wal_entry_st {
   void *data;
   int size;
   int tid;
-  int raft_term;
-  int raft_idx;
+  volatile int raft_term;
+  volatile int raft_idx;
   volatile int accepted;
   volatile int rep_success;
   volatile int rep_failed;

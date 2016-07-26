@@ -1283,7 +1283,7 @@ typedef struct executor_st {
 				     wal->size, 
 				     wal->raft_term, 
 				     wal->raft_idx, 
-				     true);
+				     false);
       wrapper->client_buffer = (unsigned char *)resp_buffer;
       wrapper->tx_queue = num_queues + tid;
       exec_rpc_internal(wrapper, wal);
