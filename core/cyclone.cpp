@@ -775,6 +775,7 @@ void* cyclone_boot(const char *config_path,
   raft_set_election_timeout(cyclone_handle->raft_handle, RAFT_ELECTION_TIMEOUT);
   raft_set_request_timeout(cyclone_handle->raft_handle, RAFT_REQUEST_TIMEOUT);
   raft_set_nack_timeout(cyclone_handle->raft_handle, RAFT_NACK_TIMEOUT);
+  raft_set_log_target(cyclone_handle->raft_handle, RAFT_LOG_TARGET);
 
   /* setup connections */
 #if defined(DPDK_STACK)

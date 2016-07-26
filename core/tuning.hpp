@@ -6,6 +6,8 @@ static const int PERIODICITY                = 10;
 static const int RAFT_ELECTION_TIMEOUT      = 10000; 
 static const int RAFT_REQUEST_TIMEOUT       = 1000; 
 static const int RAFT_NACK_TIMEOUT          = 60;
+// RAFT log tuning -- need to match load
+static const int RAFT_LOG_TARGET  = 5000;
 
 // Client side timeouts
 static const int timeout_msec  = 30; // Client - failure detect
