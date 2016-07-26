@@ -170,10 +170,11 @@ typedef struct rpc_client_st {
       packet_out->client_txid = (int)packet_out->timestamp;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
-      retcode = cyclone_tx_rand_queue(router->output_socket(server), 
-				      (unsigned char *)packet_out, 
-				      sizeof(rpc_t), 
-				      "PROPOSE");
+      retcode = cyclone_tx_queue(router->output_socket(server), 
+				 (unsigned char *)packet_out, 
+				 sizeof(rpc_t),
+				 q_dispatcher,
+				 "PROPOSE");
       while(true) {
 	resp_sz = cyclone_rx_timeout(router->input_socket(server),
 				   (unsigned char *)packet_in,
@@ -339,10 +340,11 @@ typedef struct rpc_client_st {
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
       memcpy(packet_out + 1, payload, sz);
-      retcode = cyclone_tx_rand_queue(router->output_socket(server), 
-				      (unsigned char *)packet_out, 
-				      sizeof(rpc_t) + sz, 
-				      "PROPOSE");
+      retcode = cyclone_tx_queue(router->output_socket(server), 
+				 (unsigned char *)packet_out, 
+				 sizeof(rpc_t) + sz, 
+				 q_dispatcher,
+				 "PROPOSE");
       resp_sz = common_receive_loop(sizeof(rpc_t) + sz);
       if(resp_sz == -1) {
 	update_server("rx timeout, make rpc");

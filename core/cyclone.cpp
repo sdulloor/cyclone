@@ -4,6 +4,7 @@
 #include "tuning.hpp"
 #include "checkpoint.hpp"
 #include <rte_ring.h>
+#include <rte_mbuf.h>
 
 #if defined(DPDK_STACK)
 extern void * global_dpdk_context;
@@ -195,24 +196,13 @@ static int __applylog(raft_server_t* raft,
 		      int ety_idx)
 {
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  unsigned char *chunk = (unsigned char *)malloc(ety->data.len);
+  unsigned char *chunk = (unsigned char *)pkt2rpc((rte_mbuf *)ety->pkt);
   int delta_node_id;
-  (void)cyclone_handle->read_from_log_check_size(chunk, 
-						 (unsigned long)ety->data.buf,
-						 ety->data.len);
-  if(ety->type != RAFT_LOGTYPE_ADD_NODE &&
-     cyclone_handle->cyclone_commit_cb != NULL) {    
-    wal_entry_t *wal = (wal_entry_t *)ety->wal;
-    wal->rep_success = 1;
+  if(ety->type != RAFT_LOGTYPE_ADD_NODE && cyclone_handle->cyclone_commit_cb != NULL) {    
+    ((rpc_t *)chunk)->wal.rep_success = 1;
     __sync_synchronize();
-    /*
-    cyclone_handle->cyclone_commit_cb(cyclone_handle->user_arg, 
-				      chunk, 
-				      ety->data.len,
-				      ety_idx,
-				      ety->term);
-    */
   }
+
   if(ety->type == RAFT_LOGTYPE_REMOVE_NODE) {
     cfg_change_t *cfg = (cfg_change_t *)(chunk + sizeof(rpc_t));
     delta_node_id = cfg->node;
@@ -230,7 +220,6 @@ static int __applylog(raft_server_t* raft,
     int *delta_node_idp = (int *)chunk;
     BOOST_LOG_TRIVIAL(info) << "STARTUP node " << *delta_node_idp;
   }
-  free(chunk);
   return 0;
 }
 
@@ -277,8 +266,7 @@ static int __raft_logentry_offer(raft_server_t* raft,
 {
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  void *chunk    = ety->data.buf;
-  wal_entry_t *wal = (wal_entry_t *)ety->wal;
+  unsigned char *chunk    = (unsigned char *)pkt2rpc((rte_mbuf *)ety->data.buf);
   if(rep != NULL) {
     rep->server_id = cyclone_handle->me;
   }
@@ -287,36 +275,26 @@ static int __raft_logentry_offer(raft_server_t* raft,
     cyclone_handle->double_append_to_raft_log
     ((unsigned char *)ety,
      sizeof(raft_entry_t),
-     (unsigned char *)ety->data.buf,
+     chunk,
      ety->data.len);
   handle_cfg_change(cyclone_handle, ety, chunk);
   if(rep != NULL) {
     memcpy(&rep->ety, ety, sizeof(raft_entry_t));
   }
   if(cyclone_handle->cyclone_rep_cb != NULL && ety->type != RAFT_LOGTYPE_ADD_NODE) {    
-    if(cyclone_is_leader(cyclone_handle)) {
-      wal->raft_term = ety->term;
-      wal->raft_idx  = ety_idx;
-      __sync_synchronize();
-      wal->accepted = 1;
-      __sync_synchronize();
-      
-    }
-    else {
-      ety->wal = malloc(sizeof(wal_entry_t));
-      wal = (wal_entry_t *)ety->wal;
-      wal->rep_success = 0;
-      wal->rep_failed  = 0;
-      wal->raft_term = ety->term;
-      wal->raft_idx  = ety_idx;
-      wal->data = malloc(ety->data.len);
-      memcpy(wal->data, chunk, ety->data.len); // TBD optimize away this copy
-      wal->size = ety->data.len;
-      wal->tid  = rand() % executor_threads;
-      if(rte_ring_sp_enqueue(to_cores[wal->tid], wal) == -ENOBUFS) {
-	BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
-	exit(-1);
-      }
+    rpc_t *rpc = (rpc_t *)chunk;
+    rpc->wal.rep_success = 0;
+    rpc->wal.rep_failed  = 0;
+    rpc->wal.raft_term = ety->term;
+    rpc->wal.raft_idx  = ety_idx;
+    ety->pkt = ety->data.buf; // Stash away the pkt
+    rte_mbuf *m = (rte_mbuf *)ety->pkt;
+    // Bump refcnt and handoff for execution
+    rte_mbuf_refcnt_update(m, 1);
+    int core = rpc->client_id % executor_threads;
+    if(rte_ring_sp_enqueue(to_cores[core], m) == -ENOBUFS) {
+      BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
+      exit(-1);
     }
     /*
       cyclone_handle->cyclone_rep_cb(cyclone_handle->user_arg,
@@ -350,46 +328,35 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
   }
   for(int i=0; i<count;i++,e++) {
     e->id = ety_idx + i;
+    rte_mbuf *m = (rte_mbuf *)e->data.buf;
+    rpc_t *rpc = pkt2rpc(m);
     tail = cyclone_handle->append_to_raft_log_noupdate(log,
       						       (unsigned char *)e,
       						       sizeof(raft_entry_t),
       						       tail);
     void *spot = (void *)tail;
     tail = cyclone_handle->append_to_raft_log_noupdate(log,
-      						       (unsigned char *)e->data.buf,
+      						       (unsigned char *)rpc,
       						       e->data.len,
       						       tail);
           
-    handle_cfg_change(cyclone_handle, e, e->data.buf);
+    handle_cfg_change(cyclone_handle, e, (unsigned char *)rpc);
     if(rep != NULL) {
       memcpy(&rep->ety, e, sizeof(raft_entry_t));
     }
     if(cyclone_handle->cyclone_rep_cb != NULL && 
        e->type != RAFT_LOGTYPE_ADD_NODE) { 
-      wal_entry_t *wal;
-      if(cyclone_is_leader(cyclone_handle)) {
-	wal = (wal_entry_t *)e->wal;
-	wal->raft_term = e->term;
-	wal->raft_idx  = ety_idx + i;
-	__sync_synchronize();
-	wal->accepted = 1;
-	__sync_synchronize();
-      }
-      else {
-	e->wal = malloc(sizeof(wal_entry_t));
-	wal = (wal_entry_t *)e->wal;
-	wal->rep_success = 0;
-	wal->rep_failed  = 0;
-	wal->raft_term = e->term;
-	wal->raft_idx  = ety_idx + i;
-	wal->data = malloc(e->data.len);
-	memcpy(wal->data, e->data.buf, e->data.len); // TBD optimize away this copy
-	wal->size = e->data.len;
-	wal->tid  = rand() % executor_threads;
-	if(rte_ring_sp_enqueue(to_cores[wal->tid], wal) == -ENOBUFS) {
-	  BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
-	  exit(-1);
-	}
+      rpc->wal.rep_success = 0;
+      rpc->wal.rep_failed  = 0;
+      rpc->wal.raft_term = e->term;
+      rpc->wal.raft_idx  = ety_idx + i;
+      // Stash away th pkt. bump refcnt and handoff for execution
+      e->pkt = (void *)m;
+      rte_mbuf_refcnt_update(m, 1);
+      int core = rpc->client_id % executor_threads;
+      if(rte_ring_sp_enqueue(to_cores[core], m) == -ENOBUFS) {
+	BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
+	exit(-1);
       }
       /*
 	cyclone_handle->cyclone_rep_cb(cyclone_handle->user_arg,
@@ -426,6 +393,7 @@ static int __raft_logentry_poll(raft_server_t* raft,
 {
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
+  rte_pktmbuf_free((rte_mbuf *)entry->pkt);
   cyclone_handle->double_remove_head_raft_log();
   return result;
 }
@@ -441,22 +409,11 @@ static int __raft_logentry_pop(raft_server_t* raft,
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   if(cyclone_handle->cyclone_pop_cb != NULL && entry->type != RAFT_LOGTYPE_ADD_NODE) {
-    unsigned char *chunk = (unsigned char *)malloc(entry->data.len);
-    (void)cyclone_handle->read_from_log_check_size(chunk, 
-						   (unsigned long)entry->data.buf,
-						   entry->data.len);
-    wal_entry_t *wal = (wal_entry_t *)entry->wal;
+    rpc_t *rpc = pkt2rpc((rte_mbuf *)entry->pkt);
     __sync_synchronize();
-    wal->rep_failed = 1;
+    rpc->wal.rep_failed = 1;
     __sync_synchronize();
-    /*
-    cyclone_handle->cyclone_pop_cb(cyclone_handle->user_arg,
-				   chunk,
-				   entry->data.len,
-				   ety_idx,
-				   entry->term);
-    */
-    free(chunk);
+    rte_pktmbuf_free((rte_mbuf *)entry->pkt);
   }
   cyclone_handle->double_remove_tail_raft_log();
   return result;

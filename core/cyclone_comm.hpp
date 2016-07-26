@@ -96,6 +96,7 @@ class raft_switch {
   void **sockets_out;
   void **control_sockets_out;
   void *socket_in;
+  void *disp_socket_in;
   void *control_socket_in;
   int replicas;
 public:
@@ -131,9 +132,11 @@ public:
 
     // Create input socket
     socket_in = cyclone_socket_in(context);
+    disp_socket_in = cyclone_socket_in(context);
     int port = baseport + me;
 #if defined(DPDK_STACK)
     cyclone_bind_endpoint(socket_in, me, q_raft, pt);
+    cyclone_bind_endpoint(disp_socket_in, me, q_dispatcher, pt);
 #else
     cyclone_bind_endpoint(socket_in, me, port, pt);
 #endif
@@ -173,6 +176,11 @@ public:
   void* input_socket()
   {
     return socket_in;
+  }
+
+  void* disp_input_socket()
+  {
+    return disp_socket_in;
   }
 
   void* control_input_socket()

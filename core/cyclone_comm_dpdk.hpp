@@ -114,6 +114,10 @@ typedef struct  {
   int buffered;
 } dpdk_socket_t;
 
+static rte_mbuf* dpdk_alloc(dpdk_socket_t *s)
+{
+  return rte_pktmbuf_alloc(s->mempool);
+}
 
 #define IP_DEFTTL  64   /* from RFC 1340. */
 #define IP_VERSION 0x40
@@ -283,6 +287,51 @@ static int cyclone_tx_rand_queue(void *socket,
   initialize_ipv4_header(ip, 
 			 magic_src_ip,
 			 num_queues + rand()%executor_threads,
+			 size);
+  rte_memcpy(ip + 1, data, size);
+  
+  ///////////////////////
+  m->pkt_len = 
+    sizeof(struct ether_hdr) + 
+    sizeof(struct ipv4_hdr)  + 
+    size;
+  m->data_len = m->pkt_len;
+  int sent = rte_eth_tx_buffer(dpdk_socket->port_id, 
+			       dpdk_socket->queue_id, 
+			       dpdk_socket->buffer, 
+			       m);
+  sent += rte_eth_tx_buffer_flush(dpdk_socket->port_id, 
+				  dpdk_socket->queue_id,
+				  dpdk_socket->buffer);
+  if(sent)
+    return 0;
+  else
+    return -1;
+}
+
+static int cyclone_tx_queue(void *socket,
+			    const unsigned char *data,
+			    unsigned long size,
+			    int remote_queue,
+			    const char *context) 
+{
+  dpdk_socket_t *dpdk_socket = (dpdk_socket_t *)socket;
+  rte_mbuf *m = rte_pktmbuf_alloc(dpdk_socket->mempool);
+  if(m == NULL) {
+    BOOST_LOG_TRIVIAL(warning) << "Unable to allocate pktmbuf "
+			       << "for queue:" << dpdk_socket->queue_id;
+    return -1;
+  }
+  struct ether_hdr *eth;
+  eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
+  memset(eth, 0, sizeof(struct ether_hdr));
+  ether_addr_copy(&dpdk_socket->remote_mac, &eth->d_addr);
+  ether_addr_copy(&dpdk_socket->local_mac, &eth->s_addr);
+  eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
+  struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
+  initialize_ipv4_header(ip, 
+			 magic_src_ip,
+			 remote_queue,
 			 size);
   rte_memcpy(ip + 1, data, size);
   

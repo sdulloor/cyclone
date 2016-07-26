@@ -22,6 +22,26 @@ extern "C" {
 #include "runq.hpp"
 #include "cyclone.hpp"
 
+static rpc_t * pkt2rpc(rte_mbuf *m)
+{
+  int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
+  return rte_pktmbuf_mtod_offset(m, rpc_t *, payload_offset);
+}
+
+static int pkt2rpcsz(rte_mbuf *m)
+{
+  int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
+  return m->data_len - payload_offset; 
+}
+
+static void pktsetrpcsz(rte_mbuf *m, int sz)
+{
+  int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
+  m->data_len = payload_offset + sz;
+  m->pkt_len  = m->data_len;
+}
+
+
 /* Message types */
 const int  MSG_REQUESTVOTE              = 1;
 const int  MSG_REQUESTVOTE_RESPONSE     = 2;
@@ -428,7 +448,7 @@ typedef struct cyclone_st {
   }
 
   /* Handle incoming message and send appropriate response */
-  void handle_incoming(unsigned long size)
+  void handle_incoming(unsigned long size, void *s)
   {
     msg_t *msg = (msg_t *)cyclone_buffer_in;
     msg_t resp;
@@ -441,6 +461,8 @@ typedef struct cyclone_st {
     msg_entry_response_t *client_rep;
     msg_entry_t *messages; 
     
+    dpdk_socket_t *socket = (dpdk_socket_t *)s;
+
     switch (msg->msg_type) {
     case MSG_REQUESTVOTE:
       resp.msg_type = MSG_REQUESTVOTE_RESPONSE;
@@ -463,7 +485,12 @@ typedef struct cyclone_st {
     msg->ae.entries = (msg_entry_t *)payload;
     ptr = (char *)(payload + msg->ae.n_entries*sizeof(msg_entry_t));
     for(int i=0;i<msg->ae.n_entries;i++) {
-      msg->ae.entries[i].data.buf = ptr;
+      rte_mbuf *m = dpdk_alloc(socket);
+      msg->ae.entries[i].data.buf = (void *)m;
+      rpc_t *rpc = pkt2rpc(m);
+      memcpy(rpc, ptr, msg->ae.entries[i].data.len);
+      rpc->wal.leader = 0;
+      pktsetrpcsz(m, msg->ae.entries[i].data.len);
       ptr += msg->ae.entries[i].data.len;
     }
     e = raft_recv_appendentries(raft_handle, 
@@ -616,8 +643,9 @@ struct cyclone_monitor {
     unsigned long mark = rtc_clock::current_time();
     unsigned long elapsed_time;
     msg_entry_t *messages;
-    wal_entry_t *wal_array[executor_threads];
+    rte_mbuf *pkt_array[PKT_BURST], *m;
     messages = (msg_entry_t *)malloc(executor_threads*sizeof(msg_entry_t));
+    dpdk_socket_t *socket = (dpdk_socket_t *)cyclone_handle->router->disp_input_socket();
     while(!terminate) {
       // Handle any outstanding requests
       int sz =
@@ -626,30 +654,77 @@ struct cyclone_monitor {
 		   MSG_MAXSIZE,
 		   "Incoming");
       if(sz != -1) {
-	cyclone_handle->handle_incoming(sz);
+	cyclone_handle->handle_incoming(sz, cyclone_handle->router->input_socket());
       }
-      int available = 0;
-      for(int i=0;i<executor_threads;i++) {
-	if(rte_ring_sc_dequeue(from_cores, (void **)&wal_array[available]) == 0) {
-	  available++;
-	}
-      }
+      
+      int available = rte_eth_rx_burst(socket->port_id,
+				       socket->queue_id,
+				       &pkt_array[0],
+				       PKT_BURST);
       if(available > 0) {
+	int accepted = 0;
 	for(int i=0;i<available;i++) {
-	  messages[i].wal = wal_array[i];
-	  messages[i].data.buf = wal_array[i]->data;
-	  messages[i].data.len = wal_array[i]->size;
-	  messages[i].type = RAFT_LOGTYPE_NORMAL;
-	}
-	int e = raft_recv_entry_batch(cyclone_handle->raft_handle, 
-				      messages, 
-				      NULL,
-				      available);
-	if(e != 0) {
-	  for(int i=0;i<available;i++) {
-	    wal_array[i]->rep_failed = 1;
+	  m = pkt_array[i];
+	  rte_prefetch0(rte_pktmbuf_mtod(m, void *));
+	  struct ether_hdr *e = rte_pktmbuf_mtod(m, struct ether_hdr *);
+	  struct ipv4_hdr *ip = (struct ipv4_hdr *)(e + 1);
+	  if(e->ether_type != rte_cpu_to_be_16(ETHER_TYPE_IPv4)) {
+	    BOOST_LOG_TRIVIAL(warning) << "Dropping junk. Protocol mismatch";
+	    rte_pktmbuf_free(m);
+	    continue;
 	  }
-	  __sync_synchronize();
+	  else if(ip->src_addr != magic_src_ip) {
+	    BOOST_LOG_TRIVIAL(warning) << "Dropping junk. non magic ip";
+	    rte_pktmbuf_free(m);
+	    continue;
+	  }
+	  else if(m->data_len <= sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr)) {
+	    BOOST_LOG_TRIVIAL(warning) << "Dropping junk = pkt size too small";
+	    rte_pktmbuf_free(m);
+	    continue;
+	  }
+	  rpc_t *rpc = pkt2rpc(m);
+	  int core = rpc->client_id % executor_threads;
+	  rpc->wal.leader = 1;
+	  if(rpc->code == RPC_REQ_LAST_TXID) {
+	    if(cyclone_is_leader(cyclone_handle)) {
+	      if(rte_ring_sp_enqueue(to_cores[core], m) == -ENOBUFS) {
+		BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
+		exit(-1);
+	      }
+	    }
+	    else {
+	      rte_pktmbuf_free(m);
+	    }
+	    continue;
+	  }
+	  else if(rpc->flags & RPC_FLAG_RO) {
+	    if(cyclone_is_leader(cyclone_handle)) {
+	      if(rte_ring_sp_enqueue(to_cores[core], m) == -ENOBUFS) {
+		BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
+		exit(-1);
+	      }
+	    }
+	    else {
+	      rte_pktmbuf_free(m);
+	    }
+	    continue;
+	  }
+	  messages[accepted].data.buf = (void *)m;
+	  messages[accepted].data.len = pkt2rpcsz(m);
+	  messages[accepted].type = RAFT_LOGTYPE_NORMAL;
+	  accepted++;
+	}
+	if(accepted > 0) {
+	  int e = raft_recv_entry_batch(cyclone_handle->raft_handle, 
+					messages, 
+					NULL,
+					accepted);
+	  if(e != 0) {
+	    for(int i=0;i<accepted;i++) {
+	      rte_pktmbuf_free((rte_mbuf *)messages[i].data.buf);
+	    }
+	  }
 	}
       }
       /*

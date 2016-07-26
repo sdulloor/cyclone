@@ -19,6 +19,7 @@
 #include "dispatcher_exec.hpp"
 #include "tuning.hpp"
 #include "checkpoint.hpp"
+#include "cyclone_context.hpp"
 
 static void *cyclone_handle;
 static boost::property_tree::ptree pt_server;
@@ -124,6 +125,25 @@ static void client_response(rpc_info_t *rpc,
 #endif
 }
 
+static void client_reply(rpc_t *req, 
+			 rpc_t *rep,
+			 void *payload,
+			 int sz,
+			 int q)
+{
+  rep->client_id   = req->client_id;
+  rep->client_txid = req->client_txid;
+  rep->channel_seq = req->channel_seq;
+  if(sz > 0) {
+    memcpy(rep + 1, payload, sz);
+  }
+  router->direct_send_data(req->requestor,
+			   req->client_port,
+			   (void *)rep, 
+			   sizeof(rpc_t) + sz,
+			   q); 
+}
+
 static rpc_info_t * locate_rpc_internal(int raft_idx,
 					int raft_term,
 					bool keep_lock = false)
@@ -220,12 +240,17 @@ static void mark_client_pending(int client_txid,
   unlock_rpc_list();
 }
 
+void init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
+{
+  cookie->raft_idx  = rpc->wal.raft_idx;
+  cookie->raft_term = rpc->wal.raft_term;
+  cookie->client_id = rpc->client_id;
+  cookie->client_txid = rpc->client_txid;
+}
+
 void init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_info_t *rpc)
 {
-  cookie->raft_idx  = rpc->raft_idx;
-  cookie->raft_term = rpc->raft_term;
-  cookie->client_id = rpc->rpc->client_id;
-  cookie->client_txid = rpc->rpc->client_txid;
+  // Dead code
 }
 
 void exec_rpc_internal_synchronous(rpc_info_t *rpc)
@@ -322,36 +347,25 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
   client_response(rpc, (rpc_t *)rpc->client_buffer, 1);
 }
 
-void exec_rpc_internal(rpc_info_t *rpc, wal_entry_t *wal)
+int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie)
 {
   while(building_image);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  rpc_cookie_t rpc_cookie;
   void *tx_handle;
-  init_rpc_cookie_info(&rpc_cookie, rpc);
-  if(rpc->rpc->code == RPC_REQ_NODEADD) {
-    rpc->sz= 0;
-  }
-  else if(rpc->rpc->code == RPC_REQ_NODEDEL) {
-    rpc->sz = 0;
-  }
-  else {
-    tx_handle = app_callbacks.rpc_callback((const unsigned char *)(rpc->rpc + 1),
-					   rpc->len - sizeof(rpc_t),
-					   &rpc_cookie);
-    rpc->sz = rpc_cookie.ret_size;
-    rpc->ret_value = rpc_cookie.ret_value;
-  }
-  
-  while(!wal->rep_success && !wal->rep_failed);
+  init_rpc_cookie_info(cookie, rpc);
+  tx_handle = app_callbacks.rpc_callback((const unsigned char *)(rpc + 1),
+					 len - sizeof(rpc_t),
+					 cookie);
+  while(!rpc->wal.rep_success && !rpc->wal.rep_failed);
    
-  if(wal->rep_success) {
-    app_callbacks.tx_commit(tx_handle, &rpc_cookie);
+  if(rpc->wal.rep_success) {
+    app_callbacks.tx_commit(tx_handle, cookie);
+    return 0;
   }
   else {
     app_callbacks.tx_abort(tx_handle);
+    return -1;
   } 
-  client_response(rpc, (rpc_t *)rpc->client_buffer, 1);
 }
 
 void exec_rpc_internal_seq(rpc_info_t *rpc)
@@ -389,39 +403,13 @@ void exec_rpc_internal_seq(rpc_info_t *rpc)
 }
 
 
-void exec_rpc_internal_ro(rpc_info_t *rpc)
+void exec_rpc_internal_ro(rpc_t *rpc, int len, rpc_cookie_t *cookie)
 {
   while(building_image);
-  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  rpc_cookie_t rpc_cookie;
-  init_rpc_cookie_info(&rpc_cookie, rpc);
-  app_callbacks.rpc_callback((const unsigned char *)(rpc->rpc + 1),
-			     rpc->len - sizeof(rpc_t),
-			     &rpc_cookie);
-  rpc->ret_value = rpc_cookie.ret_value;
-  rpc->sz  = rpc_cookie.ret_size;
-  rpc->rep_success = true; // No replication needed
-  //struct client_ro_state_st *cstate = &client_ro_state[rpc->rpc->client_id];
-  // Wait for ticket
-  //while(ticket_window.go_ticket != rpc->ticket);
-  /*
-  lock(&ro_result_lock);
-  if(cstate->last_return_size != 0) {
-    free(cstate->last_return_value);
-    cstate->last_return_size = 0;
-  }
-  if(rpc->sz > 0) {
-    cstate->last_return_value = (char *)malloc(rpc->sz);
-    memcpy(cstate->last_return_value,
-	   rpc->ret_value,
-	   rpc->sz);
-    cstate->last_return_size = rpc->sz;
-  }
-  cstate->committed_txid = rpc->rpc->client_txid;
-  unlock(&ro_result_lock);
-  */
-  //ticket_window.go_ticket++;
-  client_response(rpc, (rpc_t *)rpc->client_buffer, 1);
+  init_rpc_cookie_info(cookie, rpc);
+  app_callbacks.rpc_callback((const unsigned char *)(rpc + 1),
+			     len - sizeof(rpc_t),
+			     cookie);
 }
 
 void exec_rpc_internal_rep_ro(rpc_info_t *rpc)
@@ -1170,150 +1158,68 @@ int dpdk_disp_loop(void *arg)
 
 
 
-static rpc_info_t * create_rpc(const rpc_t *rpc,
-			       int len,
-			       int raft_idx,
-			       int raft_term,
-			       bool mark_resp)
-{
-  rpc_info_t *rpc_info = (rpc_info_t *)malloc(sizeof(rpc_info_t));
-  rpc_info->raft_idx    = raft_idx;
-  rpc_info->raft_term   = raft_term;
-  rpc_info->rep_success = false;
-  rpc_info->rep_failed  = false;
-  rpc_info->complete    = false;
-  rpc_info->len = len;
-  rpc_info->rpc = (rpc_t *)malloc(len);
-  memcpy(rpc_info->rpc, rpc, len);
-  rpc_info->rep_follower_success = false;
-  rpc_info->follower_data = NULL;
-  rpc_info->follower_data_size = 0;
-  rpc_info->have_follower_data = false;
-  rpc_info->pending_lock = 0;
-  if(mark_resp) {
-    rpc_info->client_blocked = rpc_info->rpc->requestor;
-  }
-  else {
-    rpc_info->client_blocked = -1;
-  }
-  rpc_info->next = NULL;
-  rpc_info->sz = 0;
-  rpc_info->ret_value = NULL;
-  return rpc_info;
-}
-
 typedef struct executor_st {
+  rte_mbuf *m;
   rpc_t* client_buffer, *resp_buffer;
   int sz;
   unsigned long tid;
-  wal_entry_t *wal;
+  rpc_cookie_t cookie;
 
-  void exec_leader()
+  void exec()
   {
-    if(!cyclone_is_leader(cyclone_handle)) {
-      client_buffer->code = RPC_REP_INVSRV;
-      client_buffer->master = cyclone_get_leader(cyclone_handle);
-      router->direct_send_data(client_buffer->requestor,
-			       client_buffer->client_port, 
-			       (void *)client_buffer, 
-			       sizeof(rpc_t),
-			       num_queues + tid);
-    }
-    else if(client_buffer->code == RPC_REQ_LAST_TXID) {
-      client_buffer->code = RPC_REP_COMPLETE;
-      client_buffer->last_client_txid = 0;
-      router->direct_send_data(client_buffer->requestor,
-			       client_buffer->client_port, 
-			       (void *)client_buffer, 
-			       sizeof(rpc_t),
-			       num_queues + tid);
+    if(client_buffer->code == RPC_REQ_LAST_TXID) {
+      resp_buffer->code = RPC_REP_COMPLETE;
+      resp_buffer->last_client_txid = 0;
+      client_reply(client_buffer, 
+		   resp_buffer, 
+		   NULL, 
+		   0,
+		   num_queues + tid);
     }
     else if(client_buffer->flags & RPC_FLAG_RO) {
-      rpc_info_t *wrapper = create_rpc((rpc_t *)client_buffer, sz, 0, 0, true);
-      wrapper->client_buffer = (unsigned char *)resp_buffer;
-      wrapper->tx_queue = num_queues + tid;
-      exec_rpc_internal_ro(wrapper);
-      if(wrapper->sz > 0) {
-	free(wrapper->ret_value);
+      exec_rpc_internal_ro(client_buffer, sz, &cookie);
+      resp_buffer->code = RPC_REP_COMPLETE;
+      client_reply(client_buffer, 
+		   resp_buffer, 
+		   cookie.ret_value, 
+		   cookie.ret_size,
+		   num_queues + tid);
+      if(cookie.ret_size > 0) {
+	free(cookie.ret_value);
       }
-      free(wrapper->rpc);
-      free(wrapper);
     }
     else {
-      rpc_info_t *wrapper = create_rpc((rpc_t *)client_buffer, sz, 0, 0, true);
-      wrapper->client_buffer = (unsigned char *)resp_buffer;
-      wrapper->tx_queue = num_queues + tid;
-      wal = (wal_entry_t *)malloc(sizeof(wal_entry_t));
-      wal->data = client_buffer;
-      wal->size = sz;
-      wal->tid  = tid;
-      wal->accepted    = 0;
-      wal->rep_success = 0;
-      wal->rep_failed  = 0;
-      if(rte_ring_mp_enqueue(from_cores, wal) == -ENOBUFS) {
-	BOOST_LOG_TRIVIAL(fatal) << "core->raft comm ring is full";
-	exit(-1);
-      }
-      while(!wal->accepted && !wal->rep_failed);
-      if(wal->rep_failed) {
-	client_buffer->code = RPC_REP_INVSRV;
-	client_buffer->master = cyclone_get_leader(cyclone_handle);
-	free(wal);
-	router->direct_send_data(client_buffer->requestor,
-				 client_buffer->client_port, 
-				 (void *)client_buffer, 
-				 sizeof(rpc_t),
-				 num_queues + tid);
-      }
-      else {
-	exec_rpc_internal(wrapper, wal);
-	if(wrapper->sz > 0) {
-	  free(wrapper->ret_value);
+      int e = exec_rpc_internal(client_buffer, sz, &cookie);
+      if(client_buffer->wal.leader) {
+	if(e) {
+	  resp_buffer->code = RPC_REP_UNKNOWN;
 	}
-	free(wrapper->rpc);
-	free(wrapper);
-	free(wal);
+	else {
+	  resp_buffer->code = RPC_REP_COMPLETE;
+	}
+	client_reply(client_buffer, 
+		     resp_buffer, 
+		     cookie.ret_value, 
+		     cookie.ret_size,
+		     num_queues + tid);
+      }
+      if(cookie.ret_size > 0) {
+	free(cookie.ret_value);
       }
     }
-  }
-
-  void exec_follower()
-  {
-    rpc_info_t *wrapper = create_rpc((rpc_t *)wal->data, 
-				     wal->size, 
-				     wal->raft_term, 
-				     wal->raft_idx, 
-				     false);
-      wrapper->client_buffer = (unsigned char *)resp_buffer;
-      wrapper->tx_queue = num_queues + tid;
-      exec_rpc_internal(wrapper, wal);
-      if(wrapper->sz > 0) {
-	free(wrapper->ret_value);
-      }
-      free(wrapper->rpc);
-      free(wrapper);
-      free(wal->data); // TBD zero copy fix later
-      free(wal);
   }
 
   void operator() ()
   {
-    client_buffer = (rpc_t *)malloc(MSG_MAXSIZE);
     resp_buffer = (rpc_t *)malloc(MSG_MAXSIZE);
     while(true) {
-      sz = cyclone_rx(router->input_socket(tid),
-		      (unsigned char *)client_buffer,
-		      MSG_MAXSIZE,
-		      "DISP RCV");
-      if(sz != -1) {
-	exec_leader();
+      int e = rte_ring_sc_dequeue(to_cores[tid], (void **)&m);
+      if(e == 0) {
+	client_buffer = pkt2rpc(m);
+	sz = pkt2rpcsz(m);
+	exec();
+	rte_pktmbuf_free(m);
       }
-      
-      sz = rte_ring_sc_dequeue(to_cores[tid], (void **)&wal);
-      if(sz == 0) {
-	exec_follower();
-      }
-      
       /*
       unsigned long ticket;
       rpc_info_t *rpc = issue_q.get_from_runqueue(&ticket);
