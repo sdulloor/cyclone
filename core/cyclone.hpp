@@ -91,6 +91,19 @@ typedef struct rpc_st {
   int receiver;
 } rpc_t; // Used for both requests and replies
 
+// Comm between disp cores and raft core
+typedef struct wal_entry_st {
+  void *data;
+  int size;
+  int tid;
+  int raft_term;
+  int raft_idx;
+  volatile int accepted;
+  volatile int rep_success;
+  volatile int rep_failed;
+} wal_entry_t;
+
+
 // Possble values for code follow
 
 // Request

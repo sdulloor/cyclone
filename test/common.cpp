@@ -54,7 +54,7 @@ void commit_tx(void *handle, rpc_cookie_t *cookie)
 {
   // Idempotent state changes
   if(pmemobj_tx_stage() == TX_STAGE_WORK) {
-    mark_done(cookie);
+    //mark_done(cookie);
     pmemobj_tx_commit();
   }
   pmemobj_tx_end();

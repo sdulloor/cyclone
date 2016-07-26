@@ -29,6 +29,11 @@ void * global_dpdk_context;
 #endif
 
 
+extern struct rte_ring ** to_cores;
+extern struct rte_ring *from_cores;
+
+
+
 struct client_ro_state_st {
   volatile unsigned long committed_txid;
   char * last_return_value;
@@ -313,13 +318,11 @@ void exec_rpc_internal_synchronous(rpc_info_t *rpc)
       }
     }
   }
-  ticket_window.go_ticket++;
   __sync_synchronize();
   client_response(rpc, (rpc_t *)rpc->client_buffer, 1);
-  rpc->complete = true; // note: rpc will be freed after this
 }
 
-void exec_rpc_internal(rpc_info_t *rpc)
+void exec_rpc_internal(rpc_info_t *rpc, wal_entry_t *wal)
 {
   while(building_image);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
@@ -339,19 +342,16 @@ void exec_rpc_internal(rpc_info_t *rpc)
     rpc->sz = rpc_cookie.ret_size;
     rpc->ret_value = rpc_cookie.ret_value;
   }
-  while(!rpc->rep_success && !rpc->rep_failed);
-  // Wait for ticket
-  while(ticket_window.go_ticket != rpc->ticket);
-  if(rpc->rep_success) {
+  
+  while(!wal->rep_success && !wal->rep_failed);
+   
+  if(wal->rep_success) {
     app_callbacks.tx_commit(tx_handle, &rpc_cookie);
   }
   else {
     app_callbacks.tx_abort(tx_handle);
   } 
-  ticket_window.go_ticket++;
-  __sync_synchronize();
   client_response(rpc, (rpc_t *)rpc->client_buffer, 1);
-  rpc->complete = true; // note: rpc will be freed after this
 }
 
 void exec_rpc_internal_seq(rpc_info_t *rpc)
@@ -382,11 +382,10 @@ void exec_rpc_internal_seq(rpc_info_t *rpc)
   }
   else {
     app_callbacks.tx_abort(tx_handle);
-  } 
+  }
   ticket_window.go_ticket++;
   __sync_synchronize();
   client_response(rpc, (rpc_t *)rpc->client_buffer, 1);
-  rpc->complete = true; // note: rpc will be freed after this
 }
 
 
@@ -422,9 +421,7 @@ void exec_rpc_internal_ro(rpc_info_t *rpc)
   unlock(&ro_result_lock);
   */
   //ticket_window.go_ticket++;
-  __sync_synchronize();
   client_response(rpc, (rpc_t *)rpc->client_buffer, 1);
-  rpc->complete = true; // note: rpc will be freed after this
 }
 
 void exec_rpc_internal_rep_ro(rpc_info_t *rpc)
@@ -1205,24 +1202,63 @@ static rpc_info_t * create_rpc(const rpc_t *rpc,
   return rpc_info;
 }
 
-static struct executor_st {
-  void operator() (unsigned long tid)
+typedef struct executor_st {
+  rpc_t* client_buffer, *resp_buffer;
+  int sz;
+  unsigned long tid;
+  wal_entry_t *wal;
+
+  void exec_leader()
   {
-    rpc_t* client_buffer, *resp_buffer;
-    client_buffer = (rpc_t *)malloc(MSG_MAXSIZE);
-    resp_buffer = (rpc_t *)malloc(MSG_MAXSIZE);
-    
-    while(true) {
-      int sz = cyclone_rx(router->input_socket(tid),
-			  (unsigned char *)client_buffer,
-			  MSG_MAXSIZE,
-			  "DISP RCV");
-      if(sz == -1)
-	continue;
-      
-      if(client_buffer->code == RPC_REQ_LAST_TXID) {
-	client_buffer->code = RPC_REP_COMPLETE;
-	client_buffer->last_client_txid = 0;
+    if(!cyclone_is_leader(cyclone_handle)) {
+      client_buffer->code = RPC_REP_INVSRV;
+      client_buffer->master = cyclone_get_leader(cyclone_handle);
+      router->direct_send_data(client_buffer->requestor,
+			       client_buffer->client_port, 
+			       (void *)client_buffer, 
+			       sizeof(rpc_t),
+			       num_queues + tid);
+    }
+    else if(client_buffer->code == RPC_REQ_LAST_TXID) {
+      client_buffer->code = RPC_REP_COMPLETE;
+      client_buffer->last_client_txid = 0;
+      router->direct_send_data(client_buffer->requestor,
+			       client_buffer->client_port, 
+			       (void *)client_buffer, 
+			       sizeof(rpc_t),
+			       num_queues + tid);
+    }
+    else if(client_buffer->flags & RPC_FLAG_RO) {
+      rpc_info_t *wrapper = create_rpc((rpc_t *)client_buffer, sz, 0, 0, true);
+      wrapper->client_buffer = (unsigned char *)resp_buffer;
+      wrapper->tx_queue = num_queues + tid;
+      exec_rpc_internal_ro(wrapper);
+      if(wrapper->sz > 0) {
+	free(wrapper->ret_value);
+      }
+      free(wrapper->rpc);
+      free(wrapper);
+    }
+    else {
+      rpc_info_t *wrapper = create_rpc((rpc_t *)client_buffer, sz, 0, 0, true);
+      wrapper->client_buffer = (unsigned char *)resp_buffer;
+      wrapper->tx_queue = num_queues + tid;
+      wal = (wal_entry_t *)malloc(sizeof(wal_entry_t));
+      wal->data = client_buffer;
+      wal->size = sz;
+      wal->tid  = tid;
+      wal->accepted    = 0;
+      wal->rep_success = 0;
+      wal->rep_failed  = 0;
+      if(rte_ring_mp_enqueue(from_cores, wal) == -ENOBUFS) {
+	BOOST_LOG_TRIVIAL(fatal) << "core->raft comm ring is full";
+	exit(-1);
+      }
+      while(!wal->accepted && !wal->rep_failed);
+      if(wal->rep_failed) {
+	client_buffer->code = RPC_REP_INVSRV;
+	client_buffer->master = cyclone_get_leader(cyclone_handle);
+	free(wal);
 	router->direct_send_data(client_buffer->requestor,
 				 client_buffer->client_port, 
 				 (void *)client_buffer, 
@@ -1230,16 +1266,54 @@ static struct executor_st {
 				 num_queues + tid);
       }
       else {
-	rpc_info_t *wrapper = create_rpc((rpc_t *)client_buffer, sz, 0, 0, true);
-	wrapper->client_buffer = (unsigned char *)resp_buffer;
-	wrapper->tx_queue = num_queues + tid;
-	exec_rpc_internal_ro(wrapper);
+	exec_rpc_internal(wrapper, wal);
 	if(wrapper->sz > 0) {
 	  free(wrapper->ret_value);
 	}
 	free(wrapper->rpc);
 	free(wrapper);
+	free(wal);
       }
+    }
+  }
+
+  void exec_follower()
+  {
+    rpc_info_t *wrapper = create_rpc((rpc_t *)wal->data, 
+				     wal->size, 
+				     wal->raft_term, 
+				     wal->raft_idx, 
+				     true);
+      wrapper->client_buffer = (unsigned char *)resp_buffer;
+      wrapper->tx_queue = num_queues + tid;
+      exec_rpc_internal(wrapper, wal);
+      if(wrapper->sz > 0) {
+	free(wrapper->ret_value);
+      }
+      free(wrapper->rpc);
+      free(wrapper);
+      free(wal->data); // TBD zero copy fix later
+      free(wal);
+  }
+
+  void operator() ()
+  {
+    client_buffer = (rpc_t *)malloc(MSG_MAXSIZE);
+    resp_buffer = (rpc_t *)malloc(MSG_MAXSIZE);
+    while(true) {
+      sz = cyclone_rx(router->input_socket(tid),
+		      (unsigned char *)client_buffer,
+		      MSG_MAXSIZE,
+		      "DISP RCV");
+      if(sz != -1) {
+	exec_leader();
+      }
+      
+      sz = rte_ring_sc_dequeue(to_cores[tid], (void **)&wal);
+      if(sz == 0) {
+	exec_follower();
+      }
+      
       /*
       unsigned long ticket;
       rpc_info_t *rpc = issue_q.get_from_runqueue(&ticket);
@@ -1247,9 +1321,6 @@ static struct executor_st {
 	continue;
       }
       rpc->ticket = ticket;
-      if(rpc->rpc->flags & RPC_FLAG_RO) {
-	exec_rpc_internal_ro(rpc);
-      }
       else if(rpc->rpc->flags & RPC_FLAG_SYNCHRONOUS) {
 	exec_rpc_internal_synchronous(rpc);
       }
@@ -1265,11 +1336,12 @@ static struct executor_st {
       */
     }
   }
-} executor;
+} executor_t;
 
 int dpdk_executor(void *arg)
 {
-  executor((unsigned long)arg);
+  executor_t *ex = (executor_t *)arg;
+  (*ex)();
   return 0;
 }
 
@@ -1397,7 +1469,15 @@ void dispatcher_start(const char* config_server_path,
 			     me,
 			     clients);
 #if defined(DPDK_STACK)
-  dispatcher_exec_startup();
+  for(int i=0;i < executor_threads;i++) {
+    executor_t *ex = new executor_t();
+    ex->tid = i;
+    int e = rte_eal_remote_launch(dpdk_executor, (void *)ex, 3 + i);
+    if(e != 0) {
+      BOOST_LOG_TRIVIAL(fatal) << "Failed to launch executor on remote lcore";
+      exit(-1);
+    }
+  }
   /*
   int e = rte_eal_remote_launch(dpdk_disp_loop, (void *)dispatcher_loop_obj, 2);
   if(e != 0) {

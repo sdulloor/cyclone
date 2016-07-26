@@ -21,24 +21,6 @@ extern int dpdk_executor(void *arg);
 boost::thread_group threadpool;
 boost::thread *executor_thread;
 
-void dispatcher_exec_startup()
-{
-  ticket_window.go_ticket   = 0;
-  issue_q.ticket            = 0;
-  for(int i=0;i < executor_threads;i++) {
-#if defined(DPDK_STACK)
-    int e = rte_eal_remote_launch(dpdk_executor, (void *)i, 3 + i);
-    if(e != 0) {
-      BOOST_LOG_TRIVIAL(fatal) << "Failed to launch executor on remote lcore";
-      exit(-1);
-    }
-#else
-    executor_thread = new boost::thread(boost::ref(executor));
-    threadpool.create_thread
-      (boost::bind(&boost::asio::io_service::run, &ioService2));
-#endif
-  }
-}
 
 void exec_rpc(rpc_info_t *rpc)
 {

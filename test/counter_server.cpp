@@ -147,7 +147,7 @@ void* callback(const unsigned char *data,
     }
   }
   else if(code == FN_NOOP) {
-    //begin_tx();
+    begin_tx();
     rep->code = CODE_OK;
   }
   else if(code == FN_BUMP) {

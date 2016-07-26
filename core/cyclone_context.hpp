@@ -20,6 +20,7 @@ extern "C" {
 #include "cyclone_comm.hpp"
 #include "tuning.hpp"
 #include "runq.hpp"
+#include "cyclone.hpp"
 
 /* Message types */
 const int  MSG_REQUESTVOTE              = 1;
@@ -67,6 +68,9 @@ typedef struct msg_st
   volatile int status;
   volatile int complete;
 } msg_t;
+
+extern struct rte_ring ** to_cores;
+extern struct rte_ring *from_cores;
 
 struct cyclone_monitor;
 typedef struct cyclone_st {
@@ -492,7 +496,8 @@ typedef struct cyclone_st {
     }
   }
 
-  /* Handle incoming message and send appropriate response */
+
+  /*
   void handle_incoming_local(msg_t * msg)
   {
     int e; // TBD: need to handle errors
@@ -594,9 +599,8 @@ typedef struct cyclone_st {
     msg->complete = 1;
     __sync_synchronize();
   }
-  
+  */
 }cyclone_t;
-
 
 struct cyclone_monitor {
   volatile bool terminate;
@@ -611,6 +615,9 @@ struct cyclone_monitor {
   {
     unsigned long mark = rtc_clock::current_time();
     unsigned long elapsed_time;
+    msg_entry_t *messages;
+    wal_entry_t *wal_array[executor_threads];
+    messages = (msg_entry_t *)malloc(executor_threads*sizeof(msg_entry_t));
     while(!terminate) {
       // Handle any outstanding requests
       int sz =
@@ -621,10 +628,36 @@ struct cyclone_monitor {
       if(sz != -1) {
 	cyclone_handle->handle_incoming(sz);
       }
+      int available = 0;
+      for(int i=0;i<executor_threads;i++) {
+	if(rte_ring_sc_dequeue(from_cores, (void **)&wal_array[available]) == 0) {
+	  available++;
+	}
+      }
+      if(available > 0) {
+	for(int i=0;i<available;i++) {
+	  messages[i].wal = wal_array[i];
+	  messages[i].data.buf = wal_array[i]->data;
+	  messages[i].data.len = wal_array[i]->size;
+	  messages[i].type = RAFT_LOGTYPE_NORMAL;
+	}
+	int e = raft_recv_entry_batch(cyclone_handle->raft_handle, 
+				      messages, 
+				      NULL,
+				      available);
+	if(e != 0) {
+	  for(int i=0;i<available;i++) {
+	    wal_array[i]->rep_failed = 1;
+	  }
+	  __sync_synchronize();
+	}
+      }
+      /*
       msg_t *work = cyclone_handle->comm.get_from_runqueue();
       if(work != NULL) {
 	cyclone_handle->handle_incoming_local(work);
       }
+      */
       // Handle periodic events -- - AFTER any incoming requests
       if((elapsed_time = rtc_clock::current_time() - mark) >= PERIODICITY) {
 	raft_periodic(cyclone_handle->raft_handle, (int)elapsed_time);
