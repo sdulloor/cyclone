@@ -394,7 +394,9 @@ static int __raft_logentry_poll(raft_server_t* raft,
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   rte_pktmbuf_free((rte_mbuf *)entry->pkt);
-  cyclone_handle->double_remove_head_raft_log();
+  if(ety_idx != -1) {
+    cyclone_handle->double_remove_head_raft_log();
+  }
   return result;
 }
 
