@@ -393,9 +393,12 @@ static int __raft_logentry_poll(raft_server_t* raft,
 {
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  rte_pktmbuf_free((rte_mbuf *)entry->pkt);
   if(ety_idx != -1) {
+    rte_pktmbuf_free((rte_mbuf *)entry->pkt);
     cyclone_handle->double_remove_head_raft_log();
+  }
+  else {
+    rte_pktmbuf_free((rte_mbuf *)entry->data.buf);
   }
   return result;
 }
