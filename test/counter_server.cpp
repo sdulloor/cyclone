@@ -150,6 +150,9 @@ void* callback(const unsigned char *data,
     begin_tx();
     rep->code = CODE_OK;
   }
+  else if(code == FN_NOOP_RO) {
+    rep->code = CODE_OK;
+  }
   else if(code == FN_BUMP) {
     begin_tx();
     PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);

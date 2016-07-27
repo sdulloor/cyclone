@@ -101,6 +101,10 @@ int driver(void *arg)
   int partition;
   while(true) {
     prop->fn = FN_NOOP;
+    int rpc_flags = 0;
+    //prop->fn = FN_NOOP_RO;
+    //int rpc_flags = RPC_FLAG_RO;
+    
     prop->k_data.key = rand() % keys;
     partition = prop->k_data.key % partitions;
     sz = make_rpc(handles[partition],
@@ -108,7 +112,7 @@ int driver(void *arg)
 		  sizeof(struct proposal),
 		  (void **)&resp,
 		  ctr[partition],
-		  0);
+		  rpc_flags);
     ctr[partition]++;
     tx_block_cnt++;
     if(sz != sizeof(struct proposal)) {

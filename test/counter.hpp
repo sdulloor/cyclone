@@ -48,6 +48,7 @@ const int FN_PREPARE    = 4;
 const int FN_COMMIT     = 5;
 const int FN_SET_SLEEP  = 6; // Performance testing
 const int FN_NOOP       = 7; //
+const int FN_NOOP_RO    = 8;
 
 const int CODE_OK       = 0;
 const int CODE_NOK      = 1;
