@@ -1215,8 +1215,8 @@ typedef struct executor_st {
     while(true) {
       int e = rte_ring_sc_dequeue(to_cores[tid], (void **)&m);
       if(e == 0) {
-	client_buffer = pkt2rpc(m);
-	sz = pkt2rpcsz(m);
+	client_buffer = pktadj2rpc(m);
+	sz = pktadj2rpcsz(m);
 	exec();
 	rte_pktmbuf_free(m);
       }

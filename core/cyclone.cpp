@@ -196,7 +196,7 @@ static int __applylog(raft_server_t* raft,
 		      int ety_idx)
 {
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  unsigned char *chunk = (unsigned char *)pkt2rpc((rte_mbuf *)ety->pkt);
+  unsigned char *chunk = (unsigned char *)pktadj2rpc((rte_mbuf *)ety->pkt);
   int delta_node_id;
   if(ety->type != RAFT_LOGTYPE_ADD_NODE && cyclone_handle->cyclone_commit_cb != NULL) {    
     ((rpc_t *)chunk)->wal.rep_success = 1;
@@ -256,6 +256,26 @@ static void handle_cfg_change(cyclone_t * cyclone_handle,
   }
 }
 
+static void add_head(void *pkt,
+		     cyclone_t *cyclone_handle,
+		     raft_entry_t *ety,
+		     raft_entry_t *ety_prev,
+		     int ety_index)
+{
+  rte_mbuf *m = (rte_mbuf *)pkt;
+  msg_t *hdr = pktadj2msg(m);
+  hdr->msg_type         = MSG_APPENDENTRIES;
+  hdr->source           = cyclone_handle->me;
+  hdr->ae.term          = ety->term;
+  hdr->ae.prev_log_idx  = ety_index - 1;
+  if(ety_prev != NULL) {
+    hdr->ae.prev_log_term = ety_prev->term;
+  }
+  else {
+    hdr->ae.prev_log_term = 0;
+  }
+  // Leader commit to be filled at tx time
+}
 
 /** Raft callback for appending an item to the log */
 static int __raft_logentry_offer(raft_server_t* raft,
@@ -266,7 +286,8 @@ static int __raft_logentry_offer(raft_server_t* raft,
 {
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  unsigned char *chunk    = (unsigned char *)pkt2rpc((rte_mbuf *)ety->data.buf);
+  add_head(ety->data.buf, cyclone_handle, ety, NULL, ety_idx);
+  unsigned char *chunk    = (unsigned char *)pktadj2rpc((rte_mbuf *)ety->data.buf);
   if(rep != NULL) {
     rep->server_id = cyclone_handle->me;
   }
@@ -327,9 +348,10 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
     rep->server_id = cyclone_handle->me;
   }
   for(int i=0; i<count;i++,e++) {
+    add_head(e->data.buf, cyclone_handle, e, NULL, ety_idx + i);
     e->id = ety_idx + i;
     rte_mbuf *m = (rte_mbuf *)e->data.buf;
-    rpc_t *rpc = pkt2rpc(m);
+    rpc_t *rpc = pktadj2rpc(m);
     tail = cyclone_handle->append_to_raft_log_noupdate(log,
       						       (unsigned char *)e,
       						       sizeof(raft_entry_t),
@@ -414,7 +436,7 @@ static int __raft_logentry_pop(raft_server_t* raft,
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   if(cyclone_handle->cyclone_pop_cb != NULL && entry->type != RAFT_LOGTYPE_ADD_NODE) {
-    rpc_t *rpc = pkt2rpc((rte_mbuf *)entry->pkt);
+    rpc_t *rpc = pktadj2rpc((rte_mbuf *)entry->pkt);
     __sync_synchronize();
     rpc->wal.rep_failed = 1;
     __sync_synchronize();
@@ -507,6 +529,7 @@ int cyclone_get_term(void *cyclone_handle)
 
 void* cyclone_add_entry(void *cyclone_handle, void *data, int size)
 {
+  /*
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
   msg_t msg;
   msg.source      = handle->me;
@@ -517,6 +540,8 @@ void* cyclone_add_entry(void *cyclone_handle, void *data, int size)
   handle->comm.add_to_runqueue(&msg);
   while(!msg.complete);
   return (void *)msg.client_rep;
+  */
+  return NULL;
 }
 
 void* cyclone_add_batch(void *cyclone_handle,
@@ -524,6 +549,7 @@ void* cyclone_add_batch(void *cyclone_handle,
 			int *sizes,
 			int batch_size)
 {
+  /*
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
   msg_t msg;
   void *cookies = NULL;
@@ -536,10 +562,13 @@ void* cyclone_add_batch(void *cyclone_handle,
   handle->comm.add_to_runqueue(&msg);
   while(!msg.complete);
   return (void *)msg.client_rep;
+  */
+  return NULL;
 }
 
 void* cyclone_add_entry_cfg(void *cyclone_handle, int type, void *data, int size)
 {
+  /*
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
   msg_t msg;
   void *cookie = NULL;
@@ -552,13 +581,15 @@ void* cyclone_add_entry_cfg(void *cyclone_handle, int type, void *data, int size
   handle->comm.add_to_runqueue(&msg);
   while(!msg.complete);
   return (void *)msg.client_rep;
+  */
+  return NULL;
 }
 
 void* cyclone_add_entry_term(void *cyclone_handle, 
 			     void *data, 
 			     int size,
 			     int term)
-{
+{/*
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
   msg_t msg;
   void *cookie = NULL;
@@ -571,11 +602,14 @@ void* cyclone_add_entry_term(void *cyclone_handle,
   handle->comm.add_to_runqueue(&msg);
   while(!msg.complete);
   return (void *)msg.client_rep;
+ */
+  return NULL;
 }
 
 void* cyclone_set_img_build(void *cyclone_handle)
 			    
 {
+  /*
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
   msg_t msg;
   void *cookie = NULL;
@@ -585,11 +619,14 @@ void* cyclone_set_img_build(void *cyclone_handle)
   handle->comm.add_to_runqueue(&msg);
   while(!msg.complete);
   return (void *)msg.client_rep;
+  */
+  return NULL;
 }
 
 void* cyclone_unset_img_build(void *cyclone_handle)
 			    
 {
+  /*
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
   msg_t msg;
   void *cookie = NULL;
@@ -599,10 +636,13 @@ void* cyclone_unset_img_build(void *cyclone_handle)
   handle->comm.add_to_runqueue(&msg);
   while(!msg.complete);
   return (void *)msg.client_rep;
+  */
+  return NULL;
 }
 
 int cyclone_check_status(void *cyclone_handle, void *cookie)
 {
+  /*
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
   msg_t msg;
   msg.source      = handle->me;
@@ -613,6 +653,8 @@ int cyclone_check_status(void *cyclone_handle, void *cookie)
   handle->comm.add_to_runqueue(&msg);
   while(!msg.complete);
   return msg.status;
+  */
+  return NULL;
 }
 
 static void init_log(PMEMobjpool *pop, void *ptr, void *arg)

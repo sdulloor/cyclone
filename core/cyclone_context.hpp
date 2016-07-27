@@ -22,41 +22,6 @@ extern "C" {
 #include "runq.hpp"
 #include "cyclone.hpp"
 
-static rpc_t * pkt2rpc(rte_mbuf *m)
-{
-  int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
-  return rte_pktmbuf_mtod_offset(m, rpc_t *, payload_offset);
-}
-
-static int pkt2rpcsz(rte_mbuf *m)
-{
-  int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
-  return m->data_len - payload_offset; 
-}
-
-static void pktsetrpcsz(rte_mbuf *m, int sz)
-{
-  int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
-  m->data_len = payload_offset + sz;
-  m->pkt_len  = m->data_len;
-}
-
-
-/* Message types */
-const int  MSG_REQUESTVOTE              = 1;
-const int  MSG_REQUESTVOTE_RESPONSE     = 2;
-const int  MSG_APPENDENTRIES            = 3;
-const int  MSG_APPENDENTRIES_RESPONSE   = 4;
-const int  MSG_CLIENT_REQ               = 5;
-const int  MSG_CLIENT_REQ_BATCH         = 6;
-const int  MSG_CLIENT_REQ_TERM          = 7;
-const int  MSG_CLIENT_STATUS            = 8;
-const int  MSG_CLIENT_REQ_CFG           = 9;
-const int  MSG_CLIENT_REQ_SET_IMGBUILD  = 10;
-const int  MSG_CLIENT_REQ_UNSET_IMGBUILD= 11;
-const int  MSG_ASSISTED_APPENDENTRIES   = 12;
-const int  MSG_ASSISTED_QUORUM_OK       = 13;
-
 /* Message format */
 typedef struct client_io_st {
   void *ptr;
@@ -83,11 +48,73 @@ typedef struct msg_st
     replicant_t rep;
     client_t client;
   };
-  struct msg_st * volatile next_issue;
   msg_entry_response_t * volatile client_rep;
-  volatile int status;
-  volatile int complete;
 } msg_t;
+
+static rpc_t * pkt2rpc(rte_mbuf *m)
+{
+  int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
+  return rte_pktmbuf_mtod_offset(m, rpc_t *, payload_offset);
+}
+
+static int pkt2rpcsz(rte_mbuf *m)
+{
+  int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
+  return m->data_len - payload_offset; 
+}
+
+static rpc_t * pktadj2rpc(rte_mbuf *m)
+{
+  int payload_offset = sizeof(struct ipv4_hdr) + sizeof(msg_t) + sizeof(msg_entry_t);
+  return rte_pktmbuf_mtod_offset(m, rpc_t *, payload_offset);
+}
+
+static msg_t *pktadj2msg(rte_mbuf *m)
+{
+  int payload_offset = sizeof(struct ipv4_hdr);
+  return rte_pktmbuf_mtod_offset(m, msg_t *, payload_offset);
+}
+
+static int pktadj2rpcsz(rte_mbuf *m)
+{
+  int payload_offset = sizeof(struct ipv4_hdr) + sizeof(msg_t) + sizeof(msg_entry_t);
+  return m->data_len - payload_offset; 
+}
+
+static void pktsetrpcsz(rte_mbuf *m, int sz)
+{
+  int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
+  m->data_len = payload_offset + sz;
+  m->pkt_len  = m->data_len;
+}
+
+static void adjust_head(rte_mbuf *m)
+{
+  if(rte_pktmbuf_adj(m, sizeof(struct ether_hdr)) == NULL) {
+    BOOST_LOG_TRIVIAL(fatal) << "Failed to adj ether hdr";
+    exit(-1);
+  }
+  msg_t *hdr = (msg_t *)rte_pktmbuf_prepend(m, sizeof(msg_t) + sizeof(msg_entry_t));
+  if(hdr == NULL) {
+    BOOST_LOG_TRIVIAL(fatal) << "Failed to prepend msg_t";
+    exit(-1);
+  }
+}
+
+/* Message types */
+const int  MSG_REQUESTVOTE              = 1;
+const int  MSG_REQUESTVOTE_RESPONSE     = 2;
+const int  MSG_APPENDENTRIES            = 3;
+const int  MSG_APPENDENTRIES_RESPONSE   = 4;
+const int  MSG_CLIENT_REQ               = 5;
+const int  MSG_CLIENT_REQ_BATCH         = 6;
+const int  MSG_CLIENT_REQ_TERM          = 7;
+const int  MSG_CLIENT_STATUS            = 8;
+const int  MSG_CLIENT_REQ_CFG           = 9;
+const int  MSG_CLIENT_REQ_SET_IMGBUILD  = 10;
+const int  MSG_CLIENT_REQ_UNSET_IMGBUILD= 11;
+const int  MSG_ASSISTED_APPENDENTRIES   = 12;
+const int  MSG_ASSISTED_QUORUM_OK       = 13;
 
 extern struct rte_ring ** to_cores;
 extern struct rte_ring *from_cores;
@@ -491,6 +518,7 @@ typedef struct cyclone_st {
       memcpy(rpc, ptr, msg->ae.entries[i].data.len);
       rpc->wal.leader = 0;
       pktsetrpcsz(m, msg->ae.entries[i].data.len);
+      adjust_head(m);
       ptr += msg->ae.entries[i].data.len;
     }
     e = raft_recv_appendentries(raft_handle, 
@@ -683,7 +711,8 @@ struct cyclone_monitor {
 	    rte_pktmbuf_free(m);
 	    continue;
 	  }
-	  rpc_t *rpc = pkt2rpc(m);
+	  adjust_head(m);
+	  rpc_t *rpc = pktadj2rpc(m);
 	  int core = rpc->client_id % executor_threads;
 	  rpc->wal.leader = 1;
 	  if(rpc->code == RPC_REQ_LAST_TXID) {
@@ -711,7 +740,7 @@ struct cyclone_monitor {
 	    continue;
 	  }
 	  messages[accepted].data.buf = (void *)m;
-	  messages[accepted].data.len = pkt2rpcsz(m);
+	  messages[accepted].data.len = pktadj2rpcsz(m);
 	  messages[accepted].type = RAFT_LOGTYPE_NORMAL;
 	  accepted++;
 	}
