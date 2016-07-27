@@ -281,12 +281,13 @@ static void add_head(void *pkt,
 static int __raft_logentry_offer(raft_server_t* raft,
 				 void *udata,
 				 raft_entry_t *ety,
+				 raft_entry_t *prev,
 				 int ety_idx,
 				 replicant_t *rep)
 {
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  add_head(ety->data.buf, cyclone_handle, ety, NULL, ety_idx);
+  add_head(ety->data.buf, cyclone_handle, ety, prev, ety_idx);
   unsigned char *chunk    = (unsigned char *)pktadj2rpc((rte_mbuf *)ety->data.buf);
   if(rep != NULL) {
     rep->server_id = cyclone_handle->me;
@@ -334,6 +335,7 @@ static int __raft_logentry_offer(raft_server_t* raft,
 static int __raft_logentry_offer_batch(raft_server_t* raft,
       				       void *udata,
       				       raft_entry_t *ety,
+				       raft_entry_t *prev,
       				       int ety_idx,
       				       int count,
       				       replicant_t *rep)
@@ -348,7 +350,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
     rep->server_id = cyclone_handle->me;
   }
   for(int i=0; i<count;i++,e++) {
-    add_head(e->data.buf, cyclone_handle, e, NULL, ety_idx + i);
+    add_head(e->data.buf, cyclone_handle, e, prev, ety_idx + i);
     e->id = ety_idx + i;
     rte_mbuf *m = (rte_mbuf *)e->data.buf;
     rpc_t *rpc = pktadj2rpc(m);
@@ -394,6 +396,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
       rep->prev_term = e->term;
     }
     e->data.buf = spot;
+    prev = e;
   }
   persist_to_circular_log(cyclone_handle->pop_raft_state, log,
 			  cyclone_handle->RAFT_LOGSIZE,
