@@ -91,7 +91,7 @@ static void pktsetrpcsz(rte_mbuf *m, int sz)
 static void adjust_head(rte_mbuf *m)
 {
   if(rte_pktmbuf_adj(m, sizeof(struct ether_hdr)) == NULL) {
-    BOOST_LOG_TRIVIAL(fatal) << "Failed to adj ether hdr";
+    BOOST_LOG_TRIVIAL(fatal) << "Failed to adj ethe hdr";
     exit(-1);
   }
   msg_t *hdr = (msg_t *)rte_pktmbuf_prepend(m, sizeof(msg_t) + sizeof(msg_entry_t));
@@ -672,7 +672,7 @@ struct cyclone_monitor {
     unsigned long elapsed_time;
     msg_entry_t *messages;
     rte_mbuf *pkt_array[PKT_BURST], *m;
-    messages = (msg_entry_t *)malloc(executor_threads*sizeof(msg_entry_t));
+    messages = (msg_entry_t *)malloc(PKT_BURST*sizeof(msg_entry_t));
     dpdk_socket_t *socket = (dpdk_socket_t *)cyclone_handle->router->disp_input_socket();
     while(!terminate) {
       // Handle any outstanding requests

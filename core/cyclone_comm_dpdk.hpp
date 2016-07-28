@@ -97,6 +97,8 @@ static void init_fdir_conf()
 typedef struct {
   struct ether_addr port_macaddr;
   struct rte_mempool **mempools;
+  struct rte_mempool *extra_pool;
+  struct rte_mempool *clone_pool;
   struct rte_eth_dev_tx_buffer **buffers;
 } dpdk_context_t;
 
@@ -104,6 +106,8 @@ typedef struct {
 typedef struct  {
   dpdk_context_t *context;
   struct rte_mempool *mempool;
+  struct rte_mempool *extra_pool;
+  struct rte_mempool *clone_pool;
   struct rte_eth_dev_tx_buffer *buffer;
   struct ether_addr remote_mac;
   struct ether_addr local_mac;
@@ -216,6 +220,22 @@ static int cyclone_tx(void *socket,
     return 0;
   else
     return -1;
+}
+
+
+static void cyclone_buffer_pkt(dpdk_socket_t *dpdk_socket, rte_mbuf *m)
+{
+  rte_eth_tx_buffer(dpdk_socket->port_id, 
+		    dpdk_socket->queue_id, 
+		    dpdk_socket->buffer, 
+		    m);
+}
+
+static void cyclone_flush_socket(dpdk_socket_t *dpdk_socket)
+{
+  rte_eth_tx_buffer_flush(dpdk_socket->port_id, 
+			  dpdk_socket->queue_id, 
+			  dpdk_socket->buffer);
 }
 
 static int cyclone_tx_queue_queue(void *socket,
@@ -577,6 +597,30 @@ static void* dpdk_context()
     if (context->mempools[i] == NULL)
       rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
 
+    if(i == q_raft) {
+      strcat(pool_name, "extra");
+      context->extra_pool = rte_pktmbuf_pool_create(pool_name,
+						    2047,
+						    4*PKT_BURST,
+						    0,
+						    RTE_PKTMBUF_HEADROOM + sizeof(struct ether_hdr),
+						    rte_socket_id());
+
+      if (context->extra_pool == NULL)
+	rte_exit(EXIT_FAILURE, "Cannot init mbuf extra pool\n");
+      
+      
+      strcat(pool_name, "clone");
+      context->clone_pool = rte_pktmbuf_pool_create(pool_name,
+						    2047,
+						    4*PKT_BURST,
+						    0,
+						    0,
+						    rte_socket_id());
+      if (context->clone_pool == NULL)
+	rte_exit(EXIT_FAILURE, "Cannot init mbuf clone pool\n");
+	       
+    }
 
     //tx queue
     ret = rte_eth_tx_queue_setup(0, 
@@ -593,7 +637,7 @@ static void* dpdk_context()
     
     context->buffers[i] = (rte_eth_dev_tx_buffer *)
       rte_zmalloc_socket("tx_buffer",
-			 RTE_ETH_TX_BUFFER_SIZE(1), 
+			 RTE_ETH_TX_BUFFER_SIZE(PKT_BURST), 
 			 0,
 			 rte_eth_dev_socket_id(0));
     if (context->buffers[i] == NULL)
@@ -601,7 +645,7 @@ static void* dpdk_context()
 	       (unsigned) 0);
 
     
-    rte_eth_tx_buffer_init(context->buffers[i], 1);
+    rte_eth_tx_buffer_init(context->buffers[i], PKT_BURST);
 
     // rx queue
     ret = rte_eth_rx_queue_setup(0, 
@@ -695,7 +739,7 @@ static void* dpdk_context_client(int threads)
     
     context->buffers[i] = (rte_eth_dev_tx_buffer *)
       rte_zmalloc_socket("tx_buffer",
-			 RTE_ETH_TX_BUFFER_SIZE(1), 
+			 RTE_ETH_TX_BUFFER_SIZE(PKT_BURST), 
 			 0,
 			 rte_eth_dev_socket_id(0));
     if (context->buffers[i] == NULL)
@@ -703,7 +747,7 @@ static void* dpdk_context_client(int threads)
 	       (unsigned) 0);
 
     
-    rte_eth_tx_buffer_init(context->buffers[i], 1);
+    rte_eth_tx_buffer_init(context->buffers[i], PKT_BURST);
 
     // rx queue
     ret = rte_eth_rx_queue_setup(0, 

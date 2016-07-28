@@ -134,6 +134,62 @@ static int __send_appendentries(raft_server_t* raft,
 }
 
 
+/** Raft callback for sending appendentries message */
+static int __send_appendentries_opt(raft_server_t* raft,
+				    void *udata,
+				    raft_node_t *node,
+				    msg_appendentries_t* m)
+{
+  cyclone_t* cyclone_handle = (cyclone_t *)udata;
+  dpdk_socket_t *socket      = (dpdk_socket_t *)raft_node_get_udata(node);
+  if(m->n_entries == 0)
+    return __send_appendentries(raft, udata, node, m);
+  int pkts_out = (PKT_BURST > m->n_entries) ? m->n_entries:PKT_BURST;
+  //int pkts_out = 1;
+  int i;
+  for(i=0;i<pkts_out;i++) {
+    rte_mbuf *b = (rte_mbuf *)m->entries[i].pkt;
+    msg_t *msg = pktadj2msg(b);
+    msg->ae.leader_commit = m->leader_commit;
+    msg->ae.term          = m->term;
+    msg_entry_t *mentry = (msg_entry_t *)(msg + 1);
+    cyclone_tx(socket, 
+	       (unsigned char *)msg, 
+	       sizeof(msg_t) + sizeof(msg_entry_t) + mentry->data.len, 
+	       "__send_requestvote");
+    continue;
+    // Bump refcnt, add ethernet header and handoff for transmission
+    rte_mbuf *e = rte_pktmbuf_alloc(socket->extra_pool);
+    if(e == NULL) {
+      BOOST_LOG_TRIVIAL(info) << "Unable to allocate header ";
+      break;
+    }
+    struct ether_hdr *eth = rte_pktmbuf_mtod(e, struct ether_hdr *);
+    memset(eth, 0, sizeof(struct ether_hdr));
+    ether_addr_copy(&socket->remote_mac, &eth->d_addr);
+    ether_addr_copy(&socket->local_mac, &eth->s_addr);
+    eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
+    e->pkt_len  = sizeof(struct ether_hdr);
+    e->data_len = e->pkt_len;
+    /*
+    rte_mbuf *bc = rte_pktmbuf_clone(b, socket->clone_pool);
+    if(bc == NULL) {
+      BOOST_LOG_TRIVIAL(info) << "Unable to clone ";
+      break;
+    }
+    */
+    rte_mbuf_refcnt_update(b, 1);
+    if(rte_pktmbuf_chain(e, b)) {
+      BOOST_LOG_TRIVIAL(fatal) << "Failed to chain";
+      exit(-1);
+    }
+    
+    //rte_mbuf_sanity_check(e, 1);
+    cyclone_buffer_pkt(socket, e);
+  }
+  cyclone_flush_socket(socket);
+  return i;
+}
 
 /** Raft callback for saving voted_for field to disk.
  * This only returns when change has been made to disk. */
@@ -263,18 +319,26 @@ static void add_head(void *pkt,
 		     int ety_index)
 {
   rte_mbuf *m = (rte_mbuf *)pkt;
+  struct ipv4_hdr *ip = rte_pktmbuf_mtod(m, struct ipv4_hdr *);
+  initialize_ipv4_header(ip,
+			 magic_src_ip, 
+			 q_raft,
+			 pktadj2rpcsz(m) + sizeof(msg_t) + sizeof(msg_entry_t));
   msg_t *hdr = pktadj2msg(m);
   hdr->msg_type         = MSG_APPENDENTRIES;
   hdr->source           = cyclone_handle->me;
-  hdr->ae.term          = ety->term;
-  hdr->ae.prev_log_idx  = ety_index - 1;
+  //ae.term to be filled in at tx time
+  //ae.Leader commit to be filled at tx time
+  hdr->ae.prev_log_idx  = ety_index;
+  hdr->ae.n_entries     = 1;
   if(ety_prev != NULL) {
     hdr->ae.prev_log_term = ety_prev->term;
   }
   else {
     hdr->ae.prev_log_term = 0;
   }
-  // Leader commit to be filled at tx time
+  msg_entry_t *entry = (msg_entry_t *)(hdr + 1);
+  memcpy(entry, ety, sizeof(raft_entry_t));
 }
 
 /** Raft callback for appending an item to the log */
@@ -495,7 +559,7 @@ void __raft_log_election(raft_server_t* raft,
 
 raft_cbs_t raft_funcs = {
   __send_requestvote,
-  __send_appendentries,
+  __send_appendentries_opt,
   __client_assist_ok,
   __send_appendentries_response,
   __applylog,

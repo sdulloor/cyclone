@@ -145,6 +145,8 @@ public:
       port = baseport + i ;
 #if defined(DPDK_STACK)
       cyclone_connect_endpoint(sockets_out[i], i, q_raft, pt);
+      ((dpdk_socket_t*)sockets_out[i])->extra_pool = ((dpdk_context_t *)context)->extra_pool;
+      ((dpdk_socket_t*)sockets_out[i])->clone_pool = ((dpdk_context_t *)context)->clone_pool;
 #else
       cyclone_connect_endpoint(sockets_out[i], i, port, pt);
 #endif
