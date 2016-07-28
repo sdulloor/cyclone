@@ -147,6 +147,7 @@ static int __send_appendentries_opt(raft_server_t* raft,
   int pkts_out = (PKT_BURST > m->n_entries) ? m->n_entries:PKT_BURST;
   //int pkts_out = 1;
   int i;
+  int tx = 0;
   for(i=0;i<pkts_out;i++) {
     rte_mbuf *b = (rte_mbuf *)m->entries[i].pkt;
     msg_t *msg = pktadj2msg(b);
@@ -186,10 +187,10 @@ static int __send_appendentries_opt(raft_server_t* raft,
       exit(-1);
     }
     //rte_mbuf_sanity_check(e, 1);
-    cyclone_buffer_pkt(socket, e);
+    tx += cyclone_buffer_pkt(socket, e);
   }
-  cyclone_flush_socket(socket);
-  return i;
+  tx += cyclone_flush_socket(socket);
+  return tx;
 }
 
 /** Raft callback for saving voted_for field to disk.

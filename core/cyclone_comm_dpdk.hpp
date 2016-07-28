@@ -262,19 +262,19 @@ static int cyclone_tx_eth(void *socket,
 }
 
 
-static void cyclone_buffer_pkt(dpdk_socket_t *dpdk_socket, rte_mbuf *m)
+static int cyclone_buffer_pkt(dpdk_socket_t *dpdk_socket, rte_mbuf *m)
 {
-  rte_eth_tx_buffer(dpdk_socket->port_id, 
-		    dpdk_socket->queue_id, 
-		    dpdk_socket->buffer, 
-		    m);
+  return rte_eth_tx_buffer(dpdk_socket->port_id, 
+			   dpdk_socket->queue_id, 
+			   dpdk_socket->buffer, 
+			   m);
 }
 
-static void cyclone_flush_socket(dpdk_socket_t *dpdk_socket)
+static int cyclone_flush_socket(dpdk_socket_t *dpdk_socket)
 {
-  rte_eth_tx_buffer_flush(dpdk_socket->port_id, 
-			  dpdk_socket->queue_id, 
-			  dpdk_socket->buffer);
+  return rte_eth_tx_buffer_flush(dpdk_socket->port_id, 
+				 dpdk_socket->queue_id, 
+				 dpdk_socket->buffer);
 }
 
 static int cyclone_tx_queue_queue(void *socket,
