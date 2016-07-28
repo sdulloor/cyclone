@@ -650,6 +650,9 @@ static void* dpdk_context()
   
   char* fake_argv[1] = {(char *)"./fake"};
 
+  struct rte_eth_dev_info dev_info;
+  struct rte_eth_txconf *txconf;
+
   /* init EAL */
   ret = rte_eal_init(1, fake_argv);
   if (ret < 0)
@@ -717,11 +720,14 @@ static void* dpdk_context()
     }
 
     //tx queue
+    rte_eth_dev_info_get(0, &dev_info);
+    txconf = &dev_info.default_txconf;
+    txconf->txq_flags = 0;
     ret = rte_eth_tx_queue_setup(0, 
 				 i, 
 				 nb_txd,
 				 rte_eth_dev_socket_id(0),
-				 NULL);
+				 txconf);
 
     if (ret < 0)
       rte_exit(EXIT_FAILURE, "rte_eth_tx_queue_setup:err=%d, port=%u\n",
