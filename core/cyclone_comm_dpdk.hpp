@@ -65,7 +65,7 @@ static void init_port_conf()
   port_conf.rxmode.header_split   = 0; 
   port_conf.rxmode.hw_ip_checksum = 0; 
   port_conf.rxmode.hw_vlan_filter = 0; 
-  port_conf.rxmode.jumbo_frame    = 0; 
+  port_conf.rxmode.jumbo_frame    = 1; // needed for chained mbufs 
   port_conf.rxmode.hw_strip_crc   = 0; 
   port_conf.txmode.mq_mode = ETH_MQ_TX_NONE;
   //port_conf.rx_adv_conf.rss_conf.rss_key = NULL; // Set Intel RSS hash
@@ -207,6 +207,45 @@ static int cyclone_tx(void *socket,
   m->pkt_len = 
     sizeof(struct ether_hdr) + 
     sizeof(struct ipv4_hdr)  + 
+    size;
+  m->data_len = m->pkt_len;
+  int sent = rte_eth_tx_buffer(dpdk_socket->port_id, 
+			       dpdk_socket->queue_id, 
+			       dpdk_socket->buffer, 
+			       m);
+  sent += rte_eth_tx_buffer_flush(dpdk_socket->port_id, 
+				  dpdk_socket->queue_id, 
+				  dpdk_socket->buffer);
+  if(sent)
+    return 0;
+  else
+    return -1;
+}
+
+// Best effort
+static int cyclone_tx_eth(void *socket,
+			  const unsigned char *data,
+			  unsigned long size,
+			  const char *context) 
+{
+  dpdk_socket_t *dpdk_socket = (dpdk_socket_t *)socket;
+  rte_mbuf *m = rte_pktmbuf_alloc(dpdk_socket->mempool);
+  if(m == NULL) {
+    BOOST_LOG_TRIVIAL(warning) << "Unable to allocate pktmbuf "
+			       << "for queue:" << dpdk_socket->queue_id;
+    return -1;
+  }
+  struct ether_hdr *eth;
+  eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
+  memset(eth, 0, sizeof(struct ether_hdr));
+  ether_addr_copy(&dpdk_socket->remote_mac, &eth->d_addr);
+  ether_addr_copy(&dpdk_socket->local_mac, &eth->s_addr);
+  eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
+  rte_memcpy(eth + 1, data, size);
+  
+  ///////////////////////
+  m->pkt_len = 
+    sizeof(struct ether_hdr) + 
     size;
   m->data_len = m->pkt_len;
   int sent = rte_eth_tx_buffer(dpdk_socket->port_id, 
@@ -440,6 +479,61 @@ static int cyclone_rx(void *socket,
   }
   else {
     return -1;
+  }
+}
+
+
+static rte_mbuf * cyclone_rx_raw(void *socket,
+				 unsigned char *data,
+				 unsigned long size,
+				 const char *context)
+{
+  int rc, nb_rx;
+  rte_mbuf *m;
+  dpdk_socket_t *dpdk_socket = (dpdk_socket_t *)socket;
+  if(dpdk_socket->buffered == dpdk_socket->consumed) {
+    dpdk_socket->consumed = 0;
+    dpdk_socket->buffered = rte_eth_rx_burst(dpdk_socket->port_id, 
+					     dpdk_socket->queue_id,
+					     &dpdk_socket->burst[0], 
+					     PKT_BURST);
+  }
+  if(dpdk_socket->consumed < dpdk_socket->buffered) {
+    m = dpdk_socket->burst[dpdk_socket->consumed++];
+    rte_prefetch0(rte_pktmbuf_mtod(m, void *));
+    struct ether_hdr *e = rte_pktmbuf_mtod(m, struct ether_hdr *);
+    struct ipv4_hdr *ip = (struct ipv4_hdr *)(e + 1);
+    if(e->ether_type != rte_cpu_to_be_16(ETHER_TYPE_IPv4)) {
+      BOOST_LOG_TRIVIAL(warning) << "Dropping junk. Protocol mismatch";
+      rte_pktmbuf_free(m);
+      return NULL;
+    }
+    else if(ip->src_addr != magic_src_ip) {
+      BOOST_LOG_TRIVIAL(warning) << "Dropping junk. non magic ip";
+      rte_pktmbuf_free(m);
+      return NULL;
+    }
+    else if(m->data_len <= sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr)) {
+      BOOST_LOG_TRIVIAL(warning) << "Dropping junk = pkt size too small";
+      rte_pktmbuf_free(m);
+      return NULL;
+    }
+    // Turn on following check if the NIC is left in promiscous mode
+    // drop unless this is for me
+    //if(!is_same_ether_addr(&e->d_addr, &dpdk_socket->local_mac)) {
+    //  rte_pktmbuf_free(m);
+    //  return -1;
+    //}
+    // Strip off headers
+    //int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
+    //void *payload = rte_pktmbuf_mtod_offset(m, void *, payload_offset);
+    //int msg_size = m->data_len - payload_offset;
+    //rte_memcpy(data, payload, msg_size);
+    //rte_pktmbuf_free(m);
+    return m;
+  }
+  else {
+    return NULL;
   }
 }
 

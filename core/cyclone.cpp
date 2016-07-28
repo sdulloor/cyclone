@@ -153,10 +153,10 @@ static int __send_appendentries_opt(raft_server_t* raft,
     msg->ae.leader_commit = m->leader_commit;
     msg->ae.term          = m->term;
     msg_entry_t *mentry = (msg_entry_t *)(msg + 1);
-    cyclone_tx(socket, 
-	       (unsigned char *)msg, 
-	       sizeof(msg_t) + sizeof(msg_entry_t) + mentry->data.len, 
-	       "__send_requestvote");
+    cyclone_tx_eth(socket, 
+		   rte_pktmbuf_mtod(b, unsigned char *),
+		   b->data_len,
+		   "__send_requestvote");
     continue;
     // Bump refcnt, add ethernet header and handoff for transmission
     rte_mbuf *e = rte_pktmbuf_alloc(socket->extra_pool);
@@ -183,7 +183,6 @@ static int __send_appendentries_opt(raft_server_t* raft,
       BOOST_LOG_TRIVIAL(fatal) << "Failed to chain";
       exit(-1);
     }
-    
     //rte_mbuf_sanity_check(e, 1);
     cyclone_buffer_pkt(socket, e);
   }

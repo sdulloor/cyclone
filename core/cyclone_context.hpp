@@ -101,6 +101,14 @@ static void adjust_head(rte_mbuf *m)
   }
 }
 
+static void drop_eth_header(rte_mbuf *m)
+{
+  if(rte_pktmbuf_adj(m, sizeof(struct ether_hdr)) == NULL) {
+    BOOST_LOG_TRIVIAL(fatal) << "Failed to adj ethe hdr";
+    exit(-1);
+  }
+}
+
 /* Message types */
 const int  MSG_REQUESTVOTE              = 1;
 const int  MSG_REQUESTVOTE_RESPONSE     = 2;
@@ -475,20 +483,23 @@ typedef struct cyclone_st {
   }
 
   /* Handle incoming message and send appropriate response */
-  void handle_incoming(unsigned long size, void *s)
+  void handle_incoming(rte_mbuf *m)
   {
-    msg_t *msg = (msg_t *)cyclone_buffer_in;
+    drop_eth_header(m);
+    msg_t *msg = pktadj2msg(m);
     msg_t resp;
     unsigned long rep;
-    unsigned char *payload     = cyclone_buffer_in + sizeof(msg_t);
-    unsigned long payload_size = size - sizeof(msg_t); 
+    unsigned char *payload     = (unsigned char *)(msg + 1);
+    unsigned long payload_size = m->pkt_len - 
+      (sizeof(struct ipv4_hdr) + sizeof(msg_t)); 
     int e; // TBD: need to handle errors
     char *ptr;
     msg_entry_t client_req;
     msg_entry_response_t *client_rep;
     msg_entry_t *messages; 
-    
-    dpdk_socket_t *socket = (dpdk_socket_t *)s;
+    rpc_t *rpc;
+    int source;
+    int free_buf = 0;
 
     switch (msg->msg_type) {
     case MSG_REQUESTVOTE:
@@ -501,52 +512,58 @@ typedef struct cyclone_st {
       resp.source = me;
       cyclone_tx(router->output_socket(msg->source),
 		 (unsigned char *)&resp, sizeof(msg_t), "REQVOTE RESP");
+      rte_pktmbuf_free(m);
       break;
     case MSG_REQUESTVOTE_RESPONSE:
       e = raft_recv_requestvote_response(raft_handle, 
 					 raft_get_node(raft_handle, msg->source), 
 					 &msg->rvr);
+      rte_pktmbuf_free(m);
       break;
     case MSG_APPENDENTRIES:
     resp.msg_type = MSG_APPENDENTRIES_RESPONSE;
-    msg->ae.entries = (msg_entry_t *)payload;
-    ptr = (char *)(payload + msg->ae.n_entries*sizeof(msg_entry_t));
-    for(int i=0;i<msg->ae.n_entries;i++) {
-      rte_mbuf *m = dpdk_alloc(socket);
-      msg->ae.entries[i].data.buf = (void *)m;
-      rpc_t *rpc = pkt2rpc(m);
-      memcpy(rpc, ptr, msg->ae.entries[i].data.len);
+    source = msg->source;
+    if(msg->ae.n_entries > 0) {
+      msg->ae.entries = (msg_entry_t *)payload;
+      msg->ae.entries[0].data.buf = (void *)m;
+      rpc = pktadj2rpc(m);
       rpc->wal.leader = 0;
-      pktsetrpcsz(m, msg->ae.entries[i].data.len);
-      adjust_head(m);
-      ptr += msg->ae.entries[i].data.len;
+    }
+    else {
+      free_buf = 1;
     }
     e = raft_recv_appendentries(raft_handle, 
 				raft_get_node(raft_handle, msg->source), 
 				&msg->ae, 
 				&resp.aer);
+    if(free_buf) {
+      rte_pktmbuf_free(m);
+    }
     resp.source = me;
-    cyclone_tx(router->output_socket(msg->source),
+    cyclone_tx(router->output_socket(source),
 		(unsigned char *)&resp, sizeof(msg_t), "APPENDENTRIES RESP");
     break;
     case MSG_APPENDENTRIES_RESPONSE:
       e = raft_recv_appendentries_response(raft_handle, 
 					   raft_get_node(raft_handle, msg->source), 
 					   &msg->aer);
+      rte_pktmbuf_free(m);
       break;
     case MSG_ASSISTED_APPENDENTRIES:
       msg->rep.ety.data.buf = msg + 1;
       router->cpaths.ring_doorbell(msg->rep.client_mc, msg->rep.client_id, msg->client_port);
       raft_recv_assisted_appendentries(raft_handle, &msg->rep);
+      rte_pktmbuf_free(m);
       break;
 
     case MSG_ASSISTED_QUORUM_OK:
       raft_recv_assisted_quorum(raft_handle,
 				&msg->rep,
 				msg->quorum);
+      rte_pktmbuf_free(m);
       break;
     default:
-      printf("unknown msg in handle remote size=%d code=%d\n", size, msg->msg_type);
+      printf("unknown msg in handle remote code=%d\n", msg->msg_type);
       exit(0);
     }
   }
@@ -676,13 +693,12 @@ struct cyclone_monitor {
     dpdk_socket_t *socket = (dpdk_socket_t *)cyclone_handle->router->disp_input_socket();
     while(!terminate) {
       // Handle any outstanding requests
-      int sz =
-	cyclone_rx(cyclone_handle->router->input_socket(),
-		   cyclone_handle->cyclone_buffer_in,
-		   MSG_MAXSIZE,
-		   "Incoming");
-      if(sz != -1) {
-	cyclone_handle->handle_incoming(sz, cyclone_handle->router->input_socket());
+      m =  cyclone_rx_raw(cyclone_handle->router->input_socket(),
+			  cyclone_handle->cyclone_buffer_in,
+			  MSG_MAXSIZE,
+			  "Incoming");
+      if(m != NULL) {
+	cyclone_handle->handle_incoming(m);
       }
       
       int available = rte_eth_rx_burst(socket->port_id,
