@@ -498,7 +498,7 @@ typedef struct cyclone_st {
     msg_entry_response_t *client_rep;
     msg_entry_t *messages; 
     rpc_t *rpc;
-    int source;
+    int source = msg->source;;
     int free_buf = 0;
 
     switch (msg->msg_type) {
@@ -510,9 +510,9 @@ typedef struct cyclone_st {
 				&resp.rvr);
       /* send response */
       resp.source = me;
-      cyclone_tx(router->output_socket(msg->source),
-		 (unsigned char *)&resp, sizeof(msg_t), "REQVOTE RESP");
       rte_pktmbuf_free(m);
+      cyclone_tx(router->output_socket(source),
+		 (unsigned char *)&resp, sizeof(msg_t), "REQVOTE RESP");
       break;
     case MSG_REQUESTVOTE_RESPONSE:
       e = raft_recv_requestvote_response(raft_handle, 
@@ -522,7 +522,6 @@ typedef struct cyclone_st {
       break;
     case MSG_APPENDENTRIES:
     resp.msg_type = MSG_APPENDENTRIES_RESPONSE;
-    source = msg->source;
     if(msg->ae.n_entries > 0) {
       msg->ae.entries = (msg_entry_t *)payload;
       msg->ae.entries[0].data.buf = (void *)m;

@@ -321,10 +321,12 @@ static void add_head(void *pkt,
 {
   rte_mbuf *m = (rte_mbuf *)pkt;
   struct ipv4_hdr *ip = rte_pktmbuf_mtod(m, struct ipv4_hdr *);
-  initialize_ipv4_header(ip,
-			 magic_src_ip, 
-			 q_raft,
-			 pktadj2rpcsz(m) + sizeof(msg_t) + sizeof(msg_entry_t));
+  if(cyclone_is_leader(cyclone_handle)) {
+    initialize_ipv4_header(ip,
+			   magic_src_ip, 
+			   q_raft,
+			   pktadj2rpcsz(m) + sizeof(msg_t) + sizeof(msg_entry_t));
+  }
   msg_t *hdr = pktadj2msg(m);
   hdr->msg_type         = MSG_APPENDENTRIES;
   hdr->source           = cyclone_handle->me;
