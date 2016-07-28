@@ -5,7 +5,7 @@
 static const int PERIODICITY                = 10; 
 static const int RAFT_ELECTION_TIMEOUT      = 10000; 
 static const int RAFT_REQUEST_TIMEOUT       = 1000; 
-static const int RAFT_NACK_TIMEOUT          = 60;
+static const int RAFT_NACK_TIMEOUT          = 20;
 // RAFT log tuning -- need to match load
 static const int RAFT_LOG_TARGET  = 5000;
 
@@ -16,7 +16,7 @@ static const int timeout_msec  = 30; // Client - failure detect
 static const int MIN_BATCH_BUFFERS = 2;
 static const int MAX_BATCH_SIZE    = 5; // Ultimately bounded by MAX_MSGSIZE
 static const int DISP_BATCHING_INTERVAL = 10;
-static const int executor_threads = 8;
+static const int executor_threads = 24;
 
 // ZMQ specific tuning
 static const int zmq_threads = 4;
