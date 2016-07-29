@@ -150,6 +150,43 @@ typedef struct cyclone_st {
   cyclone_monitor *monitor_obj;
   runq_t<msg_t> comm;
 
+  msg_t ae_responses[PKT_BURST];
+  int ae_response_sources[PKT_BURST];
+  int ae_response_cnt;
+  
+  void send_ae_responses()
+  {
+    if(ae_response_cnt == 0)
+      return;
+    // Compact to find the latest response
+    int idx     = ae_responses[0].aer.current_idx;
+    int to_send = 0;
+    int merge_term = ae_responses[0].aer.term;
+    for(int i=1;i<ae_response_cnt;i++) {
+      if(ae_responses[i].aer.term != merge_term) {
+	to_send = -1;
+	break;
+      }
+      if(ae_responses[i].aer.current_idx > idx)
+	to_send = i;
+    }
+    if(to_send != -1) {
+      cyclone_tx(router->output_socket(ae_response_sources[to_send]),
+		 (unsigned char *)&ae_responses[to_send], 
+		 sizeof(msg_t), 
+		 "APPENDENTRIES RESP");
+    }
+    else {
+      for(int i=0;i<ae_response_cnt;i++) {
+	cyclone_tx(router->output_socket(ae_response_sources[i]),
+		   (unsigned char *)&ae_responses[i], 
+		   sizeof(msg_t), 
+		   "APPENDENTRIES RESP");
+      }
+    }
+    ae_response_cnt = 0;
+  }
+
   cyclone_st()
   {}
 
@@ -502,6 +539,10 @@ typedef struct cyclone_st {
     int source = msg->source;;
     int free_buf = 0;
 
+    if(msg->msg_type != MSG_APPENDENTRIES) {
+      send_ae_responses();
+    }
+
     switch (msg->msg_type) {
     case MSG_REQUESTVOTE:
       resp.msg_type = MSG_REQUESTVOTE_RESPONSE;
@@ -522,7 +563,7 @@ typedef struct cyclone_st {
       rte_pktmbuf_free(m);
       break;
     case MSG_APPENDENTRIES:
-    resp.msg_type = MSG_APPENDENTRIES_RESPONSE;
+    ae_responses[ae_response_cnt].msg_type = MSG_APPENDENTRIES_RESPONSE;
     if(msg->ae.n_entries > 0) {
       msg->ae.entries = (msg_entry_t *)payload;
       msg->ae.entries[0].data.buf = (void *)m;
@@ -535,13 +576,12 @@ typedef struct cyclone_st {
     e = raft_recv_appendentries(raft_handle, 
 				raft_get_node(raft_handle, msg->source), 
 				&msg->ae, 
-				&resp.aer);
+				&ae_responses[ae_response_cnt].aer);
     if(free_buf) {
       rte_pktmbuf_free(m);
     }
-    resp.source = me;
-    cyclone_tx(router->output_socket(source),
-		(unsigned char *)&resp, sizeof(msg_t), "APPENDENTRIES RESP");
+    ae_responses[ae_response_cnt].source = me;
+    ae_response_sources[ae_response_cnt++] = source;
     break;
     case MSG_APPENDENTRIES_RESPONSE:
       e = raft_recv_appendentries_response(raft_handle, 
@@ -723,6 +763,7 @@ struct cyclone_monitor {
 				   raft_socket->queue_id,
 				   &pkt_array[0],
 				   PKT_BURST);
+      cyclone_handle->ae_response_cnt = 0;
       for(int i=0;i<available;i++) {
 	m = pkt_array[i];
 	if(bad(m)) {
@@ -731,7 +772,7 @@ struct cyclone_monitor {
 	}
 	cyclone_handle->handle_incoming(m);
       }
-      
+      cyclone_handle->send_ae_responses();
       available = rte_eth_rx_burst(socket->port_id,
 				   socket->queue_id,
 				   &pkt_array[0],
