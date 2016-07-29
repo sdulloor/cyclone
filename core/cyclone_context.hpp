@@ -21,6 +21,7 @@ extern "C" {
 #include "tuning.hpp"
 #include "runq.hpp"
 #include "cyclone.hpp"
+#include <rte_cycles.h>
 
 /* Message format */
 typedef struct client_io_st {
@@ -682,47 +683,64 @@ struct cyclone_monitor {
   :terminate(false)
   {}
   
+  int bad(rte_mbuf *m)
+  {
+    rte_prefetch0(rte_pktmbuf_mtod(m, void *));
+    struct ether_hdr *e = rte_pktmbuf_mtod(m, struct ether_hdr *);
+    struct ipv4_hdr *ip = (struct ipv4_hdr *)(e + 1);
+    if(e->ether_type != rte_cpu_to_be_16(ETHER_TYPE_IPv4)) {
+      BOOST_LOG_TRIVIAL(warning) << "Dropping junk. Protocol mismatch";
+      return -1;
+    }
+    else if(ip->src_addr != magic_src_ip) {
+      BOOST_LOG_TRIVIAL(warning) << "Dropping junk. non magic ip";
+      rte_pktmbuf_free(m);
+      return -1;
+    }
+    else if(m->data_len <= sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr)) {
+      BOOST_LOG_TRIVIAL(warning) << "Dropping junk = pkt size too small";
+      rte_pktmbuf_free(m);
+      return -1;
+    }
+    return 0;
+  }
+
   void operator ()()
   {
-    unsigned long mark = rtc_clock::current_time();
+    unsigned long mark = rte_get_tsc_cycles();
+    double tsc_mhz = (rte_get_tsc_hz()/1000000.0);
+    unsigned long PERIODICITY_CYCLES = PERIODICITY*tsc_mhz;
     unsigned long elapsed_time;
     msg_entry_t *messages;
     rte_mbuf *pkt_array[PKT_BURST], *m;
     messages = (msg_entry_t *)malloc(PKT_BURST*sizeof(msg_entry_t));
+    dpdk_socket_t *raft_socket = (dpdk_socket_t *)cyclone_handle->router->input_socket();
     dpdk_socket_t *socket = (dpdk_socket_t *)cyclone_handle->router->disp_input_socket();
+    int available;
     while(!terminate) {
       // Handle any outstanding requests
-      m =  cyclone_rx_raw(cyclone_handle->router->input_socket(),
-			  cyclone_handle->cyclone_buffer_in,
-			  MSG_MAXSIZE,
-			  "Incoming");
-      if(m != NULL) {
+      available = rte_eth_rx_burst(raft_socket->port_id,
+				   raft_socket->queue_id,
+				   &pkt_array[0],
+				   PKT_BURST);
+      for(int i=0;i<available;i++) {
+	m = pkt_array[i];
+	if(bad(m)) {
+	  rte_pktmbuf_free(m);
+	  continue;
+	}
 	cyclone_handle->handle_incoming(m);
       }
       
-      int available = rte_eth_rx_burst(socket->port_id,
-				       socket->queue_id,
-				       &pkt_array[0],
-				       PKT_BURST);
+      available = rte_eth_rx_burst(socket->port_id,
+				   socket->queue_id,
+				   &pkt_array[0],
+				   PKT_BURST);
       if(available > 0) {
 	int accepted = 0;
 	for(int i=0;i<available;i++) {
 	  m = pkt_array[i];
-	  rte_prefetch0(rte_pktmbuf_mtod(m, void *));
-	  struct ether_hdr *e = rte_pktmbuf_mtod(m, struct ether_hdr *);
-	  struct ipv4_hdr *ip = (struct ipv4_hdr *)(e + 1);
-	  if(e->ether_type != rte_cpu_to_be_16(ETHER_TYPE_IPv4)) {
-	    BOOST_LOG_TRIVIAL(warning) << "Dropping junk. Protocol mismatch";
-	    rte_pktmbuf_free(m);
-	    continue;
-	  }
-	  else if(ip->src_addr != magic_src_ip) {
-	    BOOST_LOG_TRIVIAL(warning) << "Dropping junk. non magic ip";
-	    rte_pktmbuf_free(m);
-	    continue;
-	  }
-	  else if(m->data_len <= sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr)) {
-	    BOOST_LOG_TRIVIAL(warning) << "Dropping junk = pkt size too small";
+	  if(bad(m)) {
 	    rte_pktmbuf_free(m);
 	    continue;
 	  }
@@ -778,9 +796,10 @@ struct cyclone_monitor {
       }
       */
       // Handle periodic events -- - AFTER any incoming requests
-      if((elapsed_time = rtc_clock::current_time() - mark) >= PERIODICITY) {
-	raft_periodic(cyclone_handle->raft_handle, (int)elapsed_time);
-	mark = rtc_clock::current_time();
+      elapsed_time = rte_get_tsc_cycles() - mark;
+      if(elapsed_time  >= PERIODICITY_CYCLES) {
+	raft_periodic(cyclone_handle->raft_handle, (int)(elapsed_time/tsc_mhz));
+	mark = rte_get_tsc_cycles();
       }
     }
   }
