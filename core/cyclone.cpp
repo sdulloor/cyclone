@@ -153,6 +153,7 @@ static int __send_appendentries_opt(raft_server_t* raft,
     msg_t *msg = pktadj2msg(b);
     msg->ae.leader_commit = m->leader_commit;
     msg->ae.term          = m->term;
+    msg->source        = cyclone_handle->me;
     /*
     msg_entry_t *mentry = (msg_entry_t *)(msg + 1);
     cyclone_tx_eth(socket, 
@@ -322,15 +323,12 @@ static void add_head(void *pkt,
 {
   rte_mbuf *m = (rte_mbuf *)pkt;
   struct ipv4_hdr *ip = rte_pktmbuf_mtod(m, struct ipv4_hdr *);
-  if(cyclone_is_leader(cyclone_handle)) {
-    initialize_ipv4_header(ip,
-			   magic_src_ip, 
-			   q_raft,
-			   pktadj2rpcsz(m) + sizeof(msg_t) + sizeof(msg_entry_t));
-  }
+  initialize_ipv4_header(ip,
+			 magic_src_ip, 
+			 q_raft,
+			 pktadj2rpcsz(m) + sizeof(msg_t) + sizeof(msg_entry_t));
   msg_t *hdr = pktadj2msg(m);
   hdr->msg_type         = MSG_APPENDENTRIES;
-  hdr->source           = cyclone_handle->me;
   //ae.term to be filled in at tx time
   //ae.Leader commit to be filled at tx time
   hdr->ae.prev_log_idx  = ety_index;
@@ -355,7 +353,9 @@ static int __raft_logentry_offer(raft_server_t* raft,
 {
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  add_head(ety->data.buf, cyclone_handle, ety, prev, ety_idx);
+  if(cyclone_is_leader(cyclone_handle)) {
+    add_head(ety->data.buf, cyclone_handle, ety, prev, ety_idx);
+  }
   unsigned char *chunk    = (unsigned char *)pktadj2rpc((rte_mbuf *)ety->data.buf);
   if(rep != NULL) {
     rep->server_id = cyclone_handle->me;
