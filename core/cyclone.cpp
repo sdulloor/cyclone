@@ -187,7 +187,7 @@ static int __send_appendentries_opt(raft_server_t* raft,
       BOOST_LOG_TRIVIAL(fatal) << "Failed to chain";
       exit(-1);
     }
-    rte_mbuf_sanity_check(e, 1);
+    //rte_mbuf_sanity_check(e, 1);
     tx += cyclone_buffer_pkt(socket, e);
   }
   tx += cyclone_flush_socket(socket);
