@@ -550,9 +550,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 
   log->log_tail = tail;
 
-  pmemobj_persist(cyclone_handle->pop_raft_state,
-		  &log->log_tail,
-		  sizeof(unsigned long));
+  clflush(&log->log_tail, sizeof(unsigned long));
 
   return 0;
 }

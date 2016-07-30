@@ -428,9 +428,7 @@ typedef struct cyclone_st {
 	(newhead, 2*sizeof(int) + size, RAFT_LOGSIZE);
     }
     log->log_head = newhead;
-    pmemobj_persist(pop_raft_state,
-		    &log->log_head,
-		    sizeof(unsigned long));
+    clflush(&log->log_head, sizeof(unsigned long));
   }
 
   void remove_tail_raft_log()

@@ -48,8 +48,22 @@ void copy_to_circular_log(PMEMobjpool *pop,
   }
 }
 
-static
-void persist_to_circular_log(PMEMobjpool *pop, 
+static void clflush(void *ptr, int size)
+{
+  return;
+  char *x = (char *)ptr;
+  while(size > 64) {
+    asm volatile("clflush %0"::"m"(*x));
+    x += 64;
+    size -=64;
+  }
+  asm volatile("clflush %0;mfence"::"m"(*x));
+}
+
+
+
+
+static void persist_to_circular_log(PMEMobjpool *pop, 
 			     struct circular_log *log,
 			     unsigned long LOGSIZE,
 			     unsigned long offset,
@@ -58,9 +72,9 @@ void persist_to_circular_log(PMEMobjpool *pop,
   unsigned long chunk1 = (offset + size) > LOGSIZE ?
     (LOGSIZE - offset):size;
   unsigned long chunk2 = size - chunk1;
-  pmemobj_persist(pop, log_data(log) + offset, chunk1);
+  clflush(log_data(log) + offset, chunk1);
   if(chunk2 > 0) {
-    pmemobj_persist(pop, log_data(log), chunk2);
+    clflush(log_data(log), chunk2);
   }
 }
 
