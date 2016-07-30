@@ -51,8 +51,8 @@
 
 #define RTE_TEST_RX_DESC_DEFAULT 128
 #define RTE_TEST_TX_DESC_DEFAULT 512
-static const uint16_t nb_rxd = RTE_TEST_RX_DESC_DEFAULT;
-static const uint16_t nb_txd = RTE_TEST_TX_DESC_DEFAULT;
+static const uint16_t nb_rxd = 8*RTE_TEST_RX_DESC_DEFAULT;
+static const uint16_t nb_txd = 2*RTE_TEST_TX_DESC_DEFAULT;
 
 const unsigned long magic_src_ip = 0xdeadbeef;
 
