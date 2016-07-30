@@ -175,17 +175,19 @@ static int __send_appendentries_opt(raft_server_t* raft,
     eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
     e->pkt_len  = sizeof(struct ether_hdr);
     e->data_len = e->pkt_len;
+    
     rte_mbuf *bc = rte_pktmbuf_clone(b, socket->clone_pool);
+    
     if(bc == NULL) {
       BOOST_LOG_TRIVIAL(info) << "Unable to clone ";
       break;
     }
-    //rte_mbuf_refcnt_update(b, 1);
+    
     if(rte_pktmbuf_chain(e, bc)) {
       BOOST_LOG_TRIVIAL(fatal) << "Failed to chain";
       exit(-1);
     }
-    //rte_mbuf_sanity_check(e, 1);
+    rte_mbuf_sanity_check(e, 1);
     tx += cyclone_buffer_pkt(socket, e);
   }
   tx += cyclone_flush_socket(socket);
