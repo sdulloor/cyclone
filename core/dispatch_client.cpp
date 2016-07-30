@@ -367,6 +367,46 @@ typedef struct rpc_client_st {
     *response = (void *)(packet_in + 1);
     return (int)(resp_sz - sizeof(rpc_t));
   }
+
+  int make_noop_rpc(int txid, int flags)
+  {
+    int retcode;
+    int resp_sz;
+    while(true) {
+      // Make request
+      packet_out->code        = RPC_REQ_NOOP;
+      packet_out->flags       = flags;
+      packet_out->client_id   = me;
+      packet_out->client_port = router->input_port(server);
+      packet_out->client_txid = txid;
+      packet_out->channel_seq = channel_seq++;
+      packet_out->requestor   = me_mc;
+      packet_out->payload_sz  = 0;
+      retcode = cyclone_tx_queue(router->output_socket(server), 
+				 (unsigned char *)packet_out, 
+				 sizeof(rpc_t), 
+				 q_dispatcher,
+				 "PROPOSE");
+      resp_sz = common_receive_loop(sizeof(rpc_t));
+      if(resp_sz == -1) {
+	update_server("rx timeout, make rpc");
+	continue;
+      }
+      if(packet_in->code == RPC_REP_INVSRV) {
+	update_server("Server not leader");
+	continue;
+      }
+      if(packet_in->code == RPC_REP_UNKNOWN) {
+	continue;
+      }
+      break;
+    }
+    if(packet_in->code == RPC_REP_OLD) {
+      return RPC_EOLD;
+    }
+    return 0;
+  }
+  
 } rpc_client_t;
 
 
@@ -472,6 +512,14 @@ int make_rpc(void *handle,
     exit(-1);
   }
   return client->make_rpc(payload, sz, response, txid, flags);
+}
+
+int make_noop_rpc(void *handle,
+		  int txid,
+		  int flags)
+{
+  rpc_client_t *client = (rpc_client_t *)handle;
+  return client->make_noop_rpc(txid, flags);
 }
 
 int get_last_txid(void *handle)

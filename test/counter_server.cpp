@@ -228,12 +228,8 @@ TOID(char) nvheap_setup(TOID(char) recovered,
     store = TX_ALLOC(char, sizeof(heap_root_t));
     heap_root = (heap_root_t *)D_RW(store);
     for(int i = 0;i < MAX_CLIENTS;i++) {
-      heap_root->the_cookies.client_state[i].committed_txid    = 0UL;
-      heap_root->the_cookies.client_state[i].last_return_size  = 0;
-      TOID_ASSIGN(heap_root->the_cookies.client_state[i].last_return_value, OID_NULL);
+      init_cstate(pop, &heap_root->the_cookies.client_state[i].state);
     }
-    heap_root->the_cookies.applied_raft_idx = -1;
-    heap_root->the_cookies.applied_raft_term  = -1;
     rbtree_map_new(state, &heap_root->the_tree, NULL);
     the_tree = heap_root->the_tree;
     init_cookie_system(state, &heap_root->the_cookies);

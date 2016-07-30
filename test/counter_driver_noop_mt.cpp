@@ -100,21 +100,28 @@ int driver(void *arg)
   srand(tx_begin_time);
   int partition;
   while(true) {
+    uint64_t key = rand() % keys;
+    partition = key % partitions;
+    /*
     prop->fn = FN_NOOP;
     int rpc_flags = 0;
     //prop->fn = FN_NOOP_RO;
     //int rpc_flags = RPC_FLAG_RO;
     
-    prop->k_data.key = rand() % keys;
-    partition = prop->k_data.key % partitions;
+    prop->k_data.key = key;
     sz = make_rpc(handles[partition],
 		  buffer,
 		  sizeof(struct proposal),
 		  (void **)&resp,
 		  ctr[partition],
 		  rpc_flags);
+    */
+    int rpc_flags = 0;
+    // int rpc_flags = RPC_FLAG_RO;
+    sz = make_noop_rpc(handles[partition], ctr[partition], rpc_flags);
     ctr[partition]++;
     tx_block_cnt++;
+    /*
     if(sz != sizeof(struct proposal)) {
       BOOST_LOG_TRIVIAL(fatal) << "Invalid response";
       exit(-1);
@@ -123,6 +130,7 @@ int driver(void *arg)
       BOOST_LOG_TRIVIAL(fatal) << "Improper response";
       exit(-1);
     }
+    */
     if(tx_block_cnt > 5000) {
       total_latency = (rtc_clock::current_time() - tx_begin_time);
       BOOST_LOG_TRIVIAL(info) << "LOAD = "

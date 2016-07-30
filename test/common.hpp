@@ -5,35 +5,23 @@
 
 struct client_state_st {
   volatile unsigned long committed_txid;
-  TOID(char) last_return_value;
-  int last_return_size;
+  int size;
 };
 
+struct client_state_indirect_st {
+  PMEMoid state; 
+} __attribute__((aligned(64)));
+
 typedef struct cookies_st {
-  int applied_raft_idx;
-  int applied_raft_term;
-  struct client_state_st client_state[MAX_CLIENTS];
+  struct client_state_indirect_st client_state[MAX_CLIENTS];
 } cookies_t;
 
-static void lock(volatile unsigned long *lockp)
-{
-  // TEST + TEST&SET
-  do {
-    while((*lockp) != 0);
-  } while(!__sync_bool_compare_and_swap(lockp, 0, 1));
-  __sync_synchronize();
-}
-
-static void unlock(volatile unsigned long *lockp)
-{
-  __sync_synchronize();
-  __sync_bool_compare_and_swap(lockp, 1, 0);
-  __sync_synchronize();
-}
+const int CSTATE_TYPE_NUM = TOID_NUM_BASE - 1;
 
 extern void begin_tx();
 extern void commit_tx(void *, rpc_cookie_t *);
 extern void abort_tx(void *);
+extern void init_cstate(PMEMobjpool *pop, PMEMoid *cs);
 extern void init_cookie_system(PMEMobjpool *pool, cookies_t *root);
 extern void get_cookie(rpc_cookie_t *cookie);
 extern void get_lock_cookie(rpc_cookie_t *cookie);

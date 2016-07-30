@@ -96,6 +96,12 @@ int make_rpc(void *handle,
 	     void **response,
 	     int txid,
 	     int rpc_flags);
+// Noop RPC -- do nothing at the other end
+// client txid is essentially ignored
+int make_noop_rpc(void *handle,
+		  int txid,
+		  int rpc_flags);
+
 // Get last accepred txid
 int get_last_txid(void *handle);
 // Get the last response

@@ -6,6 +6,18 @@ volatile unsigned long cookies_lock = 0;
 cookies_t *cookies_root = NULL;
 PMEMobjpool *cookies_pool = NULL;
 
+static void clflush(void *ptr, int size)
+{
+  return;
+  char *x = (char *)ptr;
+  while(size > 64) {
+    asm volatile("clflush %0"::"m"(*x));
+    x += 64;
+    size -=64;
+  }
+  asm volatile("clflush %0;mfence"::"m"(*x));
+}
+
 void begin_tx()
 {
   int e = pmemobj_tx_begin(cookies_pool, NULL, TX_LOCK_NONE);
@@ -15,46 +27,41 @@ void begin_tx()
   }
 }
 
+void init_cstate(PMEMobjpool *pop, PMEMoid *cs)
+{
+  int aligned_size = sizeof(struct client_state_st);
+  aligned_size = ((aligned_size + 63)/64)*64;
+  *cs = pmemobj_tx_alloc(aligned_size, CSTATE_TYPE_NUM);
+  struct client_state_st *cnewp = (struct client_state_st *)pmemobj_direct(*cs);
+  cnewp->committed_txid = 0;
+  cnewp->size = 0;
+  clflush(cnewp, sizeof(struct client_state_st));
+}
+
+
 // This function must be executed in the context of a tx
 static void mark_done(rpc_cookie_t *cookie)
 {
-  int client_id = cookie->client_id;
-  lock(&cookies_lock);
-  volatile int *c_raft_idx_p  = &cookies_root->applied_raft_idx;
-  volatile int *c_raft_term_p = &cookies_root->applied_raft_term;
-  pmemobj_tx_add_range_direct((void *)c_raft_idx_p, sizeof(int));
-  pmemobj_tx_add_range_direct((void *)c_raft_term_p, sizeof(int));
-  *c_raft_idx_p  = cookie->raft_idx;
-  *c_raft_term_p = cookie->raft_term;
-  struct client_state_st *cstate = &cookies_root->client_state[cookie->client_id];
-  pmemobj_tx_add_range_direct(cstate, sizeof(struct client_state_st));
-  if(!TOID_IS_NULL(cstate->last_return_value)) {
-    TX_FREE(cstate->last_return_value);
-  }
-  if(cookie->ret_size > 0) {
-    cstate->last_return_value = TX_ALLOC(char, cookie->ret_size);
-    if(TOID_IS_NULL(cstate->last_return_value)) {
-      BOOST_LOG_TRIVIAL(fatal) << "mark_done: Out of pmem heap space.";
-      exit(-1);
-    }
-    pmemobj_memcpy_persist(cookies_pool, 
-			   D_RW(cstate->last_return_value), 
-			   cookie->ret_value, 
-			   cookie->ret_size);
-  }
-  else {
-    TOID_ASSIGN(cstate->last_return_value, OID_NULL);
-  }
-  cstate->last_return_size = cookie->ret_size;
-  cstate->committed_txid = cookie->client_txid;
-  unlock(&cookies_lock);
+  PMEMoid cstate_old = cookies_root->client_state[cookie->client_id].state;
+  pmemobj_tx_free(cstate_old);
+  int aligned_size = sizeof(struct client_state_st) + cookie->ret_size;
+  aligned_size = ((aligned_size + 63)/64)*64;
+  PMEMoid cstate_new = pmemobj_tx_alloc(aligned_size, CSTATE_TYPE_NUM);
+  struct client_state_st *cnewp = (struct client_state_st *)pmemobj_direct(cstate_new);
+  cnewp->committed_txid = cookie->client_txid;
+  cnewp->size = cookie->ret_size;
+  memcpy(cnewp + 1, cookie->ret_value, cookie->ret_size);
+  clflush(cnewp, sizeof(struct client_state_st) + cookie->ret_size);
+  pmemobj_tx_add_range_direct(&cookies_root->client_state[cookie->client_id].state, 
+			      sizeof(PMEMoid));
+  cookies_root->client_state[cookie->client_id].state = cstate_new;
 }
 
 void commit_tx(void *handle, rpc_cookie_t *cookie)
 {
   // Idempotent state changes
   if(pmemobj_tx_stage() == TX_STAGE_WORK) {
-    //mark_done(cookie);
+    mark_done(cookie);
     pmemobj_tx_commit();
   }
   pmemobj_tx_end();
@@ -77,24 +84,20 @@ void init_cookie_system(PMEMobjpool *pool, cookies_t *root)
 
 void get_cookie(rpc_cookie_t *cookie)
 {
-  lock(&cookies_lock);
-  cookie->raft_idx  = cookies_root->applied_raft_idx;
-  cookie->raft_term = cookies_root->applied_raft_term; 
-  unlock(&cookies_lock);
+  struct client_state_st *cstate = (struct client_state_st *)
+    pmemobj_direct(cookies_root->client_state[cookie->client_id].state);
+  cookie->client_txid = cstate->committed_txid;
+  cookie->ret_size  = cstate->size;
+  cookie->ret_value = (void *)(cstate + 1);
+
 }
 
 void get_lock_cookie(rpc_cookie_t *cookie)
 {
-  lock(&cookies_lock);
-  cookie->raft_idx  = cookies_root->applied_raft_idx;
-  cookie->raft_term = cookies_root->applied_raft_term; 
-  struct client_state_st *cstate = &cookies_root->client_state[cookie->client_id];
-  cookie->client_txid = cstate->committed_txid;
-  cookie->ret_value = D_RW(cstate->last_return_value);
-  cookie->ret_size  = cstate->last_return_size;
+  // NA
 }
 
 void unlock_cookie()
 {
-  unlock(&cookies_lock);
+  // NA
 }

@@ -1176,6 +1176,23 @@ typedef struct executor_st {
 		   0,
 		   num_queues + tid);
     }
+    else if(client_buffer->code == RPC_REQ_NOOP) {
+      if((client_buffer->flags & RPC_FLAG_RO) == 0) {
+	while(client_buffer->wal.rep == REP_UNKNOWN);
+	if(client_buffer->wal.rep == REP_SUCCESS) {
+	  resp_buffer->code = RPC_REP_COMPLETE;
+	  client_reply(client_buffer, resp_buffer, NULL, 0, num_queues + tid);
+	}
+	else {
+	  resp_buffer->code = RPC_REP_UNKNOWN;
+	  client_reply(client_buffer, resp_buffer, NULL, 0, num_queues + tid);
+	}
+      }
+      else {
+	resp_buffer->code = RPC_REP_COMPLETE;
+	client_reply(client_buffer, resp_buffer, NULL, 0, num_queues + tid);
+      }
+    }
     else if(client_buffer->flags & RPC_FLAG_RO) {
       exec_rpc_internal_ro(client_buffer, sz, &cookie);
       resp_buffer->code = RPC_REP_COMPLETE;

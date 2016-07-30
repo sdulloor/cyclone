@@ -116,6 +116,7 @@ static const int RPC_REQ_NODEADD        = 5; // Add a replica (non blocking)
 static const int RPC_REQ_NODEDEL        = 6; // Delete a replica (non blocking)
 static const int RPC_REQ_ASSIST         = 7; // Assist in replication
 static const int RPC_REP_ASSIST         = 8; // Assistance response
+static const int RPC_REQ_NOOP           = 9; // No-op
 // Responses
 static const int RPC_REP_ASSIST_OK      = 9; // Assistance entry accepted
 static const int RPC_REP_COMPLETE       = 10; // DONE 
