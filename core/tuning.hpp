@@ -28,6 +28,7 @@ static const int q_dispatcher = 2;
 static const int q_control    = 3;
 static const int q_client     = 4;
 static const int num_queues   = 5;
+static const int Q_BUFS = 8191;
 
 
 #endif

@@ -702,7 +702,7 @@ static void* dpdk_context(int max_pktsize, int pack_ratio)
     }
     BOOST_LOG_TRIVIAL(info) << "Init mempool max pktsize = " << max_pktsize;
     context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
-						   i != q_dispatcher ? 8191:8191*pack_ratio,
+						   i != q_dispatcher ? Q_BUFS:Q_BUFS*pack_ratio,
 						   32,
 						   0,
 						   RTE_PKTMBUF_HEADROOM + max_pktsize,
@@ -786,6 +786,7 @@ static void* dpdk_context(int max_pktsize, int pack_ratio)
   // OW need to check eth addr on all incoming packets
   //rte_eth_promiscuous_enable(0);
   install_eth_filters_server();
+  //rte_eth_dev_set_mtu(0, 2500);
   rte_eth_macaddr_get(0, &context->port_macaddr);
   
   return context;

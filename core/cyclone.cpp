@@ -541,15 +541,19 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
     tail = circular_log_advance_ptr(tail, sizeof(int), cyclone_handle->RAFT_LOGSIZE);
     
   }
+
   persist_to_circular_log(cyclone_handle->pop_raft_state, 
 			  log,
 			  cyclone_handle->RAFT_LOGSIZE,
 			  log->log_tail,
 			  tail - log->log_tail);
+
   log->log_tail = tail;
+
   pmemobj_persist(cyclone_handle->pop_raft_state,
 		  &log->log_tail,
 		  sizeof(unsigned long));
+
   return 0;
 }
 
@@ -872,12 +876,14 @@ void* cyclone_boot(const char *config_path,
   to_cores = (struct rte_ring **)malloc(executor_threads*sizeof(struct rte_ring *));
 
   sprintf(ringname, "FROM_CORES");
-  from_cores =  rte_ring_create(ringname, 1024,
+  from_cores =  rte_ring_create(ringname, 
+				65536,
 				rte_socket_id(), 
 				RING_F_SC_DEQ);
   for(int i=0;i<executor_threads;i++) {
     sprintf(ringname, "TO_CORE%d", i);
-    to_cores[i] =  rte_ring_create(ringname, 1024,
+    to_cores[i] =  rte_ring_create(ringname, 
+				   65536,
 				   rte_socket_id(), 
 				   RING_F_SC_DEQ|RING_F_SP_ENQ); 
   }
