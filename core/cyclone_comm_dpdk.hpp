@@ -657,7 +657,7 @@ static void install_eth_filters_client(int threads)
   }
 }
 
-static void* dpdk_context(int max_pktsize)
+static void* dpdk_context(int max_pktsize, int pack_ratio)
 {
   int ret;
   
@@ -667,6 +667,7 @@ static void* dpdk_context(int max_pktsize)
   struct rte_eth_txconf *txconf;
   
   BOOST_LOG_TRIVIAL(info) << "MAXIMUM PKTSIZE = " << max_pktsize;
+  BOOST_LOG_TRIVIAL(info) << "PACK RATIO = " << pack_ratio;
 
   /* init EAL */
   ret = rte_eal_init(1, fake_argv);
@@ -701,7 +702,7 @@ static void* dpdk_context(int max_pktsize)
     }
     BOOST_LOG_TRIVIAL(info) << "Init mempool max pktsize = " << max_pktsize;
     context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
-						   8191,
+						   i != q_dispatcher ? 8191:8191*pack_ratio,
 						   32,
 						   0,
 						   RTE_PKTMBUF_HEADROOM + max_pktsize,

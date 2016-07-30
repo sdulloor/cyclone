@@ -875,7 +875,7 @@ struct cyclone_monitor {
 	    del_adj_header(m);
 	    // Chain to prev packet
 	    rte_pktmbuf_chain(mprev, m);
-	    compact(mprev); // debug
+	    //compact(mprev); // debug
 	  }
 	  else {
 	    messages[accepted].data.buf = (void *)m;

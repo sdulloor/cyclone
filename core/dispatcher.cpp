@@ -1269,7 +1269,8 @@ void dispatcher_start(const char* config_server_path,
 				     sizeof(struct ipv4_hdr) +
 				     sizeof(msg_t) + 
 				     sizeof(msg_entry_t) + 
-				     MSG_MAXSIZE);
+				     MSG_MAXSIZE,
+				     (MSG_MAXSIZE + sizeof(rpc_t) - 1)/sizeof(rpc_t));
 #endif
   sprintf(me_str,"%d", me);
   file_path.append(me_str);
