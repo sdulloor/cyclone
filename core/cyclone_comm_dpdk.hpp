@@ -47,6 +47,8 @@
 #include <rte_ip.h>
 #include <rte_byteorder.h>
 
+#define JUMBO_FRAME_MAX_SIZE    0x2600
+
 #define RTE_TEST_RX_DESC_DEFAULT 128
 #define RTE_TEST_TX_DESC_DEFAULT 512
 static const uint16_t nb_rxd = RTE_TEST_RX_DESC_DEFAULT;
@@ -60,7 +62,7 @@ static struct rte_eth_conf port_conf;
 static void init_port_conf()
 {
   port_conf.rxmode.mq_mode        = ETH_MQ_RX_NONE;
-  port_conf.rxmode.max_rx_pkt_len = ETHER_MAX_LEN;
+  port_conf.rxmode.max_rx_pkt_len = JUMBO_FRAME_MAX_SIZE;
   port_conf.rxmode.split_hdr_size = 0;
   port_conf.rxmode.header_split   = 0; 
   port_conf.rxmode.hw_ip_checksum = 0; 
@@ -663,6 +665,8 @@ static void* dpdk_context(int max_pktsize)
 
   struct rte_eth_dev_info dev_info;
   struct rte_eth_txconf *txconf;
+  
+  BOOST_LOG_TRIVIAL(info) << "MAXIMUM PKTSIZE = " << max_pktsize;
 
   /* init EAL */
   ret = rte_eal_init(1, fake_argv);
