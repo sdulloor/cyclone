@@ -205,6 +205,16 @@ typedef struct cyclone_st {
     return D_RO(log)->log_tail;
   }
   
+  unsigned long log_space_left(struct circular_log *log, unsigned long tail)
+  {
+    if(log->log_head <= tail) {
+      return RAFT_LOGSIZE - (tail - log->log_head);
+    }
+    else {
+      return log->log_head - tail;
+    }
+  }
+
   void append_to_raft_log(unsigned char *data, int size)
   {
     TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);

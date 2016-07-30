@@ -169,16 +169,19 @@ static int __send_appendentries_opt(raft_server_t* raft,
       break;
     }
     
-    rte_mbuf *bc = b;
-    rte_pktmbuf_refcnt_update(bc, 1);
+    rte_mbuf *bc;
     /*
+    bc = b;
+    rte_pktmbuf_refcnt_update(bc, 1);
+    */
+    
     bc = rte_pktmbuf_clone(b, socket->clone_pool);
     
     if(bc == NULL) {
       BOOST_LOG_TRIVIAL(info) << "Unable to clone ";
       break;
     }
-    */
+    
     /* prepend new header */
     e->next = bc;
     /* update header's fields */
@@ -191,7 +194,6 @@ static int __send_appendentries_opt(raft_server_t* raft,
     e->tx_offload = bc->tx_offload;
     e->hash = bc->hash;
     e->ol_flags = bc->ol_flags;
-
 
     struct ether_hdr *eth = (struct ether_hdr *)rte_pktmbuf_prepend(e, sizeof(struct ether_hdr));
     memset(eth, 0, sizeof(struct ether_hdr));
@@ -477,6 +479,10 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
     e->data.buf = (void *)tail;
     int seg_no = 0;
     char *pkt_end;
+    if(cyclone_handle->log_space_left(log, tail) < (2*sizeof(int) + e->data.len)) {
+      BOOST_LOG_TRIVIAL(fatal) << "Out of RAFT logspace !!";
+      exit(-1);
+    }
     copy_to_circular_log(cyclone_handle->pop_raft_state,
 			 log,
 			 cyclone_handle->RAFT_LOGSIZE,
