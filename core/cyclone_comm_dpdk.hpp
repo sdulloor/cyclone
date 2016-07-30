@@ -724,7 +724,7 @@ static void* dpdk_context(int max_pktsize)
       
       strcat(pool_name, "clone");
       context->clone_pool = rte_pktmbuf_pool_create(pool_name,
-						    2047,
+						    8191,
 						    4*PKT_BURST,
 						    0,
 						    0,

@@ -137,6 +137,7 @@ public:
 #if defined(DPDK_STACK)
     cyclone_bind_endpoint(socket_in, me, q_raft, pt);
     cyclone_bind_endpoint(disp_socket_in, me, q_dispatcher, pt);
+    ((dpdk_socket_t*)socket_in)->clone_pool = ((dpdk_context_t *)context)->clone_pool;
 #else
     cyclone_bind_endpoint(socket_in, me, port, pt);
 #endif

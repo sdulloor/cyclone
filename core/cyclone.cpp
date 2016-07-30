@@ -169,18 +169,8 @@ static int __send_appendentries_opt(raft_server_t* raft,
       break;
     }
     
-    rte_mbuf *bc;
-    /*
-    bc = b;
+    rte_mbuf *bc = b;
     rte_pktmbuf_refcnt_update(bc, 1);
-    */
-    
-    bc = rte_pktmbuf_clone(b, socket->clone_pool);
-    
-    if(bc == NULL) {
-      BOOST_LOG_TRIVIAL(info) << "Unable to clone ";
-      break;
-    }
     
     /* prepend new header */
     e->next = bc;
@@ -427,8 +417,7 @@ static int __raft_logentry_offer(raft_server_t* raft,
     rpc->wal.raft_idx  = ety_idx;
     ety->pkt = ety->data.buf; // Stash away the pkt
     rte_mbuf *m = (rte_mbuf *)ety->pkt;
-    // Bump refcnt and handoff for execution
-    rte_pktmbuf_refcnt_update(m, 1);
+    // Handoff for execution
     int core = rpc->client_id % executor_threads;
     if(rte_ring_sp_enqueue(to_cores[core], m) == -ENOBUFS) {
       BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
@@ -462,15 +451,20 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
   struct circular_log *log = D_RW(tmp);
   unsigned long tail = log->log_tail;
   raft_entry_t *e = ety;
+  dpdk_socket_t *sock = (dpdk_socket_t *)cyclone_handle->router->input_socket();
   for(int i=0; i<count;i++,e++) {
     if(cyclone_is_leader(cyclone_handle)) {
       add_head(e->data.buf, cyclone_handle, e, prev, ety_idx + i);
     }
     e->id = ety_idx + i;
     rte_mbuf *m = (rte_mbuf *)e->data.buf;
-    rte_mbuf *mhead = m;
-    // Stash away the pkt. 
-    e->pkt = (void *)m;
+
+    // Stash away a clone. 
+    e->pkt = (void *)rte_pktmbuf_clone(m, sock->clone_pool); 
+    if(e->pkt == NULL) {
+      BOOST_LOG_TRIVIAL(fatal) << "Failed to create clone";
+      exit(-1);
+    }
     prev = e;
     tail = cyclone_handle->append_to_raft_log_noupdate(log,
       						       (unsigned char *)e,
@@ -514,7 +508,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	  rpc->wal.raft_term = e->term;
 	  rpc->wal.raft_idx  = ety_idx + i;
 	  int core = rpc->client_id % executor_threads;
-	  //bump refcnt for handoff to execution
+	  //Increment refcount handoff segment for exec 
 	  rte_mbuf_refcnt_update(m, 1);
 	  if(rte_ring_sp_enqueue(to_cores[core], m) == -ENOBUFS) {
 	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
@@ -524,6 +518,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
 	    exit(-1);
 	  }
+	  
 	}
 	char *point = (char *)rpc;
 	point = point + sizeof(rpc_t);
@@ -532,6 +527,8 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	  break;
 	rpc = (rpc_t *)point;
       }
+      // Release this mbuf -- we still have the clone
+      rte_mbuf_refcnt_update(m, -1);
       m = m->next;
       seg_no++;
     }
