@@ -168,25 +168,44 @@ static int __send_appendentries_opt(raft_server_t* raft,
       BOOST_LOG_TRIVIAL(info) << "Unable to allocate header ";
       break;
     }
-    struct ether_hdr *eth = rte_pktmbuf_mtod(e, struct ether_hdr *);
-    memset(eth, 0, sizeof(struct ether_hdr));
-    ether_addr_copy(&socket->remote_mac, &eth->d_addr);
-    ether_addr_copy(&socket->local_mac, &eth->s_addr);
-    eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
-    e->pkt_len  = sizeof(struct ether_hdr);
-    e->data_len = e->pkt_len;
     
-    rte_mbuf *bc = rte_pktmbuf_clone(b, socket->clone_pool);
+    rte_mbuf *bc = b;
+    rte_pktmbuf_refcnt_update(bc, 1);
+    /*
+    bc = rte_pktmbuf_clone(b, socket->clone_pool);
     
     if(bc == NULL) {
       BOOST_LOG_TRIVIAL(info) << "Unable to clone ";
       break;
     }
+    */
+    /* prepend new header */
+    e->next = bc;
+    /* update header's fields */
+    e->pkt_len = (uint16_t)(e->data_len + bc->pkt_len);
+    e->nb_segs = (uint8_t)(bc->nb_segs + 1);
+    /* copy metadata from source packet*/
+    e->port = bc->port;
+    e->vlan_tci = bc->vlan_tci;
+    e->vlan_tci_outer = bc->vlan_tci_outer;
+    e->tx_offload = bc->tx_offload;
+    e->hash = bc->hash;
+    e->ol_flags = bc->ol_flags;
+
+
+    struct ether_hdr *eth = (struct ether_hdr *)rte_pktmbuf_prepend(e, sizeof(struct ether_hdr));
+    memset(eth, 0, sizeof(struct ether_hdr));
+    ether_addr_copy(&socket->remote_mac, &eth->d_addr);
+    ether_addr_copy(&socket->local_mac, &eth->s_addr);
+    eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
+
     
+    /*
     if(rte_pktmbuf_chain(e, bc)) {
       BOOST_LOG_TRIVIAL(fatal) << "Failed to chain";
       exit(-1);
     }
+    */
     //rte_mbuf_sanity_check(e, 1);
     tx += cyclone_buffer_pkt(socket, e);
   }
@@ -490,8 +509,8 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	  rpc->wal.raft_idx  = ety_idx + i;
 	  int core = rpc->client_id % executor_threads;
 	  //bump refcnt for handoff to execution
-	  rte_pktmbuf_refcnt_update(mhead, 1);
-	  if(rte_ring_sp_enqueue(to_cores[core], mhead) == -ENOBUFS) {
+	  rte_mbuf_refcnt_update(m, 1);
+	  if(rte_ring_sp_enqueue(to_cores[core], m) == -ENOBUFS) {
 	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
 	    exit(-1);
 	  }

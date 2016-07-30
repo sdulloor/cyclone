@@ -1218,7 +1218,7 @@ typedef struct executor_st {
 	while(rte_ring_sc_dequeue(to_cores[tid], (void **)&client_buffer) != 0);
 	sz = client_buffer->payload_sz;
 	exec();
-	rte_pktmbuf_free(m);
+	rte_pktmbuf_free_seg(m);
       }
       /*
       unsigned long ticket;
