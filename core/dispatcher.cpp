@@ -1169,12 +1169,41 @@ typedef struct executor_st {
   {
     if(client_buffer->code == RPC_REQ_LAST_TXID) {
       resp_buffer->code = RPC_REP_COMPLETE;
-      resp_buffer->last_client_txid = 0;
+      app_callbacks.cookie_get_callback(&cookie);
+      resp_buffer->last_client_txid = cookie.client_txid;
       client_reply(client_buffer, 
 		   resp_buffer, 
 		   NULL, 
 		   0,
 		   num_queues + tid);
+    }
+    else if(client_buffer->code == RPC_REQ_STATUS) {
+      app_callbacks.cookie_get_callback(&cookie);
+      resp_buffer->last_client_txid = client_buffer->client_txid;
+      if(cookie.client_txid < client_buffer->client_txid) {
+	resp_buffer->code = RPC_REP_UNKNOWN;
+	client_reply(client_buffer, 
+		     resp_buffer, 
+		     NULL, 
+		     0,
+		     num_queues + tid);
+      }
+      else if(cookie.client_txid == client_buffer->client_txid) {
+	resp_buffer->code = RPC_REP_COMPLETE;
+	client_reply(client_buffer, 
+		     resp_buffer, 
+		     cookie.ret_value, 
+		     cookie.ret_size,
+		     num_queues + tid);
+      }
+      else {
+	resp_buffer->code = RPC_REP_OLD;
+	client_reply(client_buffer, 
+		     resp_buffer, 
+		     NULL,
+		     0,
+		     num_queues + tid);
+      }
     }
     else if(client_buffer->code == RPC_REQ_NOOP) {
       if((client_buffer->flags & RPC_FLAG_RO) == 0) {
@@ -1193,35 +1222,47 @@ typedef struct executor_st {
 	client_reply(client_buffer, resp_buffer, NULL, 0, num_queues + tid);
       }
     }
-    else if(client_buffer->flags & RPC_FLAG_RO) {
-      exec_rpc_internal_ro(client_buffer, sz, &cookie);
-      resp_buffer->code = RPC_REP_COMPLETE;
-      client_reply(client_buffer, 
-		   resp_buffer, 
-		   cookie.ret_value, 
-		   cookie.ret_size,
-		   num_queues + tid);
-      if(cookie.ret_size > 0) {
-	free(cookie.ret_value);
-      }
-    }
     else {
-      int e = exec_rpc_internal(client_buffer, sz, &cookie);
-      if(client_buffer->wal.leader) {
-	if(e) {
-	  resp_buffer->code = RPC_REP_UNKNOWN;
-	}
-	else {
-	  resp_buffer->code = RPC_REP_COMPLETE;
-	}
+      // Exactly once RPC check
+      app_callbacks.cookie_get_callback(&cookie);
+      if(cookie.client_txid >= client_buffer->client_txid) {
+	resp_buffer->code = RPC_REP_OLD;
 	client_reply(client_buffer, 
 		     resp_buffer, 
 		     cookie.ret_value, 
 		     cookie.ret_size,
 		     num_queues + tid);
       }
-      if(cookie.ret_size > 0) {
-	free(cookie.ret_value);
+      else if(client_buffer->flags & RPC_FLAG_RO) {
+	exec_rpc_internal_ro(client_buffer, sz, &cookie);
+	resp_buffer->code = RPC_REP_COMPLETE;
+	client_reply(client_buffer, 
+		     resp_buffer, 
+		     cookie.ret_value, 
+		     cookie.ret_size,
+		     num_queues + tid);
+	if(cookie.ret_size > 0) {
+	  free(cookie.ret_value);
+	}
+      }
+      else {
+	int e = exec_rpc_internal(client_buffer, sz, &cookie);
+	if(client_buffer->wal.leader) {
+	  if(e) {
+	    resp_buffer->code = RPC_REP_UNKNOWN;
+	  }
+	  else {
+	    resp_buffer->code = RPC_REP_COMPLETE;
+	  }
+	  client_reply(client_buffer, 
+		       resp_buffer, 
+		       cookie.ret_value, 
+		       cookie.ret_size,
+		       num_queues + tid);
+	}
+	if(cookie.ret_size > 0) {
+	  free(cookie.ret_value);
+	}
       }
     }
   }

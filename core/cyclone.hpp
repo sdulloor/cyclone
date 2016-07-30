@@ -107,9 +107,12 @@ typedef struct rpc_st {
 // Possble values for code follow
 
 // Request
-static const int RPC_REQ_FN             = 0; // Execute (block on completion)
-static const int RPC_REQ_STATUS         = 1; // Check status (block on completion)
-static const int RPC_REQ_LAST_TXID      = 2; // Get last seen txid from this client
+
+
+
+static const int RPC_REQ_STATUS         = 0; // Check status (block on completion)
+static const int RPC_REQ_LAST_TXID      = 1; // Get last seen txid from this client
+static const int RPC_REQ_FN             = 2; // Execute (block on completion)
 static const int RPC_REQ_MARKER         = 3; // Dispatcher internal (do not use)
 static const int RPC_REQ_DATA           = 4; // Dispatcher internal (do not use)
 static const int RPC_REQ_NODEADD        = 5; // Add a replica (non blocking)

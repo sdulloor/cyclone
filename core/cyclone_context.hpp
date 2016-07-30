@@ -832,24 +832,10 @@ struct cyclone_monitor {
 	  rpc_t *rpc = pktadj2rpc(m);
 	  int core = rpc->client_id % executor_threads;
 	  rpc->wal.leader = 1;
-	  if(rpc->code == RPC_REQ_LAST_TXID) {
-	    if(cyclone_is_leader(cyclone_handle)) {
-	      if(rte_ring_sp_enqueue(to_cores[core], m) == -ENOBUFS) {
-		BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
-		exit(-1);
-	      }
-	      if(rte_ring_sp_enqueue(to_cores[core], rpc) == -ENOBUFS) {
-		BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
-		exit(-1);
-	      }
-	    }
-	    else {
-	      rte_pktmbuf_free(m);
-	    }
-	    continue;
-	  }
-	  else if(rpc->flags & RPC_FLAG_RO) {
-	    if(cyclone_is_leader(cyclone_handle)) {
+	  if(rpc->code == RPC_REQ_LAST_TXID || 
+	     rpc->code == RPC_REQ_STATUS ||  
+	     rpc->flags & RPC_FLAG_RO) {
+       	    if(cyclone_is_leader(cyclone_handle)) {
 	      if(rte_ring_sp_enqueue(to_cores[core], m) == -ENOBUFS) {
 		BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
 		exit(-1);
