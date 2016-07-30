@@ -170,6 +170,7 @@ typedef struct rpc_client_st {
       packet_out->client_txid = (int)packet_out->timestamp;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
+      packet_out->payload_sz  = 0;
       retcode = cyclone_tx_queue(router->output_socket(server), 
 				 (unsigned char *)packet_out, 
 				 sizeof(rpc_t),
@@ -339,6 +340,7 @@ typedef struct rpc_client_st {
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
+      packet_out->payload_sz  = sz;
       memcpy(packet_out + 1, payload, sz);
       retcode = cyclone_tx_queue(router->output_socket(server), 
 				 (unsigned char *)packet_out, 

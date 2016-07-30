@@ -644,7 +644,7 @@ static void install_eth_filters_client(int threads)
   }
 }
 
-static void* dpdk_context()
+static void* dpdk_context(int max_pktsize)
 {
   int ret;
   
@@ -681,15 +681,15 @@ static void* dpdk_context()
     char pool_name[50];
     sprintf(pool_name, "mbuf_pool%d", i);
     // Mempool
-    int pktsize = sizeof(struct ether_hdr) + MSG_MAXSIZE;
-    if(pktsize < 2048) {
-      pktsize = 2048;
+    if(max_pktsize < 2048) {
+      max_pktsize = 2048;
     }
+    BOOST_LOG_TRIVIAL(info) << "Init mempool max pktsize = " << max_pktsize;
     context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
 						   8191,
 						   32,
 						   0,
-						   RTE_PKTMBUF_HEADROOM + pktsize,
+						   RTE_PKTMBUF_HEADROOM + max_pktsize,
 						   rte_socket_id());
     if (context->mempools[i] == NULL)
       rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");

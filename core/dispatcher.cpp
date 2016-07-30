@@ -1215,8 +1215,8 @@ typedef struct executor_st {
     while(true) {
       int e = rte_ring_sc_dequeue(to_cores[tid], (void **)&m);
       if(e == 0) {
-	client_buffer = pktadj2rpc(m);
-	sz = pktadj2rpcsz(m);
+	while(rte_ring_sc_dequeue(to_cores[tid], (void **)&client_buffer) != 0);
+	sz = client_buffer->payload_sz;
 	exec();
 	rte_pktmbuf_free(m);
       }
@@ -1265,7 +1265,11 @@ void dispatcher_start(const char* config_server_path,
   unsigned long heapsize = pt_server.get<unsigned long>("dispatch.heapsize");
   char me_str[100];
 #if defined(DPDK_STACK)
-  global_dpdk_context = dpdk_context();
+  global_dpdk_context = dpdk_context(sizeof(struct ether_hdr) +
+				     sizeof(struct ipv4_hdr) +
+				     sizeof(msg_t) + 
+				     sizeof(msg_entry_t) + 
+				     MSG_MAXSIZE);
 #endif
   sprintf(me_str,"%d", me);
   file_path.append(me_str);

@@ -102,6 +102,14 @@ static void adjust_head(rte_mbuf *m)
   }
 }
 
+static void del_adj_header(rte_mbuf *m)
+{
+  if(rte_pktmbuf_adj(m, sizeof(struct ipv4_hdr) + sizeof(msg_t) + sizeof(msg_entry_t)) == NULL) {
+    BOOST_LOG_TRIVIAL(fatal) << "Failed to adj ethe hdr";
+    exit(-1);
+  }
+}
+
 static void drop_eth_header(rte_mbuf *m)
 {
   if(rte_pktmbuf_adj(m, sizeof(struct ether_hdr)) == NULL) {
@@ -722,7 +730,25 @@ struct cyclone_monitor {
   cyclone_monitor()
   :terminate(false)
   {}
-  
+
+  void compact(rte_mbuf *m)
+  {
+    rte_mbuf *next = m->next, *temp;
+    while(next) {
+      rte_memcpy(rte_pktmbuf_mtod_offset(m, void *, m->data_len), 
+		 rte_pktmbuf_mtod(next, void *),
+		 next->data_len);
+      m->data_len += next->data_len;
+      temp = next;
+      next = next->next;
+      temp->next = NULL;
+      rte_pktmbuf_free(temp);
+    }
+    m->pkt_len = m->data_len;
+    m->nb_segs = 1;
+    m->next = NULL;
+  }
+
   int bad(rte_mbuf *m)
   {
     rte_prefetch0(rte_pktmbuf_mtod(m, void *));
@@ -739,6 +765,15 @@ struct cyclone_monitor {
     }
     else if(m->data_len <= sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr)) {
       BOOST_LOG_TRIVIAL(warning) << "Dropping junk = pkt size too small";
+      rte_pktmbuf_free(m);
+      return -1;
+    }
+    else if(m->next != NULL) {
+      BOOST_LOG_TRIVIAL(warning) << "Dropping multiseg packet at rx";
+      BOOST_LOG_TRIVIAL(warning) << "Pkt len = " 
+				 << m->pkt_len
+				 <<" seg len = "
+				 <<  m->data_len;
       rte_pktmbuf_free(m);
       return -1;
     }
@@ -795,6 +830,10 @@ struct cyclone_monitor {
 		BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
 		exit(-1);
 	      }
+	      if(rte_ring_sp_enqueue(to_cores[core], rpc) == -ENOBUFS) {
+		BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
+		exit(-1);
+	      }
 	    }
 	    else {
 	      rte_pktmbuf_free(m);
@@ -807,16 +846,33 @@ struct cyclone_monitor {
 		BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
 		exit(-1);
 	      }
+	      if(rte_ring_sp_enqueue(to_cores[core], rpc) == -ENOBUFS) {
+		BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
+		exit(-1);
+	      }
 	    }
 	    else {
 	      rte_pktmbuf_free(m);
 	    }
 	    continue;
 	  }
-	  messages[accepted].data.buf = (void *)m;
-	  messages[accepted].data.len = pktadj2rpcsz(m);
-	  messages[accepted].type = RAFT_LOGTYPE_NORMAL;
-	  accepted++;
+	  
+	  if(accepted > 0 && 
+	     (messages[accepted -1].data.len + pktadj2rpcsz(m)) <= MSG_MAXSIZE) {
+	    rte_mbuf *mprev = (rte_mbuf *)messages[accepted - 1].data.buf;
+	    messages[accepted - 1].data.len += pktadj2rpcsz(m);
+	    // Wipe out the hdr in the chained packet
+	    del_adj_header(m);
+	    // Chain to prev packet
+	    rte_pktmbuf_chain(mprev, m);
+	    compact(mprev); // debug
+	  }
+	  else {
+	    messages[accepted].data.buf = (void *)m;
+	    messages[accepted].data.len = pktadj2rpcsz(m);
+	    messages[accepted].type = RAFT_LOGTYPE_NORMAL;
+	    accepted++;
+	  }
 	}
 	if(accepted > 0) {
 	  int e = raft_recv_entry_batch(cyclone_handle->raft_handle, 

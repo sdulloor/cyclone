@@ -175,15 +175,13 @@ static int __send_appendentries_opt(raft_server_t* raft,
     eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
     e->pkt_len  = sizeof(struct ether_hdr);
     e->data_len = e->pkt_len;
-    /*
     rte_mbuf *bc = rte_pktmbuf_clone(b, socket->clone_pool);
     if(bc == NULL) {
       BOOST_LOG_TRIVIAL(info) << "Unable to clone ";
       break;
     }
-    */
-    rte_mbuf_refcnt_update(b, 1);
-    if(rte_pktmbuf_chain(e, b)) {
+    //rte_mbuf_refcnt_update(b, 1);
+    if(rte_pktmbuf_chain(e, bc)) {
       BOOST_LOG_TRIVIAL(fatal) << "Failed to chain";
       exit(-1);
     }
@@ -258,8 +256,32 @@ static int __applylog(raft_server_t* raft,
   unsigned char *chunk = (unsigned char *)pktadj2rpc((rte_mbuf *)ety->pkt);
   int delta_node_id;
   if(ety->type != RAFT_LOGTYPE_ADD_NODE && cyclone_handle->cyclone_commit_cb != NULL) {    
-    ((rpc_t *)chunk)->wal.rep_success = 1;
-    __sync_synchronize();
+
+    int seg_no = 0;
+    char *pkt_end;
+    rte_mbuf *m = (rte_mbuf *)(ety->pkt);
+    while(m != NULL) {
+      rpc_t *rpc;
+      if(seg_no == 0) {
+	rpc = pktadj2rpc(m);
+      }
+      else {
+	rpc = rte_pktmbuf_mtod(m, rpc_t *);
+      }
+      pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
+      while(true) {
+	rpc->wal.rep_success = 1;
+	__sync_synchronize();
+	char *point = (char *)rpc;
+	point = point + sizeof(rpc_t);
+	point = point + rpc->payload_sz;
+	if(point >= pkt_end)
+	  break;
+	rpc = (rpc_t *)point;
+      }
+      m = m->next;
+      seg_no++;
+    }
   }
 
   if(ety->type == RAFT_LOGTYPE_REMOVE_NODE) {
@@ -326,7 +348,7 @@ static void add_head(void *pkt,
   initialize_ipv4_header(ip,
 			 magic_src_ip, 
 			 q_raft,
-			 pktadj2rpcsz(m) + sizeof(msg_t) + sizeof(msg_entry_t));
+			 m->pkt_len - sizeof(struct ipv4_hdr));
   msg_t *hdr = pktadj2msg(m);
   hdr->msg_type         = MSG_APPENDENTRIES;
   //ae.term to be filled in at tx time
@@ -351,6 +373,8 @@ static int __raft_logentry_offer(raft_server_t* raft,
 				 int ety_idx,
 				 replicant_t *rep)
 {
+  BOOST_LOG_TRIVIAL(fatal) << "Only batch mode is supported";
+  exit(-1);
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   if(cyclone_is_leader(cyclone_handle)) {
@@ -414,59 +438,86 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
   struct circular_log *log = D_RW(tmp);
   unsigned long tail = log->log_tail;
   raft_entry_t *e = ety;
-  if(rep != NULL) {
-    rep->server_id = cyclone_handle->me;
-  }
   for(int i=0; i<count;i++,e++) {
-    add_head(e->data.buf, cyclone_handle, e, prev, ety_idx + i);
+    if(cyclone_is_leader(cyclone_handle)) {
+      add_head(e->data.buf, cyclone_handle, e, prev, ety_idx + i);
+    }
     e->id = ety_idx + i;
     rte_mbuf *m = (rte_mbuf *)e->data.buf;
-    rpc_t *rpc = pktadj2rpc(m);
+    rte_mbuf *mhead = m;
+    // Stash away the pkt. 
+    e->pkt = (void *)m;
+    prev = e;
     tail = cyclone_handle->append_to_raft_log_noupdate(log,
       						       (unsigned char *)e,
       						       sizeof(raft_entry_t),
       						       tail);
-    void *spot = (void *)tail;
-    tail = cyclone_handle->append_to_raft_log_noupdate(log,
-      						       (unsigned char *)rpc,
-      						       e->data.len,
-      						       tail);
-          
-    handle_cfg_change(cyclone_handle, e, (unsigned char *)rpc);
-    if(rep != NULL) {
-      memcpy(&rep->ety, e, sizeof(raft_entry_t));
-    }
-    if(cyclone_handle->cyclone_rep_cb != NULL && 
-       e->type != RAFT_LOGTYPE_ADD_NODE) { 
-      rpc->wal.rep_success = 0;
-      rpc->wal.rep_failed  = 0;
-      rpc->wal.raft_term = e->term;
-      rpc->wal.raft_idx  = ety_idx + i;
-      // Stash away th pkt. bump refcnt and handoff for execution
-      e->pkt = (void *)m;
-      rte_mbuf_refcnt_update(m, 1);
-      int core = rpc->client_id % executor_threads;
-      if(rte_ring_sp_enqueue(to_cores[core], m) == -ENOBUFS) {
-	BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
-	exit(-1);
+    e->data.buf = (void *)tail;
+    int seg_no = 0;
+    char *pkt_end;
+    copy_to_circular_log(cyclone_handle->pop_raft_state,
+			 log,
+			 cyclone_handle->RAFT_LOGSIZE,
+			 tail, 
+			 (unsigned char *)&e->data.len,
+			 sizeof(int));
+    tail = circular_log_advance_ptr(tail, sizeof(int), cyclone_handle->RAFT_LOGSIZE);
+    while(m != NULL) {
+      rpc_t *rpc;
+      if(seg_no == 0) {
+	rpc = pktadj2rpc(m);
       }
-      /*
-	cyclone_handle->cyclone_rep_cb(cyclone_handle->user_arg,
-	(const unsigned char *)e->data.buf,
-	e->data.len,
-	ety_idx + i,
-	e->term,
-	rep);
-      */
+      else {
+	rpc = rte_pktmbuf_mtod(m, rpc_t *);
+      }
+      pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
+      while(true) {
+	copy_to_circular_log(cyclone_handle->pop_raft_state,
+			     log,
+			     cyclone_handle->RAFT_LOGSIZE,
+			     tail, 
+			     (unsigned char *)rpc,
+			     sizeof(rpc_t) + rpc->payload_sz);
+	tail = circular_log_advance_ptr(tail, sizeof(rpc_t) + rpc->payload_sz, cyclone_handle->RAFT_LOGSIZE);
+	//handle_cfg_change(cyclone_handle, e, (unsigned char *)rpc);
+	if(e->type != RAFT_LOGTYPE_ADD_NODE) { 
+	  rpc->wal.rep_success = 0;
+	  rpc->wal.rep_failed  = 0;
+	  rpc->wal.raft_term = e->term;
+	  rpc->wal.raft_idx  = ety_idx + i;
+	  int core = rpc->client_id % executor_threads;
+	  //bump refcnt for handoff to execution
+	  rte_mbuf_refcnt_update(mhead, 1);
+	  if(rte_ring_sp_enqueue(to_cores[core], mhead) == -ENOBUFS) {
+	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
+	    exit(-1);
+	  }
+	  if(rte_ring_sp_enqueue(to_cores[core], rpc) == -ENOBUFS) {
+	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
+	    exit(-1);
+	  }
+	}
+	char *point = (char *)rpc;
+	point = point + sizeof(rpc_t);
+	point = point + rpc->payload_sz;
+	if(point >= pkt_end)
+	  break;
+	rpc = (rpc_t *)point;
+      }
+      m = m->next;
+      seg_no++;
     }
-    if(rep != NULL) {
-      rep->prev_idx++;
-      rep->prev_term = e->term;
-    }
-    e->data.buf = spot;
-    prev = e;
+    copy_to_circular_log(cyclone_handle->pop_raft_state,
+			 log,
+			 cyclone_handle->RAFT_LOGSIZE,
+			 tail, 
+			 (unsigned char *)&e->data.len,
+			 sizeof(int));
+    tail = circular_log_advance_ptr(tail, sizeof(int), cyclone_handle->RAFT_LOGSIZE);
+    
   }
-  persist_to_circular_log(cyclone_handle->pop_raft_state, log,
+  persist_to_circular_log(cyclone_handle->pop_raft_state, 
+			  log,
 			  cyclone_handle->RAFT_LOGSIZE,
 			  log->log_tail,
 			  tail - log->log_tail);
@@ -507,10 +558,32 @@ static int __raft_logentry_pop(raft_server_t* raft,
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   if(cyclone_handle->cyclone_pop_cb != NULL && entry->type != RAFT_LOGTYPE_ADD_NODE) {
-    rpc_t *rpc = pktadj2rpc((rte_mbuf *)entry->pkt);
-    __sync_synchronize();
-    rpc->wal.rep_failed = 1;
-    __sync_synchronize();
+    int seg_no = 0;
+    char *pkt_end;
+    rte_mbuf *m = (rte_mbuf *)(entry->pkt);
+    while(m != NULL) {
+      rpc_t *rpc;
+      if(seg_no == 0) {
+	rpc = pktadj2rpc(m);
+      }
+      else {
+	rpc = rte_pktmbuf_mtod(m, rpc_t *);
+      }
+      pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
+      while(true) {
+	__sync_synchronize();
+	rpc->wal.rep_failed = 1;
+	__sync_synchronize();
+	char *point = (char *)rpc;
+	point = point + sizeof(rpc_t);
+	point = point + rpc->payload_sz;
+	if(point >= pkt_end)
+	  break;
+	rpc = (rpc_t *)point;
+      }
+      m = m->next;
+      seg_no++;
+    }
     rte_pktmbuf_free((rte_mbuf *)entry->pkt);
   }
   cyclone_handle->double_remove_tail_raft_log();

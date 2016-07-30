@@ -93,12 +93,13 @@ typedef struct rpc_st {
     int master;
     int last_client_txid;
     int parent_raft_term;
+    int receiver;
   };
   wal_entry_t wal;
   unsigned long timestamp;
   unsigned long channel_seq;
   int requestor;
-  int receiver;
+  int payload_sz;
 } rpc_t; // Used for both requests and replies
 
 
