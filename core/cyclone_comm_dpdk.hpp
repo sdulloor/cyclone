@@ -128,7 +128,8 @@ static rte_mbuf* dpdk_alloc(dpdk_socket_t *s)
 #define IP_HDRLEN  0x05 /* default IP header length == five 32-bits words. */
 #define IP_VHL_DEF (IP_VERSION | IP_HDRLEN)
 
-static void initialize_ipv4_header(struct ipv4_hdr *ip_hdr, 
+static void initialize_ipv4_header(rte_mbuf *m,
+				   struct ipv4_hdr *ip_hdr, 
 				   uint32_t src_addr,
 				   uint32_t dst_addr, 
 				   uint16_t pkt_data_len)
@@ -153,10 +154,14 @@ static void initialize_ipv4_header(struct ipv4_hdr *ip_hdr,
   //ip_hdr->dst_addr = rte_cpu_to_be_32(dst_addr);
   ip_hdr->src_addr = src_addr;
   ip_hdr->dst_addr = dst_addr;
-
+  m->l2_len = sizeof(struct ether_hdr);
+  m->l3_len = pkt_len;
+  m->ol_flags |= PKT_TX_IP_CKSUM;
+  ip_hdr->hdr_checksum = 0;
   /*
    * Compute IP header checksum.
    */
+  /*
   ptr16 = (unaligned_uint16_t *)ip_hdr;
   ip_cksum = 0;
   ip_cksum += ptr16[0]; ip_cksum += ptr16[1];
@@ -164,10 +169,11 @@ static void initialize_ipv4_header(struct ipv4_hdr *ip_hdr,
   ip_cksum += ptr16[4];
   ip_cksum += ptr16[6]; ip_cksum += ptr16[7];
   ip_cksum += ptr16[8]; ip_cksum += ptr16[9];
-
+  */
   /*
    * Reduce 32 bit checksum to 16 bits and complement it.
    */
+  /*
   ip_cksum = ((ip_cksum & 0xFFFF0000) >> 16) +
     (ip_cksum & 0x0000FFFF);
   ip_cksum %= 65536;
@@ -175,6 +181,7 @@ static void initialize_ipv4_header(struct ipv4_hdr *ip_hdr,
   if (ip_cksum == 0)
     ip_cksum = 0xFFFF;
   ip_hdr->hdr_checksum = (uint16_t) ip_cksum;
+  */
 }
 
 // Best effort
@@ -197,7 +204,8 @@ static int cyclone_tx(void *socket,
   ether_addr_copy(&dpdk_socket->local_mac, &eth->s_addr);
   eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
   struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
-  initialize_ipv4_header(ip,
+  initialize_ipv4_header(m,
+			 ip,
 			 magic_src_ip, 
 			 dpdk_socket->queue_id,
 			 size);
@@ -298,7 +306,8 @@ static int cyclone_tx_queue_queue(void *socket,
   ether_addr_copy(&dpdk_socket->local_mac, &eth->s_addr);
   eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
   struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
-  initialize_ipv4_header(ip, 
+  initialize_ipv4_header(m,
+			 ip, 
 			 magic_src_ip,
 			 remote_queue,
 			 size);
@@ -343,7 +352,8 @@ static int cyclone_tx_rand_queue(void *socket,
   ether_addr_copy(&dpdk_socket->local_mac, &eth->s_addr);
   eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
   struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
-  initialize_ipv4_header(ip, 
+  initialize_ipv4_header(m,
+			 ip, 
 			 magic_src_ip,
 			 num_queues + rand()%executor_threads,
 			 size);
@@ -388,7 +398,8 @@ static int cyclone_tx_queue(void *socket,
   ether_addr_copy(&dpdk_socket->local_mac, &eth->s_addr);
   eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
   struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
-  initialize_ipv4_header(ip, 
+  initialize_ipv4_header(m,
+			 ip, 
 			 magic_src_ip,
 			 remote_queue,
 			 size);

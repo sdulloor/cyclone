@@ -345,7 +345,8 @@ static void add_head(void *pkt,
 {
   rte_mbuf *m = (rte_mbuf *)pkt;
   struct ipv4_hdr *ip = rte_pktmbuf_mtod(m, struct ipv4_hdr *);
-  initialize_ipv4_header(ip,
+  initialize_ipv4_header(m,
+			 ip,
 			 magic_src_ip, 
 			 q_raft,
 			 m->pkt_len - sizeof(struct ipv4_hdr));
