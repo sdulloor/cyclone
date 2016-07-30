@@ -283,7 +283,7 @@ static int __applylog(raft_server_t* raft,
       }
       pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
       while(true) {
-	rpc->wal.rep_success = 1;
+	rpc->wal.rep = REP_SUCCESS;
 	__sync_synchronize();
 	char *point = (char *)rpc;
 	point = point + sizeof(rpc_t);
@@ -411,8 +411,7 @@ static int __raft_logentry_offer(raft_server_t* raft,
   }
   if(cyclone_handle->cyclone_rep_cb != NULL && ety->type != RAFT_LOGTYPE_ADD_NODE) {    
     rpc_t *rpc = (rpc_t *)chunk;
-    rpc->wal.rep_success = 0;
-    rpc->wal.rep_failed  = 0;
+    rpc->wal.rep = REP_UNKNOWN;
     rpc->wal.raft_term = ety->term;
     rpc->wal.raft_idx  = ety_idx;
     ety->pkt = ety->data.buf; // Stash away the pkt
@@ -500,11 +499,12 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 			     tail, 
 			     (unsigned char *)rpc,
 			     sizeof(rpc_t) + rpc->payload_sz);
-	tail = circular_log_advance_ptr(tail, sizeof(rpc_t) + rpc->payload_sz, cyclone_handle->RAFT_LOGSIZE);
+	tail = circular_log_advance_ptr(tail, 
+					sizeof(rpc_t) + rpc->payload_sz, 
+					cyclone_handle->RAFT_LOGSIZE);
 	//handle_cfg_change(cyclone_handle, e, (unsigned char *)rpc);
 	if(e->type != RAFT_LOGTYPE_ADD_NODE) { 
-	  rpc->wal.rep_success = 0;
-	  rpc->wal.rep_failed  = 0;
+	  rpc->wal.rep = REP_UNKNOWN;
 	  rpc->wal.raft_term = e->term;
 	  rpc->wal.raft_idx  = ety_idx + i;
 	  int core = rpc->client_id % executor_threads;
@@ -599,7 +599,7 @@ static int __raft_logentry_pop(raft_server_t* raft,
       pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
       while(true) {
 	__sync_synchronize();
-	rpc->wal.rep_failed = 1;
+	rpc->wal.rep = REP_FAILED;
 	__sync_synchronize();
 	char *point = (char *)rpc;
 	point = point + sizeof(rpc_t);

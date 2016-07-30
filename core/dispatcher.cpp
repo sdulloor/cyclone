@@ -356,9 +356,9 @@ int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie)
   tx_handle = app_callbacks.rpc_callback((const unsigned char *)(rpc + 1),
 					 len - sizeof(rpc_t),
 					 cookie);
-  while(!rpc->wal.rep_success && !rpc->wal.rep_failed);
+  while(rpc->wal.rep == REP_UNKNOWN);
    
-  if(rpc->wal.rep_success) {
+  if(rpc->wal.rep == REP_SUCCESS) {
     app_callbacks.tx_commit(tx_handle, cookie);
     return 0;
   }

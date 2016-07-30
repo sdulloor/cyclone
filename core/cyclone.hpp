@@ -69,36 +69,37 @@ typedef struct cfg_change_st {
   int last_included_idx; // server fills in
 } cfg_change_t;
 
+const int REP_UNKNOWN = 0;
+const int REP_SUCCESS = 1;
+const int REP_FAILED  = -1;
+
 // Comm between disp cores and raft core
 typedef struct wal_entry_st {
   volatile int raft_term;
   volatile int raft_idx;
   int leader;
-  volatile int rep_success;
-  volatile int rep_failed;
+  volatile int rep;
 } wal_entry_t;
 
 //////// RPC interface
 typedef struct rpc_st {
   int code;
   int flags;
+  int requestor;
   int client_id;
   int client_port;
+  unsigned long client_txid;
+  unsigned long channel_seq;
   union {
-    unsigned long client_txid;
     int parent_raft_idx;
-  };
-  union {
     replicant_t rep;
     int master;
     int last_client_txid;
     int parent_raft_term;
     int receiver;
+    unsigned long timestamp;
   };
   wal_entry_t wal;
-  unsigned long timestamp;
-  unsigned long channel_seq;
-  int requestor;
   int payload_sz;
 } rpc_t; // Used for both requests and replies
 
