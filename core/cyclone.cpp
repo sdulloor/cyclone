@@ -407,7 +407,7 @@ static int __raft_logentry_offer(raft_server_t* raft,
     ety->pkt = ety->data.buf; // Stash away the pkt
     rte_mbuf *m = (rte_mbuf *)ety->pkt;
     // Bump refcnt and handoff for execution
-    rte_mbuf_refcnt_update(m, 1);
+    rte_pktmbuf_refcnt_update(m, 1);
     int core = rpc->client_id % executor_threads;
     if(rte_ring_sp_enqueue(to_cores[core], m) == -ENOBUFS) {
       BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
@@ -490,7 +490,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	  rpc->wal.raft_idx  = ety_idx + i;
 	  int core = rpc->client_id % executor_threads;
 	  //bump refcnt for handoff to execution
-	  rte_mbuf_refcnt_update(mhead, 1);
+	  rte_pktmbuf_refcnt_update(mhead, 1);
 	  if(rte_ring_sp_enqueue(to_cores[core], mhead) == -ENOBUFS) {
 	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
 	    exit(-1);
