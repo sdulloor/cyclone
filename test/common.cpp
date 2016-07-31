@@ -1,22 +1,12 @@
 #include "common.hpp"
 #include<libcyclone.hpp>
 #include "../core/logging.hpp"
+#include "../core/clwb_sim.hpp"
+
 
 volatile unsigned long cookies_lock = 0;
 cookies_t *cookies_root = NULL;
 PMEMobjpool *cookies_pool = NULL;
-
-static void clflush(void *ptr, int size)
-{
-  return;
-  char *x = (char *)ptr;
-  while(size > 64) {
-    asm volatile("clflush %0"::"m"(*x));
-    x += 64;
-    size -=64;
-  }
-  asm volatile("clflush %0;mfence"::"m"(*x));
-}
 
 void begin_tx()
 {

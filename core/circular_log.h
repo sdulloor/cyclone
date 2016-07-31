@@ -2,6 +2,7 @@
 #define _CIRCULAR_LOG_
 #include<libpmemobj.h>
 #include "pmem_layout.h"
+#include "clwb_sim.hpp"
 
 static const char * log_data(const struct circular_log *log)
 {
@@ -47,21 +48,6 @@ void copy_to_circular_log(PMEMobjpool *pop,
     memcpy(log_data(log), src, chunk2);
   }
 }
-
-static void clflush(void *ptr, int size)
-{
-  return;
-  char *x = (char *)ptr;
-  while(size > 64) {
-    asm volatile("clflush %0"::"m"(*x));
-    x += 64;
-    size -=64;
-  }
-  asm volatile("clflush %0;mfence"::"m"(*x));
-}
-
-
-
 
 static void persist_to_circular_log(PMEMobjpool *pop, 
 			     struct circular_log *log,
