@@ -700,6 +700,16 @@ static void* dpdk_context(int max_pktsize, int pack_ratio)
     if(max_pktsize < 2048) {
       max_pktsize = 2048;
     }
+    
+    if(max_pktsize > 2048 && max_pktsize < 4096) {
+      max_pktsize = 4096;
+    }
+    
+    if(max_pktsize > 4096 && max_pktsize < 8192) {
+      max_pktsize = 8192;
+    }
+    
+    
     BOOST_LOG_TRIVIAL(info) << "Init mempool max pktsize = " << max_pktsize;
     context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
 						   i != q_dispatcher ? Q_BUFS:Q_BUFS*pack_ratio,
@@ -725,7 +735,7 @@ static void* dpdk_context(int max_pktsize, int pack_ratio)
       
       strcat(pool_name, "clone");
       context->clone_pool = rte_pktmbuf_pool_create(pool_name,
-						    8191*pack_ratio,
+						    16383*pack_ratio,
 						    4*PKT_BURST,
 						    0,
 						    0,

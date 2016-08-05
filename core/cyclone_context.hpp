@@ -431,6 +431,33 @@ typedef struct cyclone_st {
     clflush(&log->log_head, sizeof(unsigned long));
   }
 
+  void double_remove_head_raft_log_cnt(int cnt)
+  {
+    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
+    log_t tmp = D_RO(root)->log;
+    struct circular_log *log = D_RW(tmp);
+    unsigned long newhead = log->log_head;
+    int size;
+    for(int i=0;i<cnt;i++) {
+      copy_from_circular_log(log,
+			     RAFT_LOGSIZE,
+			     (unsigned char *)&size,
+			     newhead,
+			     sizeof(int)); 
+      newhead = circular_log_advance_ptr
+	(newhead, 2*sizeof(int) + size, RAFT_LOGSIZE);
+      copy_from_circular_log(log,
+			     RAFT_LOGSIZE,
+			     (unsigned char *)&size,
+			     newhead,
+			     sizeof(int)); 
+      newhead = circular_log_advance_ptr
+	(newhead, 2*sizeof(int) + size, RAFT_LOGSIZE);
+    }
+    log->log_head = newhead;
+    clflush(&log->log_head, sizeof(unsigned long));
+  }
+
   void remove_tail_raft_log()
   {
     int result = 0;

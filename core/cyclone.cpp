@@ -574,6 +574,22 @@ static int __raft_logentry_poll(raft_server_t* raft,
   return result;
 }
 
+static int __raft_logentry_poll_batch(raft_server_t* raft,
+				      void *udata,
+				      raft_entry_t *entry,
+				      int ety_idx,
+				      int cnt)
+{
+  int result = 0;
+  cyclone_t* cyclone_handle = (cyclone_t *)udata;
+  for(int i=0;i<cnt;i++) {
+    rte_pktmbuf_free((rte_mbuf *)entry->pkt);
+    entry++;
+  }
+  cyclone_handle->double_remove_head_raft_log_cnt(cnt);
+  return result;
+}
+
 /** Raft callback for deleting the most recent entry from the log.
  * This happens when an invalid leader finds a valid leader and has to delete
  * superseded log entries. */
@@ -672,6 +688,7 @@ raft_cbs_t raft_funcs = {
   __raft_logentry_offer,
   __raft_logentry_offer_batch,
   __raft_logentry_poll,
+  __raft_logentry_poll_batch,
   __raft_logentry_pop,
   __raft_has_sufficient_logs,
   NULL,//__raft_log,
