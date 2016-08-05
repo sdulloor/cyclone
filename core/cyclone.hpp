@@ -75,16 +75,18 @@ const int REP_FAILED  = -1;
 
 // Comm between disp cores and raft core
 typedef struct wal_entry_st {
+  volatile int rep;
   volatile int raft_term;
   volatile int raft_idx;
   int leader;
-  volatile int rep;
-} wal_entry_t;
+} __attribute__((packed)) wal_entry_t;
 
 //////// RPC interface
 typedef struct rpc_st {
   int code;
   int flags;
+  int payload_sz;
+  wal_entry_t wal;
   int requestor;
   int client_id;
   int client_port;
@@ -99,9 +101,7 @@ typedef struct rpc_st {
     int receiver;
     unsigned long timestamp;
   };
-  wal_entry_t wal;
-  int payload_sz;
-} rpc_t; // Used for both requests and replies
+} __attribute__((packed)) rpc_t; // Used for both requests and replies
 
 
 // Possble values for code follow
