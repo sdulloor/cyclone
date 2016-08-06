@@ -74,20 +74,19 @@ typedef struct rpc_callbacks_st {
 } rpc_callbacks_t;
 
 // Start the dispatcher loop -- note: does not return
-void dispatcher_start(const char* config_server_path,
-		      const char* config_client_path,
+void dispatcher_start(const char* config_cluster_path,
+		      const char* config_quorum_path,
 		      rpc_callbacks_t *rpc_callbacks,
 		      int me,
-		      int replicas,
+		      int me_mc,
 		      int clients);
 
 ////// RPC client side interface
-void cyclone_client_global_init(int threads); // NOT THREAD SAFE
+void cyclone_client_global_init(); // NOT THREAD SAFE
 void* cyclone_client_init(int client_id,
 			  int client_mc,
-			  int replicas,
-			  const char *config_server,
-			  const char *config_client);
+			  const char *config_cluster_path,
+			  const char *config_quorum_path);
 void *cyclone_client_dup(void *handle, int me);
 // Make an rpc call -- returns size of response
 int make_rpc(void *handle,

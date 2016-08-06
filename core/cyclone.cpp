@@ -6,20 +6,9 @@
 #include <rte_ring.h>
 #include <rte_mbuf.h>
 
-extern void * global_dpdk_context;
+extern dpdk_context_t * global_dpdk_context;
 struct rte_ring ** to_cores;
 struct rte_ring *from_cores;
-
-void *cyclone_control_socket_out(void *cyclone_handle, 
-				 int replica)
-{
-  return ((cyclone_t *)cyclone_handle)->router->control_output_socket(replica);
-}
-
-void *cyclone_control_socket_in(void *cyclone_handle)
-{
-  return ((cyclone_t *)cyclone_handle)->router->control_input_socket();
-}
 
 /** Raft callback for sending request vote message */
 static int __send_requestvote(raft_server_t* raft,
@@ -33,10 +22,17 @@ static int __send_requestvote(raft_server_t* raft,
   msg.source      = cyclone_handle->me;
   msg.msg_type    = MSG_REQUESTVOTE;
   msg.rv          = *m;
-  cyclone_tx(socket, 
-	      (unsigned char *)&msg, 
-	      sizeof(msg_t), 
-	      "__send_requestvote");
+  rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[q_raft]);
+  if(mb == NULL) {
+    BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send requestvote";
+  }
+  cyclone_prep_mbuf(global_dpdk_context,
+		    (int)(unsigned long)user_data,
+		    q_raft,
+		    mb,
+		    &msg,
+		    sizeof(msg_t));
+  cyclone_tx(global_dpdk_context, mb, q_raft);
   return 0;
 }
 
@@ -81,10 +77,17 @@ static void __send_appendentries_response(void *udata,
   resp.msg_type = MSG_APPENDENTRIES_RESPONSE;
   memcpy(&resp.aer, r, sizeof(msg_appendentries_response_t));
   resp.source = cyclone_handle->me;
-  cyclone_tx(socket,
-	     (unsigned char *)&resp, 
-	     sizeof(msg_t), 
-	     "APPENDENTRIES RESP async");
+  rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[q_raft]);
+  if(m == NULL) {
+    BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send requestvote";
+  }
+  cyclone_prep_mbuf(global_dpdk_context,
+		    (int)(unsigned long)socket,
+		    q_raft,
+		    m,
+		    &resp,
+		    sizeof(msg_t));
+  cyclone_tx(global_dpdk_context, m, q_raft);
 }
 
 /** Raft callback for sending appendentries message */
@@ -104,10 +107,17 @@ static int __send_appendentries(raft_server_t* raft,
   msg->ae.prev_log_term = m->prev_log_term;
   msg->ae.leader_commit = m->leader_commit;
   msg->ae.n_entries     = 0;
-  cyclone_tx(socket, 
-	      cyclone_handle->cyclone_buffer_out, 
-	      ptr - cyclone_handle->cyclone_buffer_out, 
-	      "__send_requestvote");
+  rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[q_raft]);
+  if(mb == NULL) {
+    BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send requestvote";
+  }
+  cyclone_prep_mbuf(global_dpdk_context,
+		    (int)(unsigned long)socket,
+		    q_raft,
+		    mb,
+		    msg,
+		    ptr - cyclone_handle->cyclone_buffer_out);
+  cyclone_tx(global_dpdk_context, mb, q_raft);
   return m->n_entries;
 }
 
@@ -119,7 +129,7 @@ static int __send_appendentries_opt(raft_server_t* raft,
 				    msg_appendentries_t* m)
 {
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  dpdk_socket_t *socket      = (dpdk_socket_t *)raft_node_get_udata(node);
+  void *socket      = (void *)raft_node_get_udata(node);
   if(m->n_entries == 0)
     return __send_appendentries(raft, udata, node, m);
   int pkts_out = (PKT_BURST > m->n_entries) ? m->n_entries:PKT_BURST;
@@ -133,7 +143,7 @@ static int __send_appendentries_opt(raft_server_t* raft,
     msg->ae.term          = m->term;
     msg->source        = cyclone_handle->me;
     // Bump refcnt, add ethernet header and handoff for transmission
-    rte_mbuf *e = rte_pktmbuf_alloc(socket->extra_pool);
+    rte_mbuf *e = rte_pktmbuf_alloc(global_dpdk_context->extra_pool);
     if(e == NULL) {
       BOOST_LOG_TRIVIAL(info) << "Unable to allocate header ";
       break;
@@ -156,14 +166,11 @@ static int __send_appendentries_opt(raft_server_t* raft,
     e->ol_flags = bc->ol_flags;
 
     struct ether_hdr *eth = (struct ether_hdr *)rte_pktmbuf_prepend(e, sizeof(struct ether_hdr));
-    memset(eth, 0, sizeof(struct ether_hdr));
-    ether_addr_copy(&socket->remote_mac, &eth->d_addr);
-    ether_addr_copy(&socket->local_mac, &eth->s_addr);
-    eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
+    cyclone_prep_eth(global_dpdk_context, (int)(unsigned long)socket, q_raft, eth);
     //rte_mbuf_sanity_check(e, 1);
-    tx += cyclone_buffer_pkt(socket, e);
+    tx += cyclone_buffer_pkt(global_dpdk_context, e, q_raft);
   }
-  tx += cyclone_flush_socket(socket);
+  tx += cyclone_flush_buffer(global_dpdk_context, q_raft);
   return tx;
 }
 
@@ -272,7 +279,8 @@ static void handle_cfg_change(cyclone_t * cyclone_handle,
     // call raft add non-voting node
     raft_add_non_voting_node(cyclone_handle->raft_handle,
 			     cfg->last_included_idx,
-			     cyclone_handle->router->output_socket(delta_node_id),
+			     //cyclone_handle->router->output_socket(delta_node_id),
+			     NULL,
 			     delta_node_id,
 			     delta_node_id == cyclone_handle->me ? 1:0);
     
@@ -281,7 +289,8 @@ static void handle_cfg_change(cyclone_t * cyclone_handle,
     int delta_node_id = *(int *)chunk;
     // call raft add node
     raft_add_node(cyclone_handle->raft_handle,
-		  cyclone_handle->router->output_socket(delta_node_id),
+		  //cyclone_handle->router->output_socket(delta_node_id),
+		  NULL,
 		  delta_node_id,
 		  delta_node_id == cyclone_handle->me ? 1:0);
   }
@@ -338,7 +347,6 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
   struct circular_log *log = D_RW(tmp);
   unsigned long tail = log->log_tail;
   raft_entry_t *e = ety;
-  dpdk_socket_t *sock = (dpdk_socket_t *)cyclone_handle->router->input_socket();
   for(int i=0; i<count;i++,e++) {
     if(cyclone_is_leader(cyclone_handle)) {
       add_head(e->data.buf, cyclone_handle, e, prev, ety_idx + i);
@@ -347,7 +355,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
     rte_mbuf *m = (rte_mbuf *)e->data.buf;
 
     // Stash away a clone. 
-    e->pkt = (void *)rte_pktmbuf_clone(m, sock->clone_pool); 
+    e->pkt = (void *)rte_pktmbuf_clone(m, global_dpdk_context->clone_pool); 
     if(e->pkt == NULL) {
       BOOST_LOG_TRIVIAL(fatal) << "Failed to create clone";
       exit(-1);
@@ -612,17 +620,17 @@ static struct cyclone_img_load_st {
   void operator ()()
   {
     __sync_synchronize(); // Taking over socket
-    cyclone_build_image_callback(cyclone_handle->router->control_input_socket());
+    //cyclone_build_image_callback(cyclone_handle->router->control_input_socket());
+    cyclone_build_image_callback(NULL);
     raft_unset_img_build(cyclone_handle->raft_handle);
   }
   
 } cyclone_image_loader;
 
-void* cyclone_boot(const char *config_path,
-		   const char *config_path_client,
+void* cyclone_boot(const char *config_quorum_path,
+		   void *router,
 		   cyclone_build_image_t cyclone_build_image_callback,
 		   int me,
-		   int replicas,
 		   int clients,
 		   void *user_arg)
 {
@@ -650,14 +658,13 @@ void* cyclone_boot(const char *config_path,
   cyclone_handle = new cyclone_t();
   cyclone_handle->user_arg   = user_arg;
   
-  boost::property_tree::read_ini(config_path, cyclone_handle->pt);
-  boost::property_tree::read_ini(config_path_client, cyclone_handle->pt_client);
+  boost::property_tree::read_ini(config_quorum_path, cyclone_handle->pt);
   std::string path_raft           = cyclone_handle->pt.get<std::string>("storage.raftpath");
   char me_str[100];
   sprintf(me_str, "%d", me);
   path_raft.append(me_str);
   cyclone_handle->RAFT_LOGSIZE    = cyclone_handle->pt.get<unsigned long>("storage.logsize");
-  cyclone_handle->replicas        = replicas;
+  cyclone_handle->replicas        = cyclone_handle->pt.get<int>("quorum.replicas");
   cyclone_handle->me              = me;
   int baseport  = cyclone_handle->pt.get<int>("quorum.baseport"); 
   cyclone_handle->raft_handle = raft_new();
@@ -733,14 +740,7 @@ void* cyclone_boot(const char *config_path,
   raft_set_log_target(cyclone_handle->raft_handle, RAFT_LOG_TARGET);
 
   /* setup connections */
-  cyclone_handle->router = new raft_switch(
-					   global_dpdk_context,
-					   &cyclone_handle->pt,
-					   cyclone_handle->me,
-					   cyclone_handle->replicas,
-					   clients,
-					   &cyclone_handle->pt_client);
-
+  cyclone_handle->router = (quorum_switch *)router;
   bool i_am_active = false;
   for(int i=0;i<cyclone_handle->pt.get<int>("active.replicas");i++) {
     char nodeidxkey[100];
@@ -750,7 +750,7 @@ void* cyclone_boot(const char *config_path,
       i_am_active = true;
     }
     raft_add_peer(cyclone_handle->raft_handle,
-		  cyclone_handle->router->output_socket(nodeidx),
+		  (void *)(unsigned long)cyclone_handle->router->replica_mc(nodeidx),
 		  nodeidx,
 		  nodeidx == cyclone_handle->me ? 1:0);
   }
@@ -764,14 +764,15 @@ void* cyclone_boot(const char *config_path,
   if(!i_am_active) {
     raft_set_img_build(cyclone_handle->raft_handle);
     raft_add_peer(cyclone_handle->raft_handle,
-		  cyclone_handle->router->output_socket(cyclone_handle->me),
+		  (void *)(unsigned long)cyclone_handle->router->replica_mc(cyclone_handle->me),
 		  cyclone_handle->me,
 		  1);
 
     // Obtain and load checkpoint
     int loaded_term, loaded_idx, master;
     raft_entry_t *init_ety;
-    init_build_image(cyclone_handle->router->control_input_socket(),
+    init_build_image(//cyclone_handle->router->control_input_socket(),
+		     NULL,
 		     &loaded_term,
 		     &loaded_idx,
 		     &master,

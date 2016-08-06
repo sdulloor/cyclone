@@ -18,7 +18,6 @@ extern "C" {
 #include "clock.hpp"
 #include "cyclone_comm.hpp"
 #include "tuning.hpp"
-#include "runq.hpp"
 #include "cyclone.hpp"
 #include <rte_cycles.h>
 
@@ -120,12 +119,13 @@ const int  MSG_ASSISTED_QUORUM_OK       = 13;
 
 extern struct rte_ring ** to_cores;
 extern struct rte_ring *from_cores;
+extern dpdk_context_t *global_dpdk_context;
 
 struct cyclone_monitor;
 typedef struct cyclone_st {
   boost::property_tree::ptree pt;
   boost::property_tree::ptree pt_client;
-  raft_switch *router;
+  quorum_switch *router;
   int replicas;
   int me;
   boost::thread *monitor_thread;
@@ -137,11 +137,25 @@ typedef struct cyclone_st {
   unsigned char* cyclone_buffer_out;
   unsigned char* cyclone_buffer_in;
   cyclone_monitor *monitor_obj;
-  runq_t<msg_t> comm;
 
   msg_t ae_responses[PKT_BURST];
   int ae_response_sources[PKT_BURST];
   int ae_response_cnt;
+
+  void send_msg(msg_t *msg, int dst_replica)
+  {
+    rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[q_raft]);
+    if(m == NULL) {
+      BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send mesg";
+    }
+    cyclone_prep_mbuf(global_dpdk_context, 
+		      router->replica_mc(dst_replica), 
+		      q_raft, 
+		      m, 
+		      msg, 
+		      sizeof(msg_t));
+    cyclone_tx(global_dpdk_context, m, q_raft);
+  }
   
   void send_ae_responses()
   {
@@ -160,17 +174,11 @@ typedef struct cyclone_st {
 	to_send = i;
     }
     if(to_send != -1) {
-      cyclone_tx(router->output_socket(ae_response_sources[to_send]),
-		 (unsigned char *)&ae_responses[to_send], 
-		 sizeof(msg_t), 
-		 "APPENDENTRIES RESP");
+      send_msg(&ae_responses[to_send], ae_response_sources[to_send]);
     }
     else {
       for(int i=0;i<ae_response_cnt;i++) {
-	cyclone_tx(router->output_socket(ae_response_sources[i]),
-		   (unsigned char *)&ae_responses[i], 
-		   sizeof(msg_t), 
-		   "APPENDENTRIES RESP");
+	send_msg(&ae_responses[i], ae_response_sources[i]);
       }
     }
     ae_response_cnt = 0;
@@ -435,8 +443,7 @@ typedef struct cyclone_st {
       /* send response */
       resp.source = me;
       rte_pktmbuf_free(m);
-      cyclone_tx(router->output_socket(source),
-		 (unsigned char *)&resp, sizeof(msg_t), "REQVOTE RESP");
+      send_msg(&resp, source);
       break;
     case MSG_REQUESTVOTE_RESPONSE:
       e = raft_recv_requestvote_response(raft_handle, 
@@ -545,13 +552,11 @@ struct cyclone_monitor {
     msg_entry_t *messages;
     rte_mbuf *pkt_array[PKT_BURST], *m;
     messages = (msg_entry_t *)malloc(PKT_BURST*sizeof(msg_entry_t));
-    dpdk_socket_t *raft_socket = (dpdk_socket_t *)cyclone_handle->router->input_socket();
-    dpdk_socket_t *socket = (dpdk_socket_t *)cyclone_handle->router->disp_input_socket();
     int available;
     while(!terminate) {
       // Handle any outstanding requests
-      available = rte_eth_rx_burst(raft_socket->port_id,
-				   raft_socket->queue_id,
+      available = rte_eth_rx_burst(global_dpdk_context->port_id,
+				   q_raft,
 				   &pkt_array[0],
 				   PKT_BURST);
       cyclone_handle->ae_response_cnt = 0;
@@ -564,8 +569,8 @@ struct cyclone_monitor {
 	cyclone_handle->handle_incoming(m);
       }
       cyclone_handle->send_ae_responses();
-      available = rte_eth_rx_burst(socket->port_id,
-				   socket->queue_id,
+      available = rte_eth_rx_burst(global_dpdk_context->port_id,
+				   q_dispatcher,
 				   &pkt_array[0],
 				   PKT_BURST);
       if(available > 0) {

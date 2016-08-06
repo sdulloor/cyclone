@@ -12,63 +12,27 @@
 
 
 static volatile int threads = 0;
+static dpdk_context_t * network_context = NULL;
 
-class cyclic {
-  unsigned long *permutation;
-  unsigned long cyclic_index;
-  unsigned long machines;
-  struct drand48_data rand_buffer;
-public:
-  cyclic(unsigned long machines_in, unsigned long seed)
-    : machines(machines_in) {
-    srand48_r(seed, &rand_buffer);
-    permutation = new unsigned long[machines];
-    permutation[0] = 0;
-    for (unsigned long i = 1; i < machines; i++) {
-      permutation[i] = i;
-      double r;
-      drand48_r(&rand_buffer, &r);
-      unsigned long interchange = (unsigned long) (r * (i + 1));
-      unsigned long tmp = permutation[interchange];
-      permutation[interchange] = permutation[i];
-      permutation[i] = tmp;
-    }
-    cyclic_index = 0;
-  }
-
-  unsigned long cyclic_next() {
-    unsigned long mc = permutation[cyclic_index];
-    cyclic_index = (cyclic_index + 1) % machines;
-    return mc;
-  }
-
-  unsigned long cycle_size() {
-    return machines;
-  }
-
-  ~cyclic() {
-    delete permutation;
-  }
-};
-
-
+void cyclone_client_global_init()
+{
+  dpdk_context_client_init(network_context, threads);
+}
 
 typedef struct rpc_client_st {
   int me;
   int me_mc;
-  client_switch *router;
+  int me_queue;
+  quorum_switch *router;
   rpc_t *packet_out;
   msg_t *packet_rep;
   rpc_t *packet_in;
   int server;
   int replicas;
   unsigned long channel_seq;
-  class cyclic *rep_order;
-  void* network_context;
-  const char *config_server;
-  const char *config_client;
-  int thread;
-
+  dpdk_rx_buffer_t *buf;
+  dpdk_context_t* network_context;
+  
   void update_server(const char *context)
   {
     BOOST_LOG_TRIVIAL(info) 
@@ -94,11 +58,12 @@ typedef struct rpc_client_st {
     bool sent_assist_reply = false;
     unsigned long response_map = 0;
     while(true) {
-      resp_sz = cyclone_rx_timeout(router->input_socket(server),
+      resp_sz = cyclone_rx_timeout(network_context,
+				   me_queue,
+				   buf,
 				   (unsigned char *)packet_in,
 				   MSG_MAXSIZE,
-				   timeout_msec*1000,
-				   "recv loop");
+				   timeout_msec*1000);
       if(resp_sz == -1) {
 	break;
       }
@@ -112,6 +77,21 @@ typedef struct rpc_client_st {
     return resp_sz;
   }
 
+  void send_to_server(int sz)
+  {
+    rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[me_queue]);
+    if(mb == NULL) {
+      BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send requestvote";
+    }
+    cyclone_prep_mbuf(global_dpdk_context,
+		      router->replica_mc(server),
+		      q_dispatcher,
+		      mb,
+		      packet_out,
+		      sz);
+    cyclone_tx(global_dpdk_context, mb, me_queue);
+  }
+
   int get_last_txid()
   {
     int retcode;
@@ -119,23 +99,19 @@ typedef struct rpc_client_st {
     while(true) {
       packet_out->code        = RPC_REQ_LAST_TXID;
       packet_out->client_id   = me;
-      packet_out->client_port = router->input_port(server);
+      packet_out->client_port = me_queue;
       packet_out->client_txid = (int)packet_out->timestamp;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
       packet_out->payload_sz  = 0;
-      retcode = cyclone_tx_queue(router->output_socket(server), 
-				 (unsigned char *)packet_out, 
-				 sizeof(rpc_t),
-				 q_dispatcher,
-				 "PROPOSE");
+      send_to_server(sizeof(rpc_t));
       while(true) {
-	resp_sz = cyclone_rx_timeout(router->input_socket(server),
-				   (unsigned char *)packet_in,
-				   MSG_MAXSIZE,
-				   timeout_msec*1000,
-				   "recv loop");
-
+	resp_sz = cyclone_rx_timeout(network_context,
+				     me_queue,
+				     buf,
+				     (unsigned char *)packet_in,
+				     MSG_MAXSIZE,
+				     timeout_msec*1000);
 	if(resp_sz == -1) {
 	  break;
 	}
@@ -166,16 +142,13 @@ typedef struct rpc_client_st {
     while(true) {
       packet_out->code        = RPC_REQ_NODEDEL;
       packet_out->client_id   = me;
-      packet_out->client_port = router->input_port(server);
+      packet_out->client_port = me_queue;
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
       cfg->node = nodeid;
-      retcode = cyclone_tx(router->output_socket(server), 
-			   (unsigned char *)packet_out, 
-			   sizeof(rpc_t) + sizeof(cfg_change_t), 
-			   "PROPOSE");
+      send_to_server(sizeof(rpc_t) + sizeof(cfg_change_t));
       resp_sz = common_receive_loop(sizeof(rpc_t) + sizeof(cfg_change_t));
       if(resp_sz == -1) {
 	update_server("rx timeout");
@@ -197,16 +170,13 @@ typedef struct rpc_client_st {
     while(true) {
       packet_out->code        = RPC_REQ_NODEADD;
       packet_out->client_id   = me;
-      packet_out->client_port = router->input_port(server);
+      packet_out->client_port = me_queue;
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
       cfg->node      = nodeid;
-      retcode = cyclone_tx(router->output_socket(server), 
-			   (unsigned char *)packet_out, 
-			   sizeof(rpc_t) + sizeof(cfg_change_t), 
-			   "PROPOSE");
+      send_to_server(sizeof(rpc_t) + sizeof(cfg_change_t));
       resp_sz = common_receive_loop(sizeof(rpc_t) + sizeof(cfg_change_t));
       if(resp_sz == -1) {
 	update_server("rx timeout");
@@ -226,22 +196,20 @@ typedef struct rpc_client_st {
     int retcode;
     int resp_sz;
     packet_out->client_id   = me;
-    packet_out->client_port = router->input_port(server);
+    packet_out->client_port = me_queue;
     packet_out->client_txid = txid;
     packet_out->channel_seq  = channel_seq++;
     packet_out->requestor   = me_mc;
     while(true) {
       packet_out->code        = RPC_REQ_STATUS;
-      retcode = cyclone_tx(router->output_socket(server), 
-			   (unsigned char *)packet_out, 
-			   sizeof(rpc_t), 
-			   "PROPOSE");
+      send_to_server(sizeof(rpc_t));
       while(true) {
-	resp_sz = cyclone_rx_timeout(router->input_socket(server),
+	resp_sz = cyclone_rx_timeout(network_context,
+				     me_queue,
+				     buf,
 				     (unsigned char *)packet_in,
 				     MSG_MAXSIZE,
-				     timeout_msec*1000,
-				     "recv loop");
+				     timeout_msec*1000);
 	if(resp_sz == -1) {
 	  break;
 	}
@@ -281,17 +249,13 @@ typedef struct rpc_client_st {
       packet_out->code        = RPC_REQ_FN;
       packet_out->flags       = flags;
       packet_out->client_id   = me;
-      packet_out->client_port = router->input_port(server);
+      packet_out->client_port = me_queue;
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
       packet_out->payload_sz  = sz;
       memcpy(packet_out + 1, payload, sz);
-      retcode = cyclone_tx_queue(router->output_socket(server), 
-				 (unsigned char *)packet_out, 
-				 sizeof(rpc_t) + sz, 
-				 q_dispatcher,
-				 "PROPOSE");
+      send_to_server(sizeof(rpc_t) + sz);
       resp_sz = common_receive_loop(sizeof(rpc_t) + sz);
       if(resp_sz == -1) {
 	update_server("rx timeout, make rpc");
@@ -322,16 +286,12 @@ typedef struct rpc_client_st {
       packet_out->code        = RPC_REQ_NOOP;
       packet_out->flags       = flags;
       packet_out->client_id   = me;
-      packet_out->client_port = router->input_port(server);
+      packet_out->client_port = me_queue;
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
       packet_out->payload_sz  = 0;
-      retcode = cyclone_tx_queue(router->output_socket(server), 
-				 (unsigned char *)packet_out, 
-				 sizeof(rpc_t), 
-				 q_dispatcher,
-				 "PROPOSE");
+      send_to_server(sizeof(rpc_t));
       resp_sz = common_receive_loop(sizeof(rpc_t));
       if(resp_sz == -1) {
 	update_server("rx timeout, make rpc");
@@ -355,90 +315,59 @@ typedef struct rpc_client_st {
 } rpc_client_t;
 
 
-static void * network_context = NULL;
-
-void cyclone_client_global_init(int threads)
-{
-#if defined(DPDK_STACK)
-  network_context = dpdk_context_client(threads);
-#else
-  network_context = zmq_init(1);
-#endif
-
-}
-
 void* cyclone_client_init(int client_id,
 			  int client_mc,
-			  int replicas,
-			  const char *config_server,
-			  const char *config_client)
+			  const char *config_cluster,
+			  const char *config_quorum)
 {
   rpc_client_t * client = new rpc_client_t();
-  client->thread = threads++;
+  boost::property_tree::ptree pt_cluster;
+  boost::property_tree::ptree pt_quorum;
+  boost::property_tree::read_ini(config_cluster, pt_cluster);
+  boost::property_tree::read_ini(config_quorum, pt_quorum);
+  std::stringstream key;
+  std::stringstream addr;
+  client->router = new quorum_switch(&pt_cluster, &pt_quorum);
   client->me = client_id;
   client->me_mc = client_mc;
-  boost::property_tree::ptree pt_server;
-  boost::property_tree::ptree pt_client;
-  boost::property_tree::read_ini(config_server, pt_server);
-  boost::property_tree::read_ini(config_client, pt_client);
-  client->router = new client_switch(network_context,
-				     &pt_server,
-				     &pt_client,
-				     client_id,
-				     client_mc,
-				     num_queues + client->thread);
-  client->network_context = network_context;
-  client->config_server = config_server;
-  client->config_client = config_client;
-  if(network_context == NULL) {
-    BOOST_LOG_TRIVIAL(fatal) << "Network context not initialized!\n";
-    exit(-1);
+  client->me_queue = num_queues + threads;
+  client->buf = (dpdk_rx_buffer_t *)rte_malloc("buf", sizeof(dpdk_rx_buffer_t), 0);
+  client->buf->buffered = 0;
+  client->buf->consumed = 0;
+  if(threads == 0) {
+    network_context = (dpdk_context_t *)rte_malloc("context", sizeof(dpdk_context_t), 0);
+    network_context->me = client_mc;
+    int cluster_machines = pt_cluster.get<int>("machines.machines");
+    network_context->mc_addresses = (struct ether_addr *)
+      malloc(cluster_machines*sizeof(struct ether_addr));
+    for(int i=0;i<cluster_machines;i++) {
+      key.str("");key.clear();
+      addr.str("");addr.clear();
+      key << "machines.addr" << i;
+      addr << pt_cluster.get<std::string>(key.str().c_str());
+      sscanf(addr.str().c_str(),
+	     "%02X:%02X:%02X:%02X:%02X:%02X",
+	     &network_context->mc_addresses[i].addr_bytes[0],
+	     &network_context->mc_addresses[i].addr_bytes[1],
+	     &network_context->mc_addresses[i].addr_bytes[2],
+	     &network_context->mc_addresses[i].addr_bytes[3],
+	     &network_context->mc_addresses[i].addr_bytes[4],
+	     &network_context->mc_addresses[i].addr_bytes[5]);
+      BOOST_LOG_TRIVIAL(info) << "CYCLONE::COMM::DPDK Cluster machine "
+			      << addr.str().c_str();
+    }
   }
+  threads++;
   void *buf = new char[MSG_MAXSIZE];
   client->packet_out = (rpc_t *)buf;
   buf = new char[MSG_MAXSIZE];
   client->packet_in = (rpc_t *)buf;
   buf = new char[MSG_MAXSIZE];
   client->packet_rep = (msg_t *)buf;
-  client->replicas = replicas;
+  client->replicas = pt_quorum.get<int>("quorum.replicas");
   client->channel_seq = client_id*client_mc*rtc_clock::current_time();
   client->server = 0;
   client->set_server();
-  client->rep_order = new cyclic(client->replicas, client->me);
-  return (void *)client;
-}
-
-void* cyclone_client_dup(void *handle, int me)
-{
-  rpc_client_t *orig = (rpc_client_t *)handle;
-  rpc_client_t * client = new rpc_client_t();
-  client->thread = threads++;
-  client->me = me;
-  client->me_mc = orig->me_mc;
-  client->network_context = orig->network_context;
-  client->config_server = orig->config_server;
-  client->config_client = orig->config_client;
-  boost::property_tree::ptree pt_server;
-  boost::property_tree::ptree pt_client;
-  boost::property_tree::read_ini(client->config_server, pt_server);
-  boost::property_tree::read_ini(client->config_client, pt_client);
-  client->router = new client_switch(client->network_context,
-				     &pt_server,
-				     &pt_client,
-				     client->me,
-				     client->me_mc,
-				     num_queues + client->thread);
-  void *buf = new char[MSG_MAXSIZE];
-  client->packet_out = (rpc_t *)buf;
-  buf = new char[MSG_MAXSIZE];
-  client->packet_in = (rpc_t *)buf;
-  buf = new char[MSG_MAXSIZE];
-  client->packet_rep = (msg_t *)buf;
-  client->replicas = orig->replicas;
-  client->channel_seq = client->me*client->me_mc*rtc_clock::current_time();
-  client->server = 0;
-  client->set_server();
-  client->rep_order = new cyclic(client->replicas, client->me);
   return (void *)client;
 }
 

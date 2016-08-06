@@ -48,9 +48,15 @@
 #include <rte_byteorder.h>
 
 #define JUMBO_FRAME_MAX_SIZE    0x2600
-
 #define RTE_TEST_RX_DESC_DEFAULT 128
 #define RTE_TEST_TX_DESC_DEFAULT 512
+#define PKT_BURST 32
+#define IP_DEFTTL  64   /* from RFC 1340. */
+#define IP_VERSION 0x40
+#define IP_HDRLEN  0x05 /* default IP header length == five 32-bits words. */
+#define IP_VHL_DEF (IP_VERSION | IP_HDRLEN)
+
+
 static const uint16_t nb_rxd = 8*RTE_TEST_RX_DESC_DEFAULT;
 static const uint16_t nb_txd = 2*RTE_TEST_TX_DESC_DEFAULT;
 
@@ -97,38 +103,20 @@ static void init_fdir_conf()
 
 
 typedef struct {
-  struct ether_addr port_macaddr;
+  struct ether_addr *mc_addresses;
   struct rte_mempool **mempools;
   struct rte_mempool *extra_pool;
   struct rte_mempool *clone_pool;
   struct rte_eth_dev_tx_buffer **buffers;
+  int me;
+  int port_id;
 } dpdk_context_t;
 
-#define PKT_BURST 32
-typedef struct  {
-  dpdk_context_t *context;
-  struct rte_mempool *mempool;
-  struct rte_mempool *extra_pool;
-  struct rte_mempool *clone_pool;
-  struct rte_eth_dev_tx_buffer *buffer;
-  struct ether_addr remote_mac;
-  struct ether_addr local_mac;
-  int port_id;
-  int queue_id;
+typedef struct {
   rte_mbuf *burst[PKT_BURST];
-  int consumed;
   int buffered;
-} dpdk_socket_t;
-
-static rte_mbuf* dpdk_alloc(dpdk_socket_t *s)
-{
-  return rte_pktmbuf_alloc(s->mempool);
-}
-
-#define IP_DEFTTL  64   /* from RFC 1340. */
-#define IP_VERSION 0x40
-#define IP_HDRLEN  0x05 /* default IP header length == five 32-bits words. */
-#define IP_VHL_DEF (IP_VERSION | IP_HDRLEN)
+  int consumed;
+} dpdk_rx_buffer_t;
 
 static void initialize_ipv4_header(rte_mbuf *m,
 				   struct ipv4_hdr *ip_hdr, 
@@ -186,30 +174,24 @@ static void initialize_ipv4_header(rte_mbuf *m,
   */
 }
 
-// Best effort
-static int cyclone_tx(void *socket,
-		      const unsigned char *data,
-		      unsigned long size,
-		      const char *context) 
+static void cyclone_prep_mbuf(dpdk_context_t *context,
+			      int dst,
+			      int dst_q,
+			      rte_mbuf *m,
+			      void *data,
+			      int size)
 {
-  dpdk_socket_t *dpdk_socket = (dpdk_socket_t *)socket;
-  rte_mbuf *m = rte_pktmbuf_alloc(dpdk_socket->mempool);
-  if(m == NULL) {
-    BOOST_LOG_TRIVIAL(warning) << "Unable to allocate pktmbuf "
-			       << "for queue:" << dpdk_socket->queue_id;
-    return -1;
-  }
   struct ether_hdr *eth;
   eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
   memset(eth, 0, sizeof(struct ether_hdr));
-  ether_addr_copy(&dpdk_socket->remote_mac, &eth->d_addr);
-  ether_addr_copy(&dpdk_socket->local_mac, &eth->s_addr);
+  ether_addr_copy(&context->mc_addresses[dst], &eth->d_addr);
+  ether_addr_copy(&context->mc_addresses[context->me], &eth->s_addr);
   eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
   struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
   initialize_ipv4_header(m,
 			 ip,
 			 magic_src_ip, 
-			 dpdk_socket->queue_id,
+			 dst_q,
 			 size);
   rte_memcpy(ip + 1, data, size);
   
@@ -219,52 +201,24 @@ static int cyclone_tx(void *socket,
     sizeof(struct ipv4_hdr)  + 
     size;
   m->data_len = m->pkt_len;
-  int sent = rte_eth_tx_buffer(dpdk_socket->port_id, 
-			       dpdk_socket->queue_id, 
-			       dpdk_socket->buffer, 
-			       m);
-  sent += rte_eth_tx_buffer_flush(dpdk_socket->port_id, 
-				  dpdk_socket->queue_id, 
-				  dpdk_socket->buffer);
-  if(sent)
-    return 0;
-  else
-    return -1;
+}
+
+static void cyclone_prep_eth(dpdk_context_t *context,
+			     int dst,
+			     int dst_q,
+			     struct ether_hdr *eth)
+{
+  memset(eth, 0, sizeof(struct ether_hdr));
+  ether_addr_copy(&context->mc_addresses[dst], &eth->d_addr);
+  ether_addr_copy(&context->mc_addresses[context->me], &eth->s_addr);
+  eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
 }
 
 // Best effort
-static int cyclone_tx_eth(void *socket,
-			  const unsigned char *data,
-			  unsigned long size,
-			  const char *context) 
+static int cyclone_tx(dpdk_context_t *context, rte_mbuf *m, int q)
 {
-  dpdk_socket_t *dpdk_socket = (dpdk_socket_t *)socket;
-  rte_mbuf *m = rte_pktmbuf_alloc(dpdk_socket->mempool);
-  if(m == NULL) {
-    BOOST_LOG_TRIVIAL(warning) << "Unable to allocate pktmbuf "
-			       << "for queue:" << dpdk_socket->queue_id;
-    return -1;
-  }
-  struct ether_hdr *eth;
-  eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
-  memset(eth, 0, sizeof(struct ether_hdr));
-  ether_addr_copy(&dpdk_socket->remote_mac, &eth->d_addr);
-  ether_addr_copy(&dpdk_socket->local_mac, &eth->s_addr);
-  eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
-  rte_memcpy(eth + 1, data, size);
-  
-  ///////////////////////
-  m->pkt_len = 
-    sizeof(struct ether_hdr) + 
-    size;
-  m->data_len = m->pkt_len;
-  int sent = rte_eth_tx_buffer(dpdk_socket->port_id, 
-			       dpdk_socket->queue_id, 
-			       dpdk_socket->buffer, 
-			       m);
-  sent += rte_eth_tx_buffer_flush(dpdk_socket->port_id, 
-				  dpdk_socket->queue_id, 
-				  dpdk_socket->buffer);
+  int sent = rte_eth_tx_buffer(context->port_id, q, context->buffers[q], m);
+  sent += rte_eth_tx_buffer_flush(context->port_id, q, context->buffers[q]);
   if(sent)
     return 0;
   else
@@ -272,192 +226,34 @@ static int cyclone_tx_eth(void *socket,
 }
 
 
-static int cyclone_buffer_pkt(dpdk_socket_t *dpdk_socket, rte_mbuf *m)
+static int cyclone_buffer_pkt(dpdk_context_t *context, rte_mbuf *m, int q)
 {
-  return rte_eth_tx_buffer(dpdk_socket->port_id, 
-			   dpdk_socket->queue_id, 
-			   dpdk_socket->buffer, 
-			   m);
+  return rte_eth_tx_buffer(context->port_id, q, context->buffers[q], m);
 }
 
-static int cyclone_flush_socket(dpdk_socket_t *dpdk_socket)
+static int cyclone_flush_buffer(dpdk_context_t *context, int q)
 {
-  return rte_eth_tx_buffer_flush(dpdk_socket->port_id, 
-				 dpdk_socket->queue_id, 
-				 dpdk_socket->buffer);
+  return rte_eth_tx_buffer_flush(context->port_id, q, context->buffers[q]);
 }
-
-static int cyclone_tx_queue_queue(void *socket,
-				  const unsigned char *data,
-				  unsigned long size,
-				  int remote_queue,
-				  int local_queue,
-				  const char *context) 
-{
-  dpdk_socket_t *dpdk_socket = (dpdk_socket_t *)socket;
-  rte_mbuf *m = rte_pktmbuf_alloc(dpdk_socket->context->mempools[local_queue]);
-  if(m == NULL) {
-    BOOST_LOG_TRIVIAL(warning) << "Unable to allocate pktmbuf "
-			       << "for queue:" << local_queue;
-    return -1;
-  }
-  struct ether_hdr *eth;
-  eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
-  memset(eth, 0, sizeof(struct ether_hdr));
-  ether_addr_copy(&dpdk_socket->remote_mac, &eth->d_addr);
-  ether_addr_copy(&dpdk_socket->local_mac, &eth->s_addr);
-  eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
-  struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
-  initialize_ipv4_header(m,
-			 ip, 
-			 magic_src_ip,
-			 remote_queue,
-			 size);
-  rte_memcpy(ip + 1, data, size);
-  
-  ///////////////////////
-  m->pkt_len = 
-    sizeof(struct ether_hdr) + 
-    sizeof(struct ipv4_hdr)  + 
-    size;
-  m->data_len = m->pkt_len;
-  int sent = rte_eth_tx_buffer(dpdk_socket->port_id, 
-			       local_queue, 
-			       dpdk_socket->context->buffers[local_queue],
-			       m);
-  sent += rte_eth_tx_buffer_flush(dpdk_socket->port_id, 
-				  local_queue,
-				  dpdk_socket->context->buffers[local_queue]);
-  if(sent)
-    return 0;
-  else
-    return -1;
-}
-
-
-static int cyclone_tx_rand_queue(void *socket,
-				 const unsigned char *data,
-				 unsigned long size,
-				 const char *context) 
-{
-  dpdk_socket_t *dpdk_socket = (dpdk_socket_t *)socket;
-  rte_mbuf *m = rte_pktmbuf_alloc(dpdk_socket->mempool);
-  if(m == NULL) {
-    BOOST_LOG_TRIVIAL(warning) << "Unable to allocate pktmbuf "
-			       << "for queue:" << dpdk_socket->queue_id;
-    return -1;
-  }
-  struct ether_hdr *eth;
-  eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
-  memset(eth, 0, sizeof(struct ether_hdr));
-  ether_addr_copy(&dpdk_socket->remote_mac, &eth->d_addr);
-  ether_addr_copy(&dpdk_socket->local_mac, &eth->s_addr);
-  eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
-  struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
-  initialize_ipv4_header(m,
-			 ip, 
-			 magic_src_ip,
-			 num_queues + rand()%executor_threads,
-			 size);
-  rte_memcpy(ip + 1, data, size);
-  
-  ///////////////////////
-  m->pkt_len = 
-    sizeof(struct ether_hdr) + 
-    sizeof(struct ipv4_hdr)  + 
-    size;
-  m->data_len = m->pkt_len;
-  int sent = rte_eth_tx_buffer(dpdk_socket->port_id, 
-			       dpdk_socket->queue_id, 
-			       dpdk_socket->buffer, 
-			       m);
-  sent += rte_eth_tx_buffer_flush(dpdk_socket->port_id, 
-				  dpdk_socket->queue_id,
-				  dpdk_socket->buffer);
-  if(sent)
-    return 0;
-  else
-    return -1;
-}
-
-static int cyclone_tx_queue(void *socket,
-			    const unsigned char *data,
-			    unsigned long size,
-			    int remote_queue,
-			    const char *context) 
-{
-  dpdk_socket_t *dpdk_socket = (dpdk_socket_t *)socket;
-  rte_mbuf *m = rte_pktmbuf_alloc(dpdk_socket->mempool);
-  if(m == NULL) {
-    BOOST_LOG_TRIVIAL(warning) << "Unable to allocate pktmbuf "
-			       << "for queue:" << dpdk_socket->queue_id;
-    return -1;
-  }
-  struct ether_hdr *eth;
-  eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
-  memset(eth, 0, sizeof(struct ether_hdr));
-  ether_addr_copy(&dpdk_socket->remote_mac, &eth->d_addr);
-  ether_addr_copy(&dpdk_socket->local_mac, &eth->s_addr);
-  eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
-  struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
-  initialize_ipv4_header(m,
-			 ip, 
-			 magic_src_ip,
-			 remote_queue,
-			 size);
-  rte_memcpy(ip + 1, data, size);
-  
-  ///////////////////////
-  m->pkt_len = 
-    sizeof(struct ether_hdr) + 
-    sizeof(struct ipv4_hdr)  + 
-    size;
-  m->data_len = m->pkt_len;
-  int sent = rte_eth_tx_buffer(dpdk_socket->port_id, 
-			       dpdk_socket->queue_id, 
-			       dpdk_socket->buffer, 
-			       m);
-  sent += rte_eth_tx_buffer_flush(dpdk_socket->port_id, 
-				  dpdk_socket->queue_id,
-				  dpdk_socket->buffer);
-  if(sent)
-    return 0;
-  else
-    return -1;
-}
-
-
-// Keep trying until success
-static void cyclone_tx_block(void *socket,
-			     const unsigned char *data,
-			     unsigned long size,
-			     const char *context)
-{
-  int ok;
-  do {
-    ok = cyclone_tx(socket, data, size, context);
-  } while(ok != 0);
-}
-
 
 // Best effort
-static int cyclone_rx(void *socket,
-		      unsigned char *data,
-		      unsigned long size,
-		      const char *context)
+static int cyclone_rx_buffered(dpdk_context_t *context,
+			       int q,
+			       dpdk_rx_buffer_t *buf,
+			       unsigned char *data,
+			       unsigned long size)
 {
   int rc, nb_rx;
   rte_mbuf *m;
-  dpdk_socket_t *dpdk_socket = (dpdk_socket_t *)socket;
-  if(dpdk_socket->buffered == dpdk_socket->consumed) {
-    dpdk_socket->consumed = 0;
-    dpdk_socket->buffered = rte_eth_rx_burst(dpdk_socket->port_id, 
-					     dpdk_socket->queue_id,
-					     &dpdk_socket->burst[0], 
-					     PKT_BURST);
+  if(buf->buffered == buf->consumed) {
+    buf->consumed = 0;
+    buf->buffered = rte_eth_rx_burst(context->port_id, 
+				     q,
+				     &buf->burst[0], 
+				     PKT_BURST);
   }
-  if(dpdk_socket->consumed < dpdk_socket->buffered) {
-    m = dpdk_socket->burst[dpdk_socket->consumed++];
+  if(buf->consumed < buf->buffered) {
+    m = buf->burst[buf->consumed++];
     rte_prefetch0(rte_pktmbuf_mtod(m, void *));
     struct ether_hdr *e = rte_pktmbuf_mtod(m, struct ether_hdr *);
     struct ipv4_hdr *ip = (struct ipv4_hdr *)(e + 1);
@@ -496,85 +292,18 @@ static int cyclone_rx(void *socket,
 }
 
 
-static rte_mbuf * cyclone_rx_raw(void *socket,
-				 unsigned char *data,
-				 unsigned long size,
-				 const char *context)
-{
-  int rc, nb_rx;
-  rte_mbuf *m;
-  dpdk_socket_t *dpdk_socket = (dpdk_socket_t *)socket;
-  if(dpdk_socket->buffered == dpdk_socket->consumed) {
-    dpdk_socket->consumed = 0;
-    dpdk_socket->buffered = rte_eth_rx_burst(dpdk_socket->port_id, 
-					     dpdk_socket->queue_id,
-					     &dpdk_socket->burst[0], 
-					     PKT_BURST);
-  }
-  if(dpdk_socket->consumed < dpdk_socket->buffered) {
-    m = dpdk_socket->burst[dpdk_socket->consumed++];
-    rte_prefetch0(rte_pktmbuf_mtod(m, void *));
-    struct ether_hdr *e = rte_pktmbuf_mtod(m, struct ether_hdr *);
-    struct ipv4_hdr *ip = (struct ipv4_hdr *)(e + 1);
-    if(e->ether_type != rte_cpu_to_be_16(ETHER_TYPE_IPv4)) {
-      BOOST_LOG_TRIVIAL(warning) << "Dropping junk. Protocol mismatch";
-      rte_pktmbuf_free(m);
-      return NULL;
-    }
-    else if(ip->src_addr != magic_src_ip) {
-      BOOST_LOG_TRIVIAL(warning) << "Dropping junk. non magic ip";
-      rte_pktmbuf_free(m);
-      return NULL;
-    }
-    else if(m->data_len <= sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr)) {
-      BOOST_LOG_TRIVIAL(warning) << "Dropping junk = pkt size too small";
-      rte_pktmbuf_free(m);
-      return NULL;
-    }
-    // Turn on following check if the NIC is left in promiscous mode
-    // drop unless this is for me
-    //if(!is_same_ether_addr(&e->d_addr, &dpdk_socket->local_mac)) {
-    //  rte_pktmbuf_free(m);
-    //  return -1;
-    //}
-    // Strip off headers
-    //int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
-    //void *payload = rte_pktmbuf_mtod_offset(m, void *, payload_offset);
-    //int msg_size = m->data_len - payload_offset;
-    //rte_memcpy(data, payload, msg_size);
-    //rte_pktmbuf_free(m);
-    return m;
-  }
-  else {
-    return NULL;
-  }
-}
-
-// Block till data available
-static int cyclone_rx_block(void *socket,
-			    unsigned char *data,
-			    unsigned long size,
-			    const char *context)
-{
-  int rc;
-  while (true) {
-    rc = cyclone_rx(socket, data, size, context);
-  } while(rc < 0);
-  return rc;
-}
-
 // Block till data available or timeout
-static int cyclone_rx_timeout(void *socket,
+static int cyclone_rx_timeout(dpdk_context_t *context,
+			      int q,
+			      dpdk_rx_buffer_t *buf,
 			      unsigned char *data,
 			      unsigned long size,
-			      unsigned long timeout_usecs,
-			      const char *context)
+			      unsigned long timeout_usecs)
 {
   int rc;
-  dpdk_socket_t *dpdk_socket = (dpdk_socket_t *)socket;
   unsigned long mark = rtc_clock::current_time();
   while (true) {
-    rc = cyclone_rx(socket, data, size, context);
+    rc = cyclone_rx_buffered(context, q, buf, data, size);
     if(rc >= 0) {
       break;
     }
@@ -657,7 +386,7 @@ static void install_eth_filters_client(int threads)
   }
 }
 
-static void* dpdk_context(int max_pktsize, int pack_ratio)
+static void dpdk_context_init(dpdk_context_t *context, int max_pktsize, int pack_ratio)
 {
   int ret;
   
@@ -682,9 +411,6 @@ static void* dpdk_context(int max_pktsize, int pack_ratio)
   //init_fdir_conf();
   //port_conf.fdir_conf = fdir_conf;
   rte_eth_dev_configure(0, num_queues + executor_threads, num_queues + executor_threads, &port_conf);
-
-  dpdk_context_t *context = 
-    (dpdk_context_t *)rte_malloc("context", sizeof(dpdk_context_t), 0);
 
   int total_queues = num_queues + executor_threads;
 
@@ -797,12 +523,10 @@ static void* dpdk_context(int max_pktsize, int pack_ratio)
   //rte_eth_promiscuous_enable(0);
   install_eth_filters_server();
   //rte_eth_dev_set_mtu(0, 2500);
-  rte_eth_macaddr_get(0, &context->port_macaddr);
-  
-  return context;
+  rte_eth_macaddr_get(0, &context->mc_addresses[context->me]);
 }
 
-static void* dpdk_context_client(int threads)
+static void dpdk_context_client_init(dpdk_context_t *context, int threads)
 {
   int ret;
   
@@ -823,9 +547,6 @@ static void* dpdk_context_client(int threads)
   //init_fdir_conf();
   //port_conf.fdir_conf = fdir_conf;
   rte_eth_dev_configure(0, num_queues + threads, num_queues + threads, &port_conf);
-
-  dpdk_context_t *context = 
-    (dpdk_context_t *)rte_malloc("context", sizeof(dpdk_context_t), 0);
 
   int total_queues = num_queues + threads;
 
@@ -899,80 +620,7 @@ static void* dpdk_context_client(int threads)
   // OW need to check eth addr on all incoming packets
   //rte_eth_promiscuous_enable(0);
   install_eth_filters_client(threads);
-  rte_eth_macaddr_get(0, &context->port_macaddr);
-  return context;
-}
-
-static void* cyclone_socket_out(void *context)
-{
-  dpdk_socket_t *socket;
-  dpdk_context_t *dpdk_context = (dpdk_context_t *)context;
-  socket = (dpdk_socket_t *)rte_malloc("socket", sizeof(dpdk_socket_t), 0);
-  socket->context = dpdk_context;
-  ether_addr_copy(&dpdk_context->port_macaddr, &socket->local_mac);
-  socket->port_id = 0;
-  return socket;
-}
-
-static void* cyclone_socket_in(void *context)
-{
-  dpdk_socket_t *socket;
-  dpdk_context_t *dpdk_context = (dpdk_context_t *)context;
-  socket = (dpdk_socket_t *)rte_malloc("socket", sizeof(dpdk_socket_t), 0);
-  socket->context = dpdk_context;
-  ether_addr_copy(&dpdk_context->port_macaddr, &socket->local_mac);
-  socket->port_id = 0;
-  return socket;
-}
-
-static void* dpdk_set_socket_queue(void *socket, int q)
-{
-  dpdk_socket_t *s  = (dpdk_socket_t *)socket;
-  dpdk_context_t *c = s->context;
-  s->mempool  = c->mempools[q];
-  s->buffer   = c->buffers[q];
-  s->queue_id = q; 
-  s->buffered = 0;
-  s->consumed = 0;
-}
-
-
-static void cyclone_connect_endpoint(void *socket, 
-				     int mc,
-				     int queue,
-				     boost::property_tree::ptree *pt)
-{
-  std::stringstream key; 
-  std::stringstream addr;
-  dpdk_socket_t *s  = (dpdk_socket_t *)socket;
-  dpdk_set_socket_queue(socket, queue);
-  key.str("");key.clear();
-  addr.str("");addr.clear();
-  key << "machines.addr" << mc;
-  addr << pt->get<std::string>(key.str().c_str());
-  
-  sscanf(addr.str().c_str(), 
-	 "%02X:%02X:%02X:%02X:%02X:%02X",
-	 &s->remote_mac.addr_bytes[0],
-	 &s->remote_mac.addr_bytes[1],
-	 &s->remote_mac.addr_bytes[2],
-	 &s->remote_mac.addr_bytes[3],
-	 &s->remote_mac.addr_bytes[4],
-	 &s->remote_mac.addr_bytes[5]);
-  BOOST_LOG_TRIVIAL(info) << "CYCLONE::COMM::DPDK Connecting to " 
-			  << addr.str().c_str();
-}
-
-static void cyclone_bind_endpoint(void *socket, 
-				  int mc,
-				  int queue,
-				  boost::property_tree::ptree *pt)
-{
-  dpdk_socket_t *s  = (dpdk_socket_t *)socket;
-  dpdk_set_socket_queue(socket, queue);
-  BOOST_LOG_TRIVIAL(info) << "CYCLONE::COMM::DPDK Binding to queue " 
-			  << queue;
-  // Connectionless
+  rte_eth_macaddr_get(0, &context->mc_addresses[context->me]);
 }
 
 #endif

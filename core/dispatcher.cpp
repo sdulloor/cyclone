@@ -21,13 +21,11 @@
 #include "cyclone_context.hpp"
 
 static void *cyclone_handle;
-static boost::property_tree::ptree pt_server;
-static boost::property_tree::ptree pt_client;
 
-void * global_dpdk_context;
+dpdk_context_t * global_dpdk_context;
 extern struct rte_ring ** to_cores;
 extern struct rte_ring *from_cores;
-static server_switch *router;
+static quorum_switch *router;
 static PMEMobjpool *state;
 static rpc_callbacks_t app_callbacks;
 static volatile bool building_image = false;
@@ -37,17 +35,25 @@ static void client_reply(rpc_t *req,
 			 int sz,
 			 int q)
 {
+  rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[q]);
+  if(m == NULL) {
+    BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for client response";
+    exit(-1);
+  }
   rep->client_id   = req->client_id;
   rep->client_txid = req->client_txid;
   rep->channel_seq = req->channel_seq;
   if(sz > 0) {
     memcpy(rep + 1, payload, sz);
   }
-  router->direct_send_data(req->requestor,
-			   req->client_port,
-			   (void *)rep, 
-			   sizeof(rpc_t) + sz,
-			   q); 
+  cyclone_prep_mbuf(global_dpdk_context,
+		    req->requestor,
+		    req->client_port,
+		    m,
+		    rep,
+		    sizeof(rpc_t) + sz);
+		    
+  cyclone_tx(global_dpdk_context, m, q);
 }
 
 void init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
@@ -87,15 +93,6 @@ void exec_rpc_internal_ro(rpc_t *rpc, int len, rpc_cookie_t *cookie)
 			     len - sizeof(rpc_t),
 			     cookie);
 }
-
-struct dispatcher_loop {
-  int clients;
-  int machines;
-
-};
-
-static dispatcher_loop * dispatcher_loop_obj;
-
 
 void checkpoint_callback(void *socket)
 {
@@ -275,34 +272,60 @@ int dpdk_executor(void *arg)
   return 0;
 }
 
-void dispatcher_start(const char* config_server_path,
-		      const char* config_client_path,
+void dispatcher_start(const char* config_cluster_path,
+		      const char* config_quorum_path,
 		      rpc_callbacks_t *rpc_callbacks,
 		      int me,
-		      int replicas,
+		      int me_mc,
 		      int clients)
 {
-  boost::property_tree::read_ini(config_server_path, pt_server);
-  boost::property_tree::read_ini(config_client_path, pt_client);
+  boost::property_tree::ptree pt_cluster;
+  boost::property_tree::ptree pt_quorum;
+  std::stringstream key;
+  std::stringstream addr;
+  boost::property_tree::read_ini(config_cluster_path, pt_cluster);
+  boost::property_tree::read_ini(config_quorum_path, pt_quorum);
   // Load/Setup state
-  std::string file_path = pt_server.get<std::string>("dispatch.filepath");
-  unsigned long heapsize = pt_server.get<unsigned long>("dispatch.heapsize");
+  std::string file_path = pt_quorum.get<std::string>("dispatch.filepath");
+  unsigned long heapsize = pt_quorum.get<unsigned long>("dispatch.heapsize");
   char me_str[100];
-  global_dpdk_context = dpdk_context(sizeof(struct ether_hdr) +
-				     sizeof(struct ipv4_hdr) +
-				     sizeof(msg_t) + 
-				     sizeof(msg_entry_t) + 
-				     MSG_MAXSIZE,
-				     (MSG_MAXSIZE + sizeof(rpc_t) - 1)/sizeof(rpc_t));
+  global_dpdk_context = (dpdk_context_t *)rte_malloc("context", sizeof(dpdk_context_t), 0);
+  global_dpdk_context->me = me_mc;
+  int cluster_machines = pt_cluster.get<int>("machines.machines");
+  global_dpdk_context->mc_addresses = (struct ether_addr *)
+    malloc(cluster_machines*sizeof(struct ether_addr));
+  for(int i=0;i<cluster_machines;i++) {
+    key.str("");key.clear();
+    addr.str("");addr.clear();
+    key << "machines.addr" << i;
+    addr << pt_cluster.get<std::string>(key.str().c_str());
+    sscanf(addr.str().c_str(),
+	   "%02X:%02X:%02X:%02X:%02X:%02X",
+	   &global_dpdk_context->mc_addresses[i].addr_bytes[0],
+	   &global_dpdk_context->mc_addresses[i].addr_bytes[1],
+	   &global_dpdk_context->mc_addresses[i].addr_bytes[2],
+	   &global_dpdk_context->mc_addresses[i].addr_bytes[3],
+	   &global_dpdk_context->mc_addresses[i].addr_bytes[4],
+	   &global_dpdk_context->mc_addresses[i].addr_bytes[5]);
+    BOOST_LOG_TRIVIAL(info) << "CYCLONE::COMM::DPDK Cluster machine "
+                            << addr.str().c_str();
+  }
+  dpdk_context_init(global_dpdk_context,
+		    sizeof(struct ether_hdr) +
+		    sizeof(struct ipv4_hdr) +
+		    sizeof(msg_t) + 
+		    sizeof(msg_entry_t) + 
+		    MSG_MAXSIZE,
+		    (MSG_MAXSIZE + sizeof(rpc_t) - 1)/sizeof(rpc_t));
   sprintf(me_str,"%d", me);
   file_path.append(me_str);
   init_checkpoint(file_path.c_str(), me);
   app_callbacks = *rpc_callbacks;
   bool i_am_active = false;
-  for(int i=0;i<pt_server.get<int>("active.replicas");i++) {
+  for(int i=0;i<pt_quorum.get<int>("active.replicas");i++) {
     char nodeidxkey[100];
     sprintf(nodeidxkey, "active.entry%d",i);
-    int nodeidx = pt_server.get<int>(nodeidxkey);
+    int nodeidx = pt_quorum.get<int>(nodeidxkey);
     if(nodeidx == me) {
       i_am_active = true;
     }
@@ -357,20 +380,14 @@ void dispatcher_start(const char* config_server_path,
       BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered state";
     }
   }
-  
-  cyclone_handle = cyclone_boot(config_server_path,
-				config_client_path,
+
+  router = new quorum_switch(&pt_cluster, &pt_quorum);
+  cyclone_handle = cyclone_boot(config_quorum_path,
+				router,
 				&checkpoint_callback,
 				me,
-				replicas,
 				clients,
 				NULL);
-  // Listen on port
-  router = new server_switch(global_dpdk_context,
-			     &pt_server,
-			     &pt_client,
-			     me,
-			     clients);
   for(int i=0;i < executor_threads;i++) {
     executor_t *ex = new executor_t();
     ex->tid = i;

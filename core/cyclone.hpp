@@ -23,11 +23,10 @@ extern void *cyclone_unset_img_build(void *cyclone_handle);
 typedef void (*cyclone_build_image_t)(void *socket);
 					    
 // Returns a cyclone handle
-extern void* cyclone_boot(const char *config_path,
-			  const char *client_path,
+extern void* cyclone_boot(const char *config_quorum_path,
+			  void *router,
 			  cyclone_build_image_t cyclone_build_image_callback,
 			  int me,
-			  int replicas,
 			  int clients,
 			  void *user_arg);
 
