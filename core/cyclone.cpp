@@ -510,6 +510,10 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	  int core = rpc->client_id % executor_threads;
 	  //Increment refcount handoff segment for exec 
 	  rte_mbuf_refcnt_update(m, 1);
+	  void *pair[2];
+	  pair[0] = m;
+	  pair[1] = rpc;
+	  /*
 	  if(rte_ring_sp_enqueue(to_cores[core], m) == -ENOBUFS) {
 	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
 	    exit(-1);
@@ -518,7 +522,11 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
 	    exit(-1);
 	  }
-	  
+	  */
+	  if(rte_ring_sp_enqueue_bulk(to_cores[core], pair, 2) == -ENOBUFS) {
+	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
+	    exit(-1);
+	  }
 	}
 	char *point = (char *)rpc;
 	point = point + sizeof(rpc_t);
