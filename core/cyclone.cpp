@@ -6,10 +6,7 @@
 #include <rte_ring.h>
 #include <rte_mbuf.h>
 
-#if defined(DPDK_STACK)
 extern void * global_dpdk_context;
-#endif
-
 struct rte_ring ** to_cores;
 struct rte_ring *from_cores;
 
@@ -18,6 +15,7 @@ void *cyclone_control_socket_out(void *cyclone_handle,
 {
   return ((cyclone_t *)cyclone_handle)->router->control_output_socket(replica);
 }
+
 void *cyclone_control_socket_in(void *cyclone_handle)
 {
   return ((cyclone_t *)cyclone_handle)->router->control_input_socket();
@@ -105,27 +103,7 @@ static int __send_appendentries(raft_server_t* raft,
   msg->ae.prev_log_idx  = m->prev_log_idx;
   msg->ae.prev_log_term = m->prev_log_term;
   msg->ae.leader_commit = m->leader_commit;
-  unsigned long spc_remains = MSG_MAXSIZE - sizeof(msg_t);
-  int i;
-  for(i=0;i<m->n_entries;i++) {
-    unsigned long spc_needed = sizeof(msg_entry_t) + m->entries[i].data.len;
-    if(spc_needed > spc_remains) {
-      break;
-    }
-    spc_remains -= spc_needed;
-    memcpy(ptr, &m->entries[i], sizeof(msg_entry_t));
-    ptr += sizeof(msg_entry_t);
-  }
-  // Adjust number of entries
-  m->n_entries          = i;
-  msg->ae.n_entries     = m->n_entries;
-  for(i=0;i<m->n_entries;i++) {
-    (void)cyclone_handle->read_from_log_check_size(ptr,
-						   (unsigned long)m->entries[i].data.buf,
-						   m->entries[i].data.len);
-
-    ptr += m->entries[i].data.len;
-  }
+  msg->ae.n_entries     = 0;
   cyclone_tx(socket, 
 	      cyclone_handle->cyclone_buffer_out, 
 	      ptr - cyclone_handle->cyclone_buffer_out, 
@@ -154,14 +132,6 @@ static int __send_appendentries_opt(raft_server_t* raft,
     msg->ae.leader_commit = m->leader_commit;
     msg->ae.term          = m->term;
     msg->source        = cyclone_handle->me;
-    /*
-    msg_entry_t *mentry = (msg_entry_t *)(msg + 1);
-    cyclone_tx_eth(socket, 
-		   rte_pktmbuf_mtod(b, unsigned char *),
-		   b->data_len,
-		   "__send_requestvote");
-    continue;
-    */
     // Bump refcnt, add ethernet header and handoff for transmission
     rte_mbuf *e = rte_pktmbuf_alloc(socket->extra_pool);
     if(e == NULL) {
@@ -190,14 +160,6 @@ static int __send_appendentries_opt(raft_server_t* raft,
     ether_addr_copy(&socket->remote_mac, &eth->d_addr);
     ether_addr_copy(&socket->local_mac, &eth->s_addr);
     eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
-
-    
-    /*
-    if(rte_pktmbuf_chain(e, bc)) {
-      BOOST_LOG_TRIVIAL(fatal) << "Failed to chain";
-      exit(-1);
-    }
-    */
     //rte_mbuf_sanity_check(e, 1);
     tx += cyclone_buffer_pkt(socket, e);
   }
@@ -244,22 +206,6 @@ static int __persist_term(raft_server_t* raft,
   return status;
 }
 
-static void __client_assist_ok(void *udata,
-			       replicant_t *rep)
-{
-  cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  rpc_t rpc;
-  rpc.code = RPC_REP_ASSIST_OK;
-  rpc.requestor = cyclone_handle->me;
-  rpc.rep = *rep;
-  rpc.channel_seq = rep->channel_seq;
-  cyclone_tx(cyclone_handle->router->cpaths.socket(rep->client_mc, rep->client_id),
-	     (const unsigned char *)&rpc,
-	     sizeof(rpc_t),
-	     "Client assist response from replica");  
-}
-
-
 static int __applylog(raft_server_t* raft,
 		      void *udata,
 		      raft_entry_t *ety,
@@ -268,8 +214,7 @@ static int __applylog(raft_server_t* raft,
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   unsigned char *chunk = (unsigned char *)pktadj2rpc((rte_mbuf *)ety->pkt);
   int delta_node_id;
-  if(ety->type != RAFT_LOGTYPE_ADD_NODE && cyclone_handle->cyclone_commit_cb != NULL) {    
-
+  if(ety->type != RAFT_LOGTYPE_ADD_NODE) {    
     int seg_no = 0;
     char *pkt_end;
     rte_mbuf *m = (rte_mbuf *)(ety->pkt);
@@ -380,69 +325,12 @@ static void add_head(void *pkt,
 }
 
 /** Raft callback for appending an item to the log */
-static int __raft_logentry_offer(raft_server_t* raft,
-				 void *udata,
-				 raft_entry_t *ety,
-				 raft_entry_t *prev,
-				 int ety_idx,
-				 replicant_t *rep)
-{
-  BOOST_LOG_TRIVIAL(fatal) << "Only batch mode is supported";
-  exit(-1);
-  int result = 0;
-  cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  if(cyclone_is_leader(cyclone_handle)) {
-    add_head(ety->data.buf, cyclone_handle, ety, prev, ety_idx);
-  }
-  unsigned char *chunk    = (unsigned char *)pktadj2rpc((rte_mbuf *)ety->data.buf);
-  if(rep != NULL) {
-    rep->server_id = cyclone_handle->me;
-  }
-  ety->id = ety_idx;
-  ety->data.buf = (void *)
-    cyclone_handle->double_append_to_raft_log
-    ((unsigned char *)ety,
-     sizeof(raft_entry_t),
-     chunk,
-     ety->data.len);
-  handle_cfg_change(cyclone_handle, ety, chunk);
-  if(rep != NULL) {
-    memcpy(&rep->ety, ety, sizeof(raft_entry_t));
-  }
-  if(cyclone_handle->cyclone_rep_cb != NULL && ety->type != RAFT_LOGTYPE_ADD_NODE) {    
-    rpc_t *rpc = (rpc_t *)chunk;
-    rpc->wal.rep = REP_UNKNOWN;
-    rpc->wal.raft_term = ety->term;
-    rpc->wal.raft_idx  = ety_idx;
-    ety->pkt = ety->data.buf; // Stash away the pkt
-    rte_mbuf *m = (rte_mbuf *)ety->pkt;
-    // Handoff for execution
-    int core = rpc->client_id % executor_threads;
-    if(rte_ring_sp_enqueue(to_cores[core], m) == -ENOBUFS) {
-      BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
-      exit(-1);
-    }
-    /*
-      cyclone_handle->cyclone_rep_cb(cyclone_handle->user_arg,
-      (const unsigned char *)chunk,
-      ety->data.len,
-      ety_idx,
-      ety->term,
-      rep);
-    */
-  }
-  return result;
-}
-
-
-/** Raft callback for appending an item to the log */
 static int __raft_logentry_offer_batch(raft_server_t* raft,
       				       void *udata,
       				       raft_entry_t *ety,
 				       raft_entry_t *prev,
       				       int ety_idx,
-      				       int count,
-      				       replicant_t *rep)
+      				       int count)
 {
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state, raft_pstate_t);
@@ -563,25 +451,6 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
   return 0;
 }
 
-/** Raft callback for removing the first entry from the log
- * @note this is provided to support log compaction in the future */
-static int __raft_logentry_poll(raft_server_t* raft,
-				void *udata,
-				raft_entry_t *entry,
-				int ety_idx)
-{
-  int result = 0;
-  cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  if(ety_idx != -1) {
-    rte_pktmbuf_free((rte_mbuf *)entry->pkt);
-    cyclone_handle->double_remove_head_raft_log();
-  }
-  else {
-    rte_pktmbuf_free((rte_mbuf *)entry->data.buf);
-  }
-  return result;
-}
-
 static int __raft_logentry_poll_batch(raft_server_t* raft,
 				      void *udata,
 				      raft_entry_t *entry,
@@ -608,7 +477,7 @@ static int __raft_logentry_pop(raft_server_t* raft,
 {
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  if(cyclone_handle->cyclone_pop_cb != NULL && entry->type != RAFT_LOGTYPE_ADD_NODE) {
+  if(entry->type != RAFT_LOGTYPE_ADD_NODE) {
     int seg_no = 0;
     char *pkt_end;
     rte_mbuf *m = (rte_mbuf *)(entry->pkt);
@@ -672,7 +541,7 @@ void __raft_log(raft_server_t* raft,
 		void *udata, 
 		const char *buf)
 {
-  BOOST_LOG_TRIVIAL(debug) << "CYCLONE::RAFT " << buf;
+  //BOOST_LOG_TRIVIAL(debug) << "CYCLONE::RAFT " << buf;
 }
 
 /** Raft callback for displaying debugging information (elections)*/
@@ -681,21 +550,20 @@ void __raft_log_election(raft_server_t* raft,
 			 void *udata, 
 			 const char *buf)
 {
-  BOOST_LOG_TRIVIAL(debug) << "CYCLONE::RAFT::ELECTION " << buf;
+  //BOOST_LOG_TRIVIAL(debug) << "CYCLONE::RAFT::ELECTION " << buf;
 }
 
 
 raft_cbs_t raft_funcs = {
   __send_requestvote,
   __send_appendentries_opt,
-  __client_assist_ok,
   __send_appendentries_response,
   __applylog,
   __persist_vote,
   __persist_term,
-  __raft_logentry_offer,
+  NULL,
   __raft_logentry_offer_batch,
-  __raft_logentry_poll,
+  NULL,
   __raft_logentry_poll_batch,
   __raft_logentry_pop,
   __raft_has_sufficient_logs,
@@ -721,136 +589,6 @@ int cyclone_get_term(void *cyclone_handle)
 {
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
   return raft_get_current_term(handle->raft_handle);
-}
-
-void* cyclone_add_entry(void *cyclone_handle, void *data, int size)
-{
-  /*
-  cyclone_t* handle = (cyclone_t *)cyclone_handle;
-  msg_t msg;
-  msg.source      = handle->me;
-  msg.msg_type    = MSG_CLIENT_REQ;
-  msg.client.ptr  = data;
-  msg.client.size = size;
-  msg.complete = 0;
-  handle->comm.add_to_runqueue(&msg);
-  while(!msg.complete);
-  return (void *)msg.client_rep;
-  */
-  return NULL;
-}
-
-void* cyclone_add_batch(void *cyclone_handle,
-			void *data,
-			int *sizes,
-			int batch_size)
-{
-  /*
-  cyclone_t* handle = (cyclone_t *)cyclone_handle;
-  msg_t msg;
-  void *cookies = NULL;
-  msg.source      = handle->me;
-  msg.msg_type    = MSG_CLIENT_REQ_BATCH;
-  msg.client.ptr  = data;
-  msg.client.size = batch_size;
-  msg.client.batch_sizes = sizes;
-  msg.complete = 0;
-  handle->comm.add_to_runqueue(&msg);
-  while(!msg.complete);
-  return (void *)msg.client_rep;
-  */
-  return NULL;
-}
-
-void* cyclone_add_entry_cfg(void *cyclone_handle, int type, void *data, int size)
-{
-  /*
-  cyclone_t* handle = (cyclone_t *)cyclone_handle;
-  msg_t msg;
-  void *cookie = NULL;
-  msg.source      = handle->me;
-  msg.msg_type    = MSG_CLIENT_REQ_CFG;
-  msg.client.ptr  = data;
-  msg.client.size = size;
-  msg.client.type = type;
-  msg.complete = 0;
-  handle->comm.add_to_runqueue(&msg);
-  while(!msg.complete);
-  return (void *)msg.client_rep;
-  */
-  return NULL;
-}
-
-void* cyclone_add_entry_term(void *cyclone_handle, 
-			     void *data, 
-			     int size,
-			     int term)
-{/*
-  cyclone_t* handle = (cyclone_t *)cyclone_handle;
-  msg_t msg;
-  void *cookie = NULL;
-  msg.source      = handle->me;
-  msg.msg_type    = MSG_CLIENT_REQ_TERM;
-  msg.client.ptr  = data;
-  msg.client.size = size;
-  msg.client.term = term;
-  msg.complete = 0;
-  handle->comm.add_to_runqueue(&msg);
-  while(!msg.complete);
-  return (void *)msg.client_rep;
- */
-  return NULL;
-}
-
-void* cyclone_set_img_build(void *cyclone_handle)
-			    
-{
-  /*
-  cyclone_t* handle = (cyclone_t *)cyclone_handle;
-  msg_t msg;
-  void *cookie = NULL;
-  msg.source      = handle->me;
-  msg.msg_type    = MSG_CLIENT_REQ_SET_IMGBUILD;
-  msg.complete = 0;
-  handle->comm.add_to_runqueue(&msg);
-  while(!msg.complete);
-  return (void *)msg.client_rep;
-  */
-  return NULL;
-}
-
-void* cyclone_unset_img_build(void *cyclone_handle)
-			    
-{
-  /*
-  cyclone_t* handle = (cyclone_t *)cyclone_handle;
-  msg_t msg;
-  void *cookie = NULL;
-  msg.source      = handle->me;
-  msg.msg_type    = MSG_CLIENT_REQ_UNSET_IMGBUILD;
-  msg.complete = 0;
-  handle->comm.add_to_runqueue(&msg);
-  while(!msg.complete);
-  return (void *)msg.client_rep;
-  */
-  return NULL;
-}
-
-int cyclone_check_status(void *cyclone_handle, void *cookie)
-{
-  /*
-  cyclone_t* handle = (cyclone_t *)cyclone_handle;
-  msg_t msg;
-  msg.source      = handle->me;
-  msg.msg_type    = MSG_CLIENT_STATUS;
-  msg.client.ptr  = cookie;
-  int result;
-  msg.complete = 0;
-  handle->comm.add_to_runqueue(&msg);
-  while(!msg.complete);
-  return msg.status;
-  */
-  return NULL;
 }
 
 static void init_log(PMEMobjpool *pop, void *ptr, void *arg)
@@ -882,9 +620,6 @@ static struct cyclone_img_load_st {
 
 void* cyclone_boot(const char *config_path,
 		   const char *config_path_client,
-		   cyclone_rep_callback_t cyclone_rep_callback,
-		   cyclone_callback_t cyclone_pop_callback,
-		   cyclone_callback_t cyclone_commit_callback,
 		   cyclone_build_image_t cyclone_build_image_callback,
 		   int me,
 		   int replicas,
@@ -913,9 +648,6 @@ void* cyclone_boot(const char *config_path,
   
 
   cyclone_handle = new cyclone_t();
-  cyclone_handle->cyclone_rep_cb = cyclone_rep_callback;
-  cyclone_handle->cyclone_pop_cb = cyclone_pop_callback;
-  cyclone_handle->cyclone_commit_cb = cyclone_commit_callback;
   cyclone_handle->user_arg   = user_arg;
   
   boost::property_tree::read_ini(config_path, cyclone_handle->pt);
@@ -929,17 +661,7 @@ void* cyclone_boot(const char *config_path,
   cyclone_handle->me              = me;
   int baseport  = cyclone_handle->pt.get<int>("quorum.baseport"); 
   cyclone_handle->raft_handle = raft_new();
-  
-  /* Set client assist */
-  const char *client_assist_env = getenv("CLIENT_ASSIST");
-  if(client_assist_env != NULL) {
-    BOOST_LOG_TRIVIAL(info) << "CLIENT ASSIST ON";
-    raft_set_client_assist(cyclone_handle->raft_handle);
-  }
-
-#if defined(DPDK_STACK)
   raft_set_multi_inflight(cyclone_handle->raft_handle);
-#endif
 
   /* Setup raft state */
   if(access(path_raft.c_str(), F_OK)) {
@@ -998,19 +720,7 @@ void* cyclone_boot(const char *config_path,
       ptr = cyclone_handle->read_from_log((unsigned char *)&ety, ptr);
       ety.data.buf = (void *)ptr;
       ptr = cyclone_handle->skip_log_entry(ptr);
-      raft_append_entry(cyclone_handle->raft_handle, &ety, NULL);
-      if(cyclone_rep_callback != NULL) {
-	unsigned char *chunk = (unsigned char *)malloc(ety.data.len);
-	(void)cyclone_handle->read_from_log(chunk, 
-					    (unsigned long)ety.data.buf);
-	cyclone_rep_callback(user_arg,
-			     (const unsigned char *)chunk,
-			     ety.data.len,
-			     ety.id,
-			     ety.term,
-			     NULL);
-	free(chunk);
-      }
+      raft_append_entry(cyclone_handle->raft_handle, &ety);
     }
     BOOST_LOG_TRIVIAL(info) << "CYCLONE: Recovery complete";
   }
@@ -1023,16 +733,8 @@ void* cyclone_boot(const char *config_path,
   raft_set_log_target(cyclone_handle->raft_handle, RAFT_LOG_TARGET);
 
   /* setup connections */
-#if defined(DPDK_STACK)
-#else
-  cyclone_handle->zmq_context  = zmq_init(zmq_threads); 
-#endif
   cyclone_handle->router = new raft_switch(
-#if defined(DPDK_STACK)
 					   global_dpdk_context,
-#else
-					   cyclone_handle->zmq_context,
-#endif
 					   &cyclone_handle->pt,
 					   cyclone_handle->me,
 					   cyclone_handle->replicas,
@@ -1088,29 +790,15 @@ void* cyclone_boot(const char *config_path,
   }
   /* Launch cyclone service */
   __sync_synchronize(); // Going to give the thread control over the socket
-#if defined(DPDK_STACK)
   int e = rte_eal_remote_launch(dpdk_raft_monitor, (void *)cyclone_handle->monitor_obj, 1);
   if(e != 0) {
     BOOST_LOG_TRIVIAL(fatal) << "Failed to launch raft monitor on remote lcore";
     exit(-1);
   }
-#else
-  cyclone_handle->monitor_thread = new boost::thread(boost::ref(*cyclone_handle->monitor_obj));
-#endif
   return cyclone_handle;
 }
 
 void cyclone_shutdown(void *cyclone_handle)
 {
-  cyclone_t* handle = (cyclone_t *)cyclone_handle;
-  handle->monitor_obj->terminate = true;
-  handle->monitor_thread->join();
-  handle->checkpoint_thread->join();
-  delete handle->monitor_obj;
-  delete handle->router;
-  zmq_ctx_destroy(handle->zmq_context);
-  pmemobj_close(handle->pop_raft_state);
-  delete[] handle->cyclone_buffer_in;
-  delete[] handle->cyclone_buffer_out;
-  delete handle;
+  // TBD
 }

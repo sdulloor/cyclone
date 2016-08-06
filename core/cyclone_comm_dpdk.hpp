@@ -723,7 +723,7 @@ static void* dpdk_context(int max_pktsize, int pack_ratio)
     if(i == q_raft) {
       strcat(pool_name, "extra");
       context->extra_pool = rte_pktmbuf_pool_create(pool_name,
-						    2047,
+						    Q_BUFS,
 						    4*PKT_BURST,
 						    0,
 						    RTE_PKTMBUF_HEADROOM + sizeof(struct ether_hdr),
@@ -735,7 +735,7 @@ static void* dpdk_context(int max_pktsize, int pack_ratio)
       
       strcat(pool_name, "clone");
       context->clone_pool = rte_pktmbuf_pool_create(pool_name,
-						    16383*pack_ratio,
+						    Q_BUFS*pack_ratio,
 						    4*PKT_BURST,
 						    0,
 						    0,

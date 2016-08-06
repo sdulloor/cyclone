@@ -6,7 +6,6 @@
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include "logging.hpp"
-#include <zmq.h>
 extern "C" {
 #include <raft.h>
 }
@@ -24,32 +23,18 @@ extern "C" {
 #include <rte_cycles.h>
 
 /* Message format */
-typedef struct client_io_st {
-  void *ptr;
-  int size;
-  int term;
-  int type;
-  int* batch_sizes;
-} client_t;
 
 typedef struct msg_st
 {
   int msg_type;
-  union {
-    int source;
-    int client_port; // Only used for client assist
-    unsigned long quorum; // Only used for client assist rep
-  };
+  int source;
   union
   {
     msg_requestvote_t rv;
     msg_requestvote_response_t rvr;
     msg_appendentries_t ae;
     msg_appendentries_response_t aer;
-    replicant_t rep;
-    client_t client;
   };
-  msg_entry_response_t * volatile client_rep;
 } msg_t;
 
 static rpc_t * pkt2rpc(rte_mbuf *m)
@@ -140,7 +125,6 @@ struct cyclone_monitor;
 typedef struct cyclone_st {
   boost::property_tree::ptree pt;
   boost::property_tree::ptree pt_client;
-  void *zmq_context;
   raft_switch *router;
   int replicas;
   int me;
@@ -149,9 +133,6 @@ typedef struct cyclone_st {
   unsigned long RAFT_LOGSIZE;
   PMEMobjpool *pop_raft_state;
   raft_server_t *raft_handle;
-  cyclone_rep_callback_t cyclone_rep_cb;
-  cyclone_callback_t cyclone_pop_cb;
-  cyclone_callback_t cyclone_commit_cb;
   void *user_arg;
   unsigned char* cyclone_buffer_out;
   unsigned char* cyclone_buffer_in;
@@ -213,54 +194,6 @@ typedef struct cyclone_st {
     else {
       return log->log_head - tail;
     }
-  }
-
-  void append_to_raft_log(unsigned char *data, int size)
-  {
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    log_t tmp = D_RO(root)->log;
-    struct circular_log *log = D_RW(tmp);
-    unsigned long space_needed = size + 2*sizeof(int);
-    unsigned long space_available;
-    if(log->log_head <= log->log_tail) {
-      space_available = RAFT_LOGSIZE -
-	(log->log_tail - log->log_head);
-    }
-    else {
-      space_available =	log->log_head - log->log_tail;
-    }
-    if(space_available < space_needed) {
-      // Overflow !
-      BOOST_LOG_TRIVIAL(fatal) << "Out of RAFT logspace !";
-      exit(-1);
-    }
-    unsigned long new_tail = log->log_tail;
-    copy_to_circular_log(pop_raft_state, log,
-			 RAFT_LOGSIZE,
-			 log->log_tail,
-			 (unsigned char *)&size,
-			 sizeof(int));
-    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
-    copy_to_circular_log(pop_raft_state, log,
-			 RAFT_LOGSIZE,
-			 new_tail,
-			 data,
-			 size);
-    new_tail = circular_log_advance_ptr(new_tail, size, RAFT_LOGSIZE);
-    copy_to_circular_log(pop_raft_state, log,
-			 RAFT_LOGSIZE,
-			 new_tail,
-			 (unsigned char *)&size,
-			 sizeof(int));
-    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
-    persist_to_circular_log(pop_raft_state, log,
-			    RAFT_LOGSIZE,
-			    log->log_tail,
-			    new_tail - log->log_tail);
-    log->log_tail = new_tail;
-    pmemobj_persist(pop_raft_state,
-		    &log->log_tail,
-		    sizeof(unsigned long));
   }
 
   unsigned long append_to_raft_log_noupdate(struct circular_log *log,
@@ -380,57 +313,6 @@ typedef struct cyclone_st {
     return ptr;
   }
 
-  void remove_head_raft_log()
-  {
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    log_t tmp = D_RO(root)->log;
-    struct circular_log* log = D_RW(tmp);
-    if(log->log_head != log->log_tail) {
-      int size;
-      copy_from_circular_log(log,
-			     RAFT_LOGSIZE,
-			     (unsigned char *)&size,
-			     log->log_head,
-			     sizeof(int)); 
-      log->log_head = circular_log_advance_ptr
-	(log->log_head, 2*sizeof(int) + size, RAFT_LOGSIZE);
-      pmemobj_persist(pop_raft_state,
-		      &log->log_head,
-		      sizeof(unsigned long));
-    }
-  }
-
-  void double_remove_head_raft_log()
-  {
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    log_t tmp = D_RO(root)->log;
-    struct circular_log *log = D_RW(tmp);
-    unsigned long newhead = log->log_head;
-    if(newhead != log->log_tail) {
-      int size;
-      copy_from_circular_log(log,
-			     RAFT_LOGSIZE,
-			     (unsigned char *)&size,
-			     newhead,
-			     sizeof(int)); 
-      newhead = circular_log_advance_ptr
-	(newhead, 2*sizeof(int) + size, RAFT_LOGSIZE);
-    }
-    
-    if(newhead != log->log_tail) {
-      int size;
-      copy_from_circular_log(log,
-			     RAFT_LOGSIZE,
-			     (unsigned char *)&size,
-			     newhead,
-			     sizeof(int)); 
-      newhead = circular_log_advance_ptr
-	(newhead, 2*sizeof(int) + size, RAFT_LOGSIZE);
-    }
-    log->log_head = newhead;
-    clflush(&log->log_head, sizeof(unsigned long));
-  }
-
   void double_remove_head_raft_log_cnt(int cnt)
   {
     TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
@@ -456,26 +338,6 @@ typedef struct cyclone_st {
     }
     log->log_head = newhead;
     clflush(&log->log_head, sizeof(unsigned long));
-  }
-
-  void remove_tail_raft_log()
-  {
-    int result = 0;
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    log_t tmp = D_RO(root)->log;
-    struct circular_log *log = D_RW(tmp);
-    if(log->log_head != log->log_tail) {
-      int size;
-      unsigned long new_tail = log->log_tail;
-      new_tail = circular_log_recede_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
-      copy_from_circular_log(log, RAFT_LOGSIZE,
-			     (unsigned char *)&size, new_tail, sizeof(int)); 
-      new_tail = circular_log_recede_ptr(new_tail, size + sizeof(int), RAFT_LOGSIZE);
-      log->log_tail = new_tail;
-      pmemobj_persist(pop_raft_state,
-		      &log->log_tail,
-		      sizeof(unsigned long));
-    }
   }
 
   void double_remove_tail_raft_log()
@@ -519,29 +381,6 @@ typedef struct cyclone_st {
 			   (unsigned char *)&size,
 			   offset,
 			   sizeof(int));
-    offset = circular_log_advance_ptr(offset, sizeof(int), RAFT_LOGSIZE);
-    copy_from_circular_log(log, RAFT_LOGSIZE, dst, offset, size);
-    offset = circular_log_advance_ptr(offset, size + sizeof(int), RAFT_LOGSIZE);
-    return offset;
-  }
-
-  unsigned long read_from_log_check_size(unsigned char *dst,
-					 unsigned long offset,
-					 int size_check)
-  {
-    int size;
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    log_t tmp = D_RO(root)->log;
-    const struct circular_log* log = D_RO(tmp);
-    copy_from_circular_log(log,
-			   RAFT_LOGSIZE,
-			   (unsigned char *)&size,
-			   offset,
-			   sizeof(int));
-    if(size != size_check) {
-      BOOST_LOG_TRIVIAL(fatal) << "SIZE CHECK FAILED !";
-      exit(-1);
-    }
     offset = circular_log_advance_ptr(offset, sizeof(int), RAFT_LOGSIZE);
     copy_from_circular_log(log, RAFT_LOGSIZE, dst, offset, size);
     offset = circular_log_advance_ptr(offset, size + sizeof(int), RAFT_LOGSIZE);
@@ -632,129 +471,11 @@ typedef struct cyclone_st {
 					   &msg->aer);
       rte_pktmbuf_free(m);
       break;
-    case MSG_ASSISTED_APPENDENTRIES:
-      msg->rep.ety.data.buf = msg + 1;
-      router->cpaths.ring_doorbell(msg->rep.client_mc, msg->rep.client_id, msg->client_port);
-      raft_recv_assisted_appendentries(raft_handle, &msg->rep);
-      rte_pktmbuf_free(m);
-      break;
-
-    case MSG_ASSISTED_QUORUM_OK:
-      raft_recv_assisted_quorum(raft_handle,
-				&msg->rep,
-				msg->quorum);
-      rte_pktmbuf_free(m);
-      break;
     default:
       printf("unknown msg in handle remote code=%d\n", msg->msg_type);
       exit(0);
     }
   }
-
-
-  /*
-  void handle_incoming_local(msg_t * msg)
-  {
-    int e; // TBD: need to handle errors
-    char *ptr;
-    msg_entry_t client_req;
-    msg_entry_t *messages; 
-    
-    switch (msg->msg_type) {
-    case MSG_CLIENT_REQ:
-      client_req.id = rand();
-      client_req.data.buf = msg->client.ptr;
-      client_req.data.len = msg->client.size;
-      client_req.type = RAFT_LOGTYPE_NORMAL;
-      msg->client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
-      e = raft_recv_entry(raft_handle, 
-			  &client_req, 
-			  msg->client_rep);
-      if(e != 0) {
-	free(msg->client_rep);
-	msg->client_rep = NULL;
-      }
-      break;
-    case MSG_CLIENT_REQ_BATCH:
-      messages = 
-	(msg_entry_t *)malloc(msg->client.size*sizeof(msg_entry_t));
-      ptr = (char *)msg->client.ptr;
-      for(int i=0;i<msg->client.size;i++) {
-	int msg_size = msg->client.batch_sizes[i];
-	messages[i].id = rand();
-	messages[i].data.buf = ptr;
-	messages[i].data.len = msg_size;
-	ptr = ptr + msg_size;
-	messages[i].type = RAFT_LOGTYPE_NORMAL;
-      }
-      msg->client_rep = (msg_entry_response_t *)
-	malloc(msg->client.size*sizeof(msg_entry_response_t));
-      e = raft_recv_entry_batch(raft_handle, 
-				messages, 
-				msg->client_rep,
-				msg->client.size);
-      if(e != 0) {
-	free(msg->client_rep);
-	msg->client_rep = NULL;
-      }
-      free(messages);
-      break;
-    case MSG_CLIENT_REQ_CFG:
-      client_req.id = rand();
-      client_req.data.buf = msg->client.ptr;
-      client_req.data.len = msg->client.size;
-      client_req.type = msg->client.type;
-      msg->client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
-      e = raft_recv_entry(raft_handle, 
-			  &client_req, 
-			  msg->client_rep);
-      if(e != 0) {
-	free(msg->client_rep);
-	msg->client_rep = NULL;
-      }
-      break;
-    case MSG_CLIENT_REQ_TERM:
-      if(raft_get_current_term(raft_handle) != msg->client.term) {
-	msg->client_rep = NULL;
-      }
-      else {
-	client_req.id = rand();
-	client_req.data.buf = msg->client.ptr;
-	client_req.data.len = msg->client.size;
-	client_req.type = RAFT_LOGTYPE_NORMAL;
-	msg->client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
-	e = raft_recv_entry(raft_handle, 
-			    &client_req, 
-			    msg->client_rep);
-	if(e != 0) {
-	  free(msg->client_rep);
-	  msg->client_rep = NULL;
-	}
-      }
-      break;
-
-    case MSG_CLIENT_STATUS:
-      msg->status = raft_msg_entry_response_committed
-	(raft_handle, (const msg_entry_response_t *)msg->client.ptr);
-      break;
-
-    case MSG_CLIENT_REQ_SET_IMGBUILD:
-      raft_set_img_build(raft_handle);
-      msg->client_rep = NULL;
-      break;
-    case MSG_CLIENT_REQ_UNSET_IMGBUILD:
-      raft_unset_img_build(raft_handle);
-      msg->client_rep = NULL;
-      break;
-    default:
-      printf("unknown msg in handle local\n");
-      exit(0);
-    }
-    __sync_synchronize();
-    msg->complete = 1;
-    __sync_synchronize();
-  }
-  */
 }cyclone_t;
 
 struct cyclone_monitor {
@@ -907,12 +628,6 @@ struct cyclone_monitor {
 	  }
 	}
       }
-      /*
-      msg_t *work = cyclone_handle->comm.get_from_runqueue();
-      if(work != NULL) {
-	cyclone_handle->handle_incoming_local(work);
-      }
-      */
       // Handle periodic events -- - AFTER any incoming requests
       elapsed_time = rte_get_tsc_cycles() - mark;
       if(elapsed_time  >= PERIODICITY_CYCLES) {

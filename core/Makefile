@@ -19,14 +19,14 @@ BOOST_THREAD_LIB=-lboost_thread-mt
 #BOOST_THREAD_LIB=-lboost_thread
 
 
-libcyclone.a: libcyclone.o dispatcher.o dispatcher_exec.o dispatch_client.o \
+libcyclone.a: libcyclone.o dispatcher.o dispatch_client.o \
 	checkpoint.o checkpoint_savepage.o
 	ar rcs $@ $^
 
 libcyclone.o: cyclone.cpp libcyclone.hpp
 	$(CXX) $(CXXFLAGS) cyclone.cpp -c -o $@
 
-dispatcher.o: dispatcher.cpp dispatcher_exec.hpp libcyclone.hpp
+dispatcher.o: dispatcher.cpp libcyclone.hpp
 	$(CXX) $(CXXFLAGS) dispatcher.cpp -c -o $@
 
 checkpoint.o: checkpoint.cpp checkpoint.hpp
@@ -34,9 +34,6 @@ checkpoint.o: checkpoint.cpp checkpoint.hpp
 
 checkpoint_savepage.o: checkpoint_savepage.cpp checkpoint.hpp
 	$(CXX) $(CXXFLAGS) checkpoint_savepage.cpp -c -o $@
-
-dispatcher_exec.o: dispatcher_exec.cpp dispatcher_exec.hpp libcyclone.hpp
-	$(CXX) $(CXXFLAGS) dispatcher_exec.cpp -c -o $@
 
 dispatch_client.o: dispatch_client.cpp  libcyclone.hpp
 	$(CXX) $(CXXFLAGS) dispatch_client.cpp -c -o $@
@@ -48,7 +45,7 @@ install:libcyclone.a
 	cp libcyclone.hpp /usr/include
 
 clean:
-	rm -f libcyclone.o dispatcher.o dispatcher_exec.o dispatch_client.o \
+	rm -f libcyclone.o dispatcher.o dispatch_client.o \
 	checkpoint.o checkpoint_savepage.o libcyclone.a /usr/lib/libcyclone.so \
 	/usr/lib/libcyclone.a /usr/include/libcyclone.hpp
 

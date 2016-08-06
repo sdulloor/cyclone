@@ -16,44 +16,15 @@ void *cyclone_control_socket_in(void *cyclone_handle); // Get control in socket
 
 int cyclone_serialize_last_applied(void *cyclone_handle, void *buf);
 
-// Returns a non-null cookie if accepted for replication
-extern void *cyclone_add_entry(void * cyclone_handle, void *data, int size); 
-extern void *cyclone_add_batch(void * cyclone_handle, void *data, int* sizes, int batch_size); 
-extern void *cyclone_add_entry_cfg(void * cyclone_handle,
-				   int type,
-				   void *data,
-				   int size); 
-extern void *cyclone_add_entry_term(void * cyclone_handle, 
-				    void *data, 
-				    int size,
-				    int term);
 extern void *cyclone_set_img_build(void *cyclone_handle);
 extern void *cyclone_unset_img_build(void *cyclone_handle);
 
-// Returns 0:pending 1:success -1:failed
-extern int cyclone_check_status(void *cyclone_handle, void *cookie);
-// Callback to add, remove or commit a log entry
-typedef void (*cyclone_callback_t)(void *user_arg,
-				   const unsigned char *data,
-				   const int len,
-				   const int raft_idx,
-				   const int raft_term);
-
-typedef void (*cyclone_rep_callback_t)(void *user_arg,
-				       const unsigned char *data,
-				       const int len,
-				       const int raft_idx,
-				       const int raft_term,
-				       replicant_t *rep);
 // Callback to build image
 typedef void (*cyclone_build_image_t)(void *socket);
 					    
 // Returns a cyclone handle
 extern void* cyclone_boot(const char *config_path,
 			  const char *client_path,
-			  cyclone_rep_callback_t cyclone_rep_callback,
-			  cyclone_callback_t cyclone_pop_callback,
-			  cyclone_callback_t cyclone_commit_callback,
 			  cyclone_build_image_t cyclone_build_image_callback,
 			  int me,
 			  int replicas,
@@ -90,17 +61,12 @@ typedef struct rpc_st {
   wal_entry_t wal;
   int requestor;
   int client_port;
-  unsigned long client_txid;
-  unsigned long channel_seq;
   union {
-    int parent_raft_idx;
-    replicant_t rep;
-    int master;
-    int last_client_txid;
-    int parent_raft_term;
-    int receiver;
-    unsigned long timestamp;
+    unsigned long client_txid;
+    unsigned long last_client_txid;
   };
+  unsigned long channel_seq;
+  unsigned long timestamp;
 } __attribute__((packed)) rpc_t; // Used for both requests and replies
 
 
@@ -108,23 +74,15 @@ typedef struct rpc_st {
 
 // Request
 
-
-
 static const int RPC_REQ_STATUS         = 0; // Check status (block on completion)
 static const int RPC_REQ_LAST_TXID      = 1; // Get last seen txid from this client
 static const int RPC_REQ_FN             = 2; // Execute (block on completion)
-static const int RPC_REQ_MARKER         = 3; // Dispatcher internal (do not use)
-static const int RPC_REQ_DATA           = 4; // Dispatcher internal (do not use)
-static const int RPC_REQ_NODEADD        = 5; // Add a replica (non blocking)
-static const int RPC_REQ_NODEDEL        = 6; // Delete a replica (non blocking)
-static const int RPC_REQ_ASSIST         = 7; // Assist in replication
-static const int RPC_REP_ASSIST         = 8; // Assistance response
-static const int RPC_REQ_NOOP           = 9; // No-op
+static const int RPC_REQ_NODEADD        = 3; // Add a replica (non blocking)
+static const int RPC_REQ_NODEDEL        = 4; // Delete a replica (non blocking)
+static const int RPC_REQ_NOOP           = 5; // No-op
 // Responses
-static const int RPC_REP_ASSIST_OK      = 9; // Assistance entry accepted
-static const int RPC_REP_COMPLETE       = 10; // DONE 
-static const int RPC_REP_PENDING        = 11; // PENDING 
-static const int RPC_REP_UNKNOWN        = 12; // UNKNOWN RPC
-static const int RPC_REP_INVSRV         = 13; // WRONG master  -- master set in reply
-static const int RPC_REP_OLD            = 14; // RPC too old to cache results
+static const int RPC_REP_COMPLETE       = 6; // DONE 
+static const int RPC_REP_UNKNOWN        = 7; // UNKNOWN RPC
+static const int RPC_REP_INVSRV         = 8; // Not leader
+static const int RPC_REP_OLD            = 9; // RPC too old to cache results
 #endif
