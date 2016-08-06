@@ -86,9 +86,9 @@ typedef struct rpc_st {
   int code;
   int flags;
   int payload_sz;
+  int client_id;
   wal_entry_t wal;
   int requestor;
-  int client_id;
   int client_port;
   unsigned long client_txid;
   unsigned long channel_seq;
