@@ -157,7 +157,7 @@ int main(int argc, const char *argv[]) {
   int client_id_stop  = atoi(argv[2]);
   driver_args_t *dargs;
   void **prev_handles;
-  
+  cyclone_network_init(argv[7], atoi(argv[3]), client_id_stop - client_id_start);
   for(int me = client_id_start; me < client_id_stop; me++) {
     dargs = (driver_args_t *) malloc(sizeof(driver_args_t));
     dargs->me = me;
@@ -178,7 +178,6 @@ int main(int argc, const char *argv[]) {
 					      fname_client);
     }
   }
-  cyclone_network_init(argv[7], atoi(argv[3]), client_id_stop - client_id_start);
   for(int me = client_id_start; me < client_id_stop; me++) {
     int e = rte_eal_remote_launch(driver, dargs, 1 + me - client_id_start);
     if(e != 0) {

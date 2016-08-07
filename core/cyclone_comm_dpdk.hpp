@@ -389,6 +389,7 @@ static void dpdk_context_init(dpdk_context_t *context,
   //init_fdir_conf();
   //port_conf.fdir_conf = fdir_conf;
   rte_eth_dev_configure(0, queues, queues, &port_conf);
+  context->port_id = 0;
 
   context->mempools = (rte_mempool **)malloc(queues*sizeof(rte_mempool *));
   context->buffers   = (rte_eth_dev_tx_buffer **)malloc

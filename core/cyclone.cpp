@@ -27,7 +27,7 @@ static int __send_requestvote(raft_server_t* raft,
     BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send requestvote";
   }
   cyclone_prep_mbuf(global_dpdk_context,
-		    (int)(unsigned long)user_data,
+		    (int)(unsigned long)socket,
 		    q_raft,
 		    mb,
 		    &msg,

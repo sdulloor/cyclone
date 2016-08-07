@@ -278,9 +278,9 @@ void cyclone_network_init(const char *config_cluster_path, int me_mc, int queues
   std::stringstream key;
   std::stringstream addr;
   boost::property_tree::read_ini(config_cluster_path, pt_cluster);
-  global_dpdk_context = (dpdk_context_t *)rte_malloc("context", sizeof(dpdk_context_t), 0);
+  global_dpdk_context = (dpdk_context_t *)malloc(sizeof(dpdk_context_t));
   global_dpdk_context->me = me_mc;
-  int cluster_machines = pt_cluster.get<int>("machines.machines");
+  int cluster_machines = pt_cluster.get<int>("machines.count");
   global_dpdk_context->mc_addresses = (struct ether_addr *)
     malloc(cluster_machines*sizeof(struct ether_addr));
   for(int i=0;i<cluster_machines;i++) {

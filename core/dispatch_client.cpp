@@ -24,7 +24,6 @@ typedef struct rpc_client_st {
   int replicas;
   unsigned long channel_seq;
   dpdk_rx_buffer_t *buf;
-  dpdk_context_t* global_dpdk_context;
   
   void update_server(const char *context)
   {
@@ -325,7 +324,7 @@ void* cyclone_client_init(int client_id,
   client->me = client_id;
   client->me_mc = client_mc;
   client->me_queue = client_queue;
-  client->buf = (dpdk_rx_buffer_t *)rte_malloc("buf", sizeof(dpdk_rx_buffer_t), 0);
+  client->buf = (dpdk_rx_buffer_t *)malloc(sizeof(dpdk_rx_buffer_t));
   client->buf->buffered = 0;
   client->buf->consumed = 0;
   void *buf = new char[MSG_MAXSIZE];
