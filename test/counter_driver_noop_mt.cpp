@@ -158,8 +158,11 @@ int main(int argc, const char *argv[]) {
   driver_args_t *dargs;
   void **prev_handles;
   cyclone_network_init(argv[7], atoi(argv[3]), client_id_stop - client_id_start);
+  driver_args_t ** dargs_array = 
+    (driver_args_t **)malloc((client_id_stop - client_id_start)*sizeof(driver_args_t *));
   for(int me = client_id_start; me < client_id_stop; me++) {
     dargs = (driver_args_t *) malloc(sizeof(driver_args_t));
+    dargs_array[me - client_id_start] = dargs;
     dargs->me = me;
     dargs->mc = atoi(argv[3]);
     dargs->replicas = atoi(argv[4]);
@@ -179,7 +182,7 @@ int main(int argc, const char *argv[]) {
     }
   }
   for(int me = client_id_start; me < client_id_stop; me++) {
-    int e = rte_eal_remote_launch(driver, dargs, 1 + me - client_id_start);
+    int e = rte_eal_remote_launch(driver, dargs_array[me-client_id_start], 1 + me - client_id_start);
     if(e != 0) {
       BOOST_LOG_TRIVIAL(fatal) << "Failed to launch driver on remote lcore";
       exit(-1);
