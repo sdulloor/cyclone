@@ -551,8 +551,10 @@ struct cyclone_monitor {
     unsigned long elapsed_time;
     msg_entry_t *messages;
     rte_mbuf *pkt_array[PKT_BURST], *m;
-    messages = (msg_entry_t *)malloc(PKT_BURST*sizeof(msg_entry_t));
+    int chain_size[2*PKT_BURST];
+    messages = (msg_entry_t *)malloc(2*PKT_BURST*sizeof(msg_entry_t));
     int available;
+    int accepted;
     while(!terminate) {
       // Handle any outstanding requests
       available = rte_eth_rx_burst(global_dpdk_context->port_id,
@@ -569,12 +571,17 @@ struct cyclone_monitor {
 	cyclone_handle->handle_incoming(m);
       }
       cyclone_handle->send_ae_responses();
-      available = rte_eth_rx_burst(global_dpdk_context->port_id,
-				   q_dispatcher,
-				   &pkt_array[0],
-				   PKT_BURST);
-      if(available > 0) {
-	int accepted = 0;
+
+      accepted  = 0;
+      memset(chain_size, 0, 2*PKT_BURST);
+      while(accepted <= PKT_BURST) {
+	available = rte_eth_rx_burst(global_dpdk_context->port_id,
+				     q_dispatcher,
+				     &pkt_array[0],
+				     PKT_BURST);
+	if(available == 0) {
+	  break;
+	}
 	for(int i=0;i<available;i++) {
 	  m = pkt_array[i];
 	  if(bad(m)) {
@@ -588,7 +595,7 @@ struct cyclone_monitor {
 	  if(rpc->code == RPC_REQ_LAST_TXID || 
 	     rpc->code == RPC_REQ_STATUS ||  
 	     rpc->flags & RPC_FLAG_RO) {
-       	    if(cyclone_is_leader(cyclone_handle)) {
+	    if(cyclone_is_leader(cyclone_handle)) {
 	      if(rte_ring_sp_enqueue(to_cores[core], m) == -ENOBUFS) {
 		BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
 		exit(-1);
@@ -603,15 +610,16 @@ struct cyclone_monitor {
 	    }
 	    continue;
 	  }
-	  
 	  if(accepted > 0 && 
-	     (messages[accepted -1].data.len + pktadj2rpcsz(m)) <= MSG_MAXSIZE) {
+	     (messages[accepted - 1].data.len + pktadj2rpcsz(m)) <= MSG_MAXSIZE &&
+	     chain_size[accepted - 1] < PKT_BURST) {
 	    rte_mbuf *mprev = (rte_mbuf *)messages[accepted - 1].data.buf;
 	    messages[accepted - 1].data.len += pktadj2rpcsz(m);
 	    // Wipe out the hdr in the chained packet
 	    del_adj_header(m);
 	    // Chain to prev packet
 	    rte_pktmbuf_chain(mprev, m);
+	    chain_size[accepted - 1]++;
 	    //compact(mprev); // debug
 	  }
 	  else {
@@ -621,15 +629,17 @@ struct cyclone_monitor {
 	    accepted++;
 	  }
 	}
-	if(accepted > 0) {
-	  int e = raft_recv_entry_batch(cyclone_handle->raft_handle, 
-					messages, 
-					NULL,
-					accepted);
-	  if(e != 0) {
-	    for(int i=0;i<accepted;i++) {
-	      rte_pktmbuf_free((rte_mbuf *)messages[i].data.buf);
-	    }
+	// Currently the port seems to stall after a BURST
+	break;
+      }
+      if(accepted > 0) {
+	int e = raft_recv_entry_batch(cyclone_handle->raft_handle, 
+				      messages, 
+				      NULL,
+				      accepted);
+	if(e != 0) {
+	  for(int i=0;i<accepted;i++) {
+	    rte_pktmbuf_free((rte_mbuf *)messages[i].data.buf);
 	  }
 	}
       }
