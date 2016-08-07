@@ -25,6 +25,7 @@ static int __send_requestvote(raft_server_t* raft,
   rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[q_raft]);
   if(mb == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send requestvote";
+    exit(-1);
   }
   cyclone_prep_mbuf(global_dpdk_context,
 		    (int)(unsigned long)socket,
@@ -80,6 +81,7 @@ static void __send_appendentries_response(void *udata,
   rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[q_raft]);
   if(m == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send requestvote";
+    exit(-1);
   }
   cyclone_prep_mbuf(global_dpdk_context,
 		    (int)(unsigned long)socket,

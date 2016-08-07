@@ -9,33 +9,26 @@ def launch_cmds_server_gen(f, q, r, m, quorums, replicas, clients):
     cmd=cmd + ' PMEM_IS_PMEM_FORCE=1 '
     cmd=cmd + 'counter_server '
     cmd=cmd + str(r) + ' '
-    cmd=cmd + str(replicas) + ' '
+    cmd=cmd + str(m) + ' '
     cmd=cmd + str(clients) + ' '
-    cmd=cmd + 'config_server.ini config_client.ini &> server_log &\n'
+    cmd=cmd + 'config_cluster.ini config_quorum.ini &> server_log &\n'
     f.write(cmd)
 
 def launch_cmds_preload_gen(f, m, c, quorums, replicas, clients, machines):
-    if m > 2 and m < 7:
-        c_start = 9*(m - 3)
-        c_stop  = c_start + 9
-        if c >= c_start and c < c_stop:
-            cmd=''
-            if os.environ.has_key('RBT_KEYS'):
-                cmd=cmd + 'RBT_KEYS=' + os.environ.get('RBT_KEYS') + ' '
-            cmd=cmd + 'counter_loader '
-            cmd=cmd + str(c) + ' '
-            cmd=cmd + str(m) + ' '
-            cmd=cmd + str(replicas) + ' '
-            cmd=cmd + str(clients) + ' '
-            cmd=cmd + str(quorums) + ' '
-            cmd=cmd + 'config_server config_client &> client_log' + str(c) + '\n'
-            f.write(cmd)
+    cmd=''
+
 
 def launch_cmds_client_gen(f, m, c, quorums, replicas, clients, machines):
-    if m > 2 and m < 7:
-        c_start = 9*(m - 3)
-        c_stop  = c_start + 9
-        if c == 0:
+    if m >= replicas:
+        client_machines=machines-replicas
+        if client_machines > clients:
+            client_machines = clients
+        clients_per_machine=clients/client_machines
+        c_start = clients_per_machine*(m - replicas)
+        c_stop  = c_start + clients_per_machine
+        if m == replicas + client_machines - 1:
+            cstop = clients
+        if c == 0 and m < replicas + client_machines:
             cmd=''
             if os.environ.has_key('RBT_KEYS'):
                 cmd=cmd + 'RBT_KEYS=' + os.environ.get('RBT_KEYS') + ' '
@@ -48,7 +41,7 @@ def launch_cmds_client_gen(f, m, c, quorums, replicas, clients, machines):
             cmd=cmd + str(replicas) + ' '
             cmd=cmd + str(clients) + ' '
             cmd=cmd + str(quorums) + ' '
-            cmd=cmd + 'config_server config_client &> client_log' + str(0) + '&\n'
+            cmd=cmd + 'config_cluster.ini config_quorum &> client_log' + str(0) + '&\n'
             f.write(cmd)
         
 def killall_cmds_gen(f):
