@@ -1,7 +1,7 @@
-all: counter_server counter_driver counter_coordinator\
+#all: counter_server counter_driver counter_coordinator\
 counter_loader counter_add_node counter_delete_node\
 counter_coordinator_driver counter_driver_mt counter_driver_noop_mt
-
+all: counter_server counter_driver_noop_mt
 
 
 

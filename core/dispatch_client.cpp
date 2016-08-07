@@ -11,14 +11,7 @@
 #include "cyclone_context.hpp"
 
 
-static volatile int threads = 0;
-static dpdk_context_t * network_context = NULL;
-
-void cyclone_client_global_init()
-{
-  dpdk_context_client_init(network_context, threads);
-}
-
+extern dpdk_context_t *global_dpdk_context;
 typedef struct rpc_client_st {
   int me;
   int me_mc;
@@ -31,7 +24,7 @@ typedef struct rpc_client_st {
   int replicas;
   unsigned long channel_seq;
   dpdk_rx_buffer_t *buf;
-  dpdk_context_t* network_context;
+  dpdk_context_t* global_dpdk_context;
   
   void update_server(const char *context)
   {
@@ -58,7 +51,7 @@ typedef struct rpc_client_st {
     bool sent_assist_reply = false;
     unsigned long response_map = 0;
     while(true) {
-      resp_sz = cyclone_rx_timeout(network_context,
+      resp_sz = cyclone_rx_timeout(global_dpdk_context,
 				   me_queue,
 				   buf,
 				   (unsigned char *)packet_in,
@@ -106,7 +99,7 @@ typedef struct rpc_client_st {
       packet_out->payload_sz  = 0;
       send_to_server(sizeof(rpc_t));
       while(true) {
-	resp_sz = cyclone_rx_timeout(network_context,
+	resp_sz = cyclone_rx_timeout(global_dpdk_context,
 				     me_queue,
 				     buf,
 				     (unsigned char *)packet_in,
@@ -204,7 +197,7 @@ typedef struct rpc_client_st {
       packet_out->code        = RPC_REQ_STATUS;
       send_to_server(sizeof(rpc_t));
       while(true) {
-	resp_sz = cyclone_rx_timeout(network_context,
+	resp_sz = cyclone_rx_timeout(global_dpdk_context,
 				     me_queue,
 				     buf,
 				     (unsigned char *)packet_in,
@@ -317,6 +310,7 @@ typedef struct rpc_client_st {
 
 void* cyclone_client_init(int client_id,
 			  int client_mc,
+			  int client_queue,
 			  const char *config_cluster,
 			  const char *config_quorum)
 {
@@ -330,34 +324,10 @@ void* cyclone_client_init(int client_id,
   client->router = new quorum_switch(&pt_cluster, &pt_quorum);
   client->me = client_id;
   client->me_mc = client_mc;
-  client->me_queue = num_queues + threads;
+  client->me_queue = client_queue;
   client->buf = (dpdk_rx_buffer_t *)rte_malloc("buf", sizeof(dpdk_rx_buffer_t), 0);
   client->buf->buffered = 0;
   client->buf->consumed = 0;
-  if(threads == 0) {
-    network_context = (dpdk_context_t *)rte_malloc("context", sizeof(dpdk_context_t), 0);
-    network_context->me = client_mc;
-    int cluster_machines = pt_cluster.get<int>("machines.machines");
-    network_context->mc_addresses = (struct ether_addr *)
-      malloc(cluster_machines*sizeof(struct ether_addr));
-    for(int i=0;i<cluster_machines;i++) {
-      key.str("");key.clear();
-      addr.str("");addr.clear();
-      key << "machines.addr" << i;
-      addr << pt_cluster.get<std::string>(key.str().c_str());
-      sscanf(addr.str().c_str(),
-	     "%02X:%02X:%02X:%02X:%02X:%02X",
-	     &network_context->mc_addresses[i].addr_bytes[0],
-	     &network_context->mc_addresses[i].addr_bytes[1],
-	     &network_context->mc_addresses[i].addr_bytes[2],
-	     &network_context->mc_addresses[i].addr_bytes[3],
-	     &network_context->mc_addresses[i].addr_bytes[4],
-	     &network_context->mc_addresses[i].addr_bytes[5]);
-      BOOST_LOG_TRIVIAL(info) << "CYCLONE::COMM::DPDK Cluster machine "
-			      << addr.str().c_str();
-    }
-  }
-  threads++;
   void *buf = new char[MSG_MAXSIZE];
   client->packet_out = (rpc_t *)buf;
   buf = new char[MSG_MAXSIZE];

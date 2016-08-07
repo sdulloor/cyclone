@@ -73,6 +73,9 @@ typedef struct rpc_callbacks_st {
   rpc_tx_abort_callback_t tx_abort;
 } rpc_callbacks_t;
 
+// Init network stack
+void cyclone_network_init(const char *config_cluster_path, int me_mc, int queues);
+
 // Start the dispatcher loop -- note: does not return
 void dispatcher_start(const char* config_cluster_path,
 		      const char* config_quorum_path,
@@ -82,12 +85,11 @@ void dispatcher_start(const char* config_cluster_path,
 		      int clients);
 
 ////// RPC client side interface
-void cyclone_client_global_init(); // NOT THREAD SAFE
 void* cyclone_client_init(int client_id,
 			  int client_mc,
+			  int client_queue,
 			  const char *config_cluster_path,
 			  const char *config_quorum_path);
-void *cyclone_client_dup(void *handle, int me);
 // Make an rpc call -- returns size of response
 int make_rpc(void *handle,
 	     void *payload,

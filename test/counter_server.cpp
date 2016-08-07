@@ -38,6 +38,7 @@
 #include<stdlib.h>
 #include "../core/logging.hpp"
 #include "../core/clock.hpp"
+#include "../core/tuning.hpp"
 #include<stdio.h>
 extern "C" {
 #include "../nvml/src/examples/libpmemobj/tree_map/rbtree_map.h"
@@ -263,14 +264,11 @@ rpc_callbacks_t rpc_callbacks =  {
 
 int main(int argc, char *argv[])
 {
-  if(argc != 4 && argc != 6) {
-    printf("Usage1: %s server_id replicas clients \n", argv[0]);
-    printf("Usage1: %s server_id replicas clients server_config client_config\n", argv[0]);
+  if(argc != 6) {
+    printf("Usage1: %s replica_id replica_mc clients cluster_config quorum_config\n", argv[0]);
     exit(-1);
   }
   server_id = atoi(argv[1]);
-  int replicas = atoi(argv[2]);
-  int clients  = atoi(argv[3]);
   const char *usleep_opt = getenv("RBT_SLEEP_USEC");
   if(usleep_opt != NULL) {
     sleep_time = atol(usleep_opt);
@@ -278,22 +276,13 @@ int main(int argc, char *argv[])
   else {
     sleep_time = 0;
   }
-  if(argc == 4) {
-    dispatcher_start("cyclone_test.ini", 
-		     "cyclone_test.ini", 
-		     &rpc_callbacks,
-		     server_id, 
-		     replicas, 
-		     clients);
-  }
-  else {
-      dispatcher_start(argv[4], 
-		       argv[5], 
-		       &rpc_callbacks,
-		       server_id, 
-		       replicas, 
-		       clients);
-  }
+  cyclone_network_init(argv[4], atoi(argv[2]), num_queues + executor_threads);
+  dispatcher_start(argv[4], 
+		   argv[5], 
+		   &rpc_callbacks,
+		   server_id, 
+		   atoi(argv[2]), 
+		   atoi(argv[3]));
 }
 
 

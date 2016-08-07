@@ -336,14 +336,14 @@ static void init_filter_clean()
   filter_clean.queue = 0; // To be set
 }
 
-static void install_eth_filters_server()
+static void install_eth_filters(int queues)
 {
   struct rte_eth_ntuple_filter filter;
   init_filter_clean();
   if(rte_eth_dev_filter_supported(0, RTE_ETH_FILTER_NTUPLE) != 0) {
     rte_exit(EXIT_FAILURE, "rte_eth_dev does not support ntuple filter");
   }
-  for(int i=0;i < num_queues + executor_threads;i++) {
+  for(int i=0;i < queues;i++) {
     memcpy(&filter, &filter_clean, sizeof(rte_eth_ntuple_filter));
     filter.dst_ip = i;
     filter.queue  = i;
@@ -361,32 +361,10 @@ static void install_eth_filters_server()
   }
 }
 
-static void install_eth_filters_client(int threads)
-{
-  struct rte_eth_ntuple_filter filter;
-  init_filter_clean();
-  if(rte_eth_dev_filter_supported(0, RTE_ETH_FILTER_NTUPLE) != 0) {
-    rte_exit(EXIT_FAILURE, "rte_eth_dev does not support ntuple filter");
-  }
-  for(int i=0;i < (num_queues + threads);i++) {
-    memcpy(&filter, &filter_clean, sizeof(rte_eth_ntuple_filter));
-    filter.dst_ip = i;
-    filter.queue  = i;
-    int ret = rte_eth_dev_filter_ctrl(0,
-				      RTE_ETH_FILTER_NTUPLE,
-				      RTE_ETH_FILTER_ADD,
-				      &filter);
-    
-    if (ret != 0)
-      rte_exit(EXIT_FAILURE, "rte_eth_dev_filter_ctrl:err=%d, port=%u\n",
-	       ret, (unsigned) 0);
-    else
-      BOOST_LOG_TRIVIAL(info) << "Added filter for rxq " << i;
-    
-  }
-}
-
-static void dpdk_context_init(dpdk_context_t *context, int max_pktsize, int pack_ratio)
+static void dpdk_context_init(dpdk_context_t *context, 
+			      int max_pktsize, 
+			      int pack_ratio,
+			      int queues)
 {
   int ret;
   
@@ -410,16 +388,14 @@ static void dpdk_context_init(dpdk_context_t *context, int max_pktsize, int pack
   init_port_conf();
   //init_fdir_conf();
   //port_conf.fdir_conf = fdir_conf;
-  rte_eth_dev_configure(0, num_queues + executor_threads, num_queues + executor_threads, &port_conf);
+  rte_eth_dev_configure(0, queues, queues, &port_conf);
 
-  int total_queues = num_queues + executor_threads;
-
-  context->mempools = (rte_mempool **)malloc(total_queues*sizeof(rte_mempool *));
+  context->mempools = (rte_mempool **)malloc(queues*sizeof(rte_mempool *));
   context->buffers   = (rte_eth_dev_tx_buffer **)malloc
-    (total_queues*sizeof(rte_eth_dev_tx_buffer *));
+    (queues*sizeof(rte_eth_dev_tx_buffer *));
   // Assume port 0, core 1 ....
 
-  for(int i=0;i<num_queues + executor_threads;i++) {
+  for(int i=0;i<queues;i++) {
     char pool_name[50];
     sprintf(pool_name, "mbuf_pool%d", i);
     // Mempool
@@ -521,105 +497,8 @@ static void dpdk_context_init(dpdk_context_t *context, int max_pktsize, int pack
   // NOTE:DO NOT ENABLE PROMISCOUS MODE
   // OW need to check eth addr on all incoming packets
   //rte_eth_promiscuous_enable(0);
-  install_eth_filters_server();
+  install_eth_filters(queues);
   //rte_eth_dev_set_mtu(0, 2500);
-  rte_eth_macaddr_get(0, &context->mc_addresses[context->me]);
-}
-
-static void dpdk_context_client_init(dpdk_context_t *context, int threads)
-{
-  int ret;
-  
-  char* fake_argv[1] = {(char *)"./fake"};
-
-  /* init EAL */
-  ret = rte_eal_init(1, fake_argv);
-  if (ret < 0)
-    rte_exit(EXIT_FAILURE, "Invalid EAL arguments\n");
- 
-  if(rte_eth_dev_count() == 0) {
-    rte_exit(EXIT_FAILURE, "No Ethernet ports - bye\n");
-  }
-
-  
-  
-  init_port_conf();
-  //init_fdir_conf();
-  //port_conf.fdir_conf = fdir_conf;
-  rte_eth_dev_configure(0, num_queues + threads, num_queues + threads, &port_conf);
-
-  int total_queues = num_queues + threads;
-
-  context->mempools = (rte_mempool **)malloc(total_queues*sizeof(rte_mempool *));
-  context->buffers   = (rte_eth_dev_tx_buffer **)malloc
-    (total_queues*sizeof(rte_eth_dev_tx_buffer *));
-  // Assume port 0, core 1 ....
-
-  for(int i=0;i< (num_queues + threads);i++) {
-    char pool_name[50];
-    sprintf(pool_name, "mbuf_pool%d", i);
-    // Mempool
-    int pktsize = sizeof(struct ether_hdr) + MSG_MAXSIZE;
-    if(pktsize < 2048) {
-      pktsize = 2048;
-    }
-    context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
-						   8191,
-						   32,
-						   0,
-						   RTE_PKTMBUF_HEADROOM + pktsize,
-						   rte_socket_id());
-    if (context->mempools[i] == NULL)
-      rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
-
-    //tx queue
-    ret = rte_eth_tx_queue_setup(0, 
-				 i, 
-				 nb_txd,
-				 rte_eth_dev_socket_id(0),
-				 NULL);
-
-    if (ret < 0)
-      rte_exit(EXIT_FAILURE, "rte_eth_tx_queue_setup:err=%d, port=%u\n",
-	       ret, (unsigned) 0);
-    
-
-    
-    context->buffers[i] = (rte_eth_dev_tx_buffer *)
-      rte_zmalloc_socket("tx_buffer",
-			 RTE_ETH_TX_BUFFER_SIZE(PKT_BURST), 
-			 0,
-			 rte_eth_dev_socket_id(0));
-    if (context->buffers[i] == NULL)
-      rte_exit(EXIT_FAILURE, "Cannot allocate buffer for tx on port %u\n",
-	       (unsigned) 0);
-
-    
-    rte_eth_tx_buffer_init(context->buffers[i], PKT_BURST);
-
-    // rx queue
-    ret = rte_eth_rx_queue_setup(0, 
-				 i, 
-				 nb_rxd,
-				 rte_eth_dev_socket_id(0),
-				 NULL,
-				 context->mempools[i]);
-    if (ret < 0)
-      rte_exit(EXIT_FAILURE, "rte_eth_rx_queue_setup:err=%d, port=%u\n",
-	       ret, 0);
-
-    BOOST_LOG_TRIVIAL(info) << "CYCLONE_COMM:DPDK setup queue " << i;
-  }
- 
-  /* Start device */
-  ret = rte_eth_dev_start(0);
-  if (ret < 0)
-    rte_exit(EXIT_FAILURE, "rte_eth_dev_start:err=%d, port=%u\n",
-	     ret, (unsigned) 0);
-  // NOTE:DO NOT ENABLE PROMISCOUS MODE
-  // OW need to check eth addr on all incoming packets
-  //rte_eth_promiscuous_enable(0);
-  install_eth_filters_client(threads);
   rte_eth_macaddr_get(0, &context->mc_addresses[context->me]);
 }
 

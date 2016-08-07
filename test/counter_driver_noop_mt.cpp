@@ -149,13 +149,12 @@ int driver(void *arg)
 
 int main(int argc, const char *argv[]) {
   if(argc != 9) {
-    printf("Usage: %s client_id_start client_id_stop mc replicas clients partitions server_config_prefix client_config_prefix\n", argv[0]);
+    printf("Usage: %s client_id_start client_id_stop mc replicas clients partitions cluster_config quorum_config_prefix\n", argv[0]);
     exit(-1);
   }
   
   int client_id_start = atoi(argv[1]);
   int client_id_stop  = atoi(argv[2]);
-  cyclone_client_global_init(client_id_stop - client_id_start);
   driver_args_t *dargs;
   void **prev_handles;
   
@@ -170,36 +169,22 @@ int main(int argc, const char *argv[]) {
     char fname_server[50];
     char fname_client[50];
     for(int i=0;i<dargs->partitions;i++) {
-      sprintf(fname_server, "%s%d.ini", argv[7], i);
+      sprintf(fname_server, "%s", argv[7]);
       sprintf(fname_client, "%s%d.ini", argv[8], i);
-      if(me == client_id_start) {
-	dargs->handles[i] = cyclone_client_init(me,
-						dargs->mc,
-						dargs->replicas,
-						fname_server,
-						fname_client);
-      }
-      else {
-	dargs->handles[i] = cyclone_client_dup(prev_handles[i], me);
-      }
+      dargs->handles[i] = cyclone_client_init(me,
+					      dargs->mc,
+					      me - client_id_start,
+					      fname_server,
+					      fname_client);
     }
-    if(me == client_id_start) {
-      prev_handles = dargs->handles;
+  }
+  cyclone_network_init(argv[7], atoi(argv[3]), client_id_stop - client_id_start);
+  for(int me = client_id_start; me < client_id_stop; me++) {
+    int e = rte_eal_remote_launch(driver, dargs, 1 + me - client_id_start);
+    if(e != 0) {
+      BOOST_LOG_TRIVIAL(fatal) << "Failed to launch driver on remote lcore";
+      exit(-1);
     }
-#if defined(DPDK_STACK)
-  int e = rte_eal_remote_launch(driver, dargs, 1 + me - client_id_start);
-  if(e != 0) {
-    BOOST_LOG_TRIVIAL(fatal) << "Failed to launch driver on remote lcore";
-    exit(-1);
   }
-#else
-  if(me != (client_id_stop - 1))
-    new boost::thread(boost::ref(*dargs));
-#endif  
-  }
-#if defined(DPDK_STACK)
   rte_eal_mp_wait_lcore();
-#else
-  (*darg)();
-#endif
 }

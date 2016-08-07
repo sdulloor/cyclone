@@ -21,8 +21,7 @@
 #include "cyclone_context.hpp"
 
 static void *cyclone_handle;
-
-dpdk_context_t * global_dpdk_context;
+dpdk_context_t * global_dpdk_context = NULL;
 extern struct rte_ring ** to_cores;
 extern struct rte_ring *from_cores;
 static quorum_switch *router;
@@ -272,23 +271,13 @@ int dpdk_executor(void *arg)
   return 0;
 }
 
-void dispatcher_start(const char* config_cluster_path,
-		      const char* config_quorum_path,
-		      rpc_callbacks_t *rpc_callbacks,
-		      int me,
-		      int me_mc,
-		      int clients)
+
+void cyclone_network_init(const char *config_cluster_path, int me_mc, int queues)
 {
   boost::property_tree::ptree pt_cluster;
-  boost::property_tree::ptree pt_quorum;
   std::stringstream key;
   std::stringstream addr;
   boost::property_tree::read_ini(config_cluster_path, pt_cluster);
-  boost::property_tree::read_ini(config_quorum_path, pt_quorum);
-  // Load/Setup state
-  std::string file_path = pt_quorum.get<std::string>("dispatch.filepath");
-  unsigned long heapsize = pt_quorum.get<unsigned long>("dispatch.heapsize");
-  char me_str[100];
   global_dpdk_context = (dpdk_context_t *)rte_malloc("context", sizeof(dpdk_context_t), 0);
   global_dpdk_context->me = me_mc;
   int cluster_machines = pt_cluster.get<int>("machines.machines");
@@ -316,7 +305,27 @@ void dispatcher_start(const char* config_cluster_path,
 		    sizeof(msg_t) + 
 		    sizeof(msg_entry_t) + 
 		    MSG_MAXSIZE,
-		    (MSG_MAXSIZE + sizeof(rpc_t) - 1)/sizeof(rpc_t));
+		    (MSG_MAXSIZE + sizeof(rpc_t) - 1)/sizeof(rpc_t),
+		    queues);
+}
+
+void dispatcher_start(const char* config_cluster_path,
+		      const char* config_quorum_path,
+		      rpc_callbacks_t *rpc_callbacks,
+		      int me,
+		      int me_mc,
+		      int clients)
+{
+  boost::property_tree::ptree pt_cluster;
+  boost::property_tree::ptree pt_quorum;
+  std::stringstream key;
+  std::stringstream addr;
+  boost::property_tree::read_ini(config_cluster_path, pt_cluster);
+  boost::property_tree::read_ini(config_quorum_path, pt_quorum);
+  // Load/Setup state
+  std::string file_path = pt_quorum.get<std::string>("dispatch.filepath");
+  unsigned long heapsize = pt_quorum.get<unsigned long>("dispatch.heapsize");
+  char me_str[100];
   sprintf(me_str,"%d", me);
   file_path.append(me_str);
   init_checkpoint(file_path.c_str(), me);
