@@ -2,7 +2,7 @@
 #define _TUNING_
 
 // Server side timeouts -- usecs
-static const int PERIODICITY                = 10; 
+static const int PERIODICITY                = 1; 
 static const int RAFT_ELECTION_TIMEOUT      = 10000; 
 static const int RAFT_REQUEST_TIMEOUT       = 1000; 
 static const int RAFT_NACK_TIMEOUT          = 20;
