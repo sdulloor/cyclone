@@ -57,8 +57,6 @@ static void client_reply(rpc_t *req,
 
 void init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
 {
-  cookie->raft_idx  = rpc->wal.raft_idx;
-  cookie->raft_term = rpc->wal.raft_term;
   cookie->client_id = rpc->client_id;
   cookie->client_txid = rpc->client_txid;
 }

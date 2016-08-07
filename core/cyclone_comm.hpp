@@ -8,7 +8,7 @@
 #include "tuning.hpp"
 
 /* Cyclone max message size */
-const int MSG_MAXSIZE  = 3000; // Maximum user data in pkt
+const int MSG_MAXSIZE  = 3500; // Maximum user data in pkt
 
 #include "cyclone_comm_dpdk.hpp"
 

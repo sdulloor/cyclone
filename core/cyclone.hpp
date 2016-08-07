@@ -46,8 +46,6 @@ const int REP_FAILED  = -1;
 // Comm between disp cores and raft core
 typedef struct wal_entry_st {
   volatile int rep;
-  volatile int raft_term;
-  volatile int raft_idx;
   int leader;
 } __attribute__((packed)) wal_entry_t;
 

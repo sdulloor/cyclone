@@ -11,8 +11,6 @@ static const int DISP_MAX_MSGSIZE = 512; // 512 bytes max msg size
 //Note: DISP_MAX_MSGSIZE must be within MSG_MAXSIZE with room for rpc_t header
 
 typedef struct rpc_cookie_st {
-  volatile int raft_idx;
-  volatile int raft_term;
   volatile int client_id;
   volatile int client_txid;
   void *volatile ret_value;

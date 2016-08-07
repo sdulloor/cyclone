@@ -403,8 +403,6 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	//handle_cfg_change(cyclone_handle, e, (unsigned char *)rpc);
 	if(e->type != RAFT_LOGTYPE_ADD_NODE) { 
 	  rpc->wal.rep = REP_UNKNOWN;
-	  rpc->wal.raft_term = e->term;
-	  rpc->wal.raft_idx  = ety_idx + i;
 	  int core = rpc->client_id % executor_threads;
 	  //Increment refcount handoff segment for exec 
 	  rte_mbuf_refcnt_update(m, 1);
