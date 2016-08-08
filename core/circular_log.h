@@ -4,90 +4,82 @@
 #include "pmem_layout.h"
 #include "clwb_sim.hpp"
 
-static const char * log_data(const struct circular_log *log)
+static void **log_data(struct circular_log *log)
 {
-  return (const char *)(log + 1);
+  return (void **)(log + 1);
 }
 
-static char * log_data(struct circular_log *log)
+// Return -1 if log full
+static int log_offer(struct circular_log *log,
+		     void *ptr,
+		     int tail,
+		     int LOG_ENTRIES)
 {
-  return (char *)(log + 1);
+  log_data(log)[tail++] = ptr;
+  if(tail == LOG_ENTRIES)
+    tail = 0;
+  if(tail == log->head)
+    return -1;
+  else
+    return tail;
 }
 
-static
-void copy_from_circular_log(const struct circular_log *log,
-			    unsigned long LOGSIZE,
-			    unsigned char *dst,
-			    unsigned long offset,
-			    unsigned long size)
+static void log_poll(struct circular_log *log,
+		     int LOG_ENTRIES)
 {
-  unsigned long chunk1 = (offset + size) > LOGSIZE ?
-    (LOGSIZE - offset):size;
-  unsigned long chunk2 = size - chunk1;
-  memcpy(dst, log_data(log) + offset, chunk1);
-  if(chunk2 > 0) {
-    dst += chunk1;
-    memcpy(dst, log_data(log), chunk2);
-  }
+  int new_head = log->head + 1;
+  if(new_head == LOG_ENTRIES)
+    new_head = 0;
+  log->head = new_head;
+  asm volatile("mfence;clflush %0"::"m"(*log));
 }
 
-static
-void copy_to_circular_log(PMEMobjpool *pop, 
-			  struct circular_log* log,
-			  unsigned long LOGSIZE,
-			  unsigned long offset,
-			  unsigned char *src,
-			  unsigned long size)
+static void log_poll_batch(struct circular_log *log,
+			   int cnt,
+			   int LOG_ENTRIES)
 {
-  unsigned long chunk1 = (offset + size) > LOGSIZE ?
-    (LOGSIZE - offset):size;
-  unsigned long chunk2 = size - chunk1;
-  memcpy(log_data(log) + offset, src, chunk1);
-  if(chunk2 > 0) {
-    src += chunk1;
-    memcpy(log_data(log), src, chunk2);
-  }
+  int new_head = log->head + cnt;
+  if(new_head >= LOG_ENTRIES)
+    new_head = new_head - LOG_ENTRIES;
+  log->head = new_head;
+  asm volatile("mfence;clflush %0"::"m"(*log));
 }
 
-static void persist_to_circular_log(PMEMobjpool *pop, 
-			     struct circular_log *log,
-			     unsigned long LOGSIZE,
-			     unsigned long offset,
-			     unsigned long size)
+static void log_pop(struct circular_log *log,
+		    unsigned long LOG_ENTRIES)
 {
-  unsigned long chunk1 = (offset + size) > LOGSIZE ?
-    (LOGSIZE - offset):size;
-  unsigned long chunk2 = size - chunk1;
-  clflush(log_data(log) + offset, chunk1);
-  if(chunk2 > 0) {
-    clflush(log_data(log), chunk2);
-  }
+  int new_tail;
+  if(log->tail == 0)
+    new_tail = LOG_ENTRIES - 1;
+  else
+    new_tail = log->tail - 1;
+  log->tail = new_tail;
+  asm volatile("mfence;clflush %0"::"m"(*log));
 }
 
-static
-unsigned long circular_log_advance_ptr(unsigned long ptr,
-				       unsigned long size,
-				       unsigned long LOGSIZE)
+static void log_persist(struct circular_log *log,
+			int new_tail,
+			unsigned long LOG_ENTRIES)
 {
-  ptr = ptr + size;
-  if(ptr > LOGSIZE) {
-    ptr = ptr - LOGSIZE;
+  asm volatile("mfence");
+  int old_tail = log->tail;
+  int blocks = 0;
+  asm volatile("clflush %0"::"m"(log_data(log)[old_tail]));
+  while(old_tail != new_tail) {
+    old_tail = old_tail + 1;
+    blocks++;
+    if(blocks == 8) {
+      asm volatile("clflush %0"::"m"(log_data(log)[old_tail]));
+      blocks = 0;
+    }
+    if(old_tail == LOG_ENTRIES) {
+      old_tail = 0;
+      asm volatile("clflush %0"::"m"(log_data(log)[old_tail]));
+      blocks = 0;
+    }
   }
-  return ptr;
-}
-
-static
-unsigned long circular_log_recede_ptr(unsigned long ptr,
-				      unsigned long size,
-				      unsigned long LOGSIZE)
-{
-  if(ptr < size) {
-    ptr = LOGSIZE - (size - ptr);
-  }
-  else {
-    ptr = ptr - size;
-  }
-  return ptr;
+  log->tail = new_tail;
+  asm volatile("clflush %0"::"m"(*log));
 }
 
 #endif

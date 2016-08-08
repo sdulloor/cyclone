@@ -47,8 +47,10 @@ int cyclone_serialize_last_applied(void *cyclone_handle, void *buf)
     memcpy(buffer, ety, sizeof(raft_entry_t));
     size += sizeof(raft_entry_t);
     buffer  += sizeof(raft_entry_t);
+    /* TBD
     (void)handle->read_from_log((unsigned char *)buffer, 
 				(unsigned long)ety->data.buf);
+    */
     buffer  += ety->data.len;
     size    += ety->data.len;
   }
@@ -58,12 +60,14 @@ int cyclone_serialize_last_applied(void *cyclone_handle, void *buf)
 void cyclone_deserialize_last_applied(void *cyclone_handle, raft_entry_t *ety)
 {
   cyclone_t* handle = (cyclone_t *)cyclone_handle;
+  /* TBD
   ety->data.buf = (void *)
     handle->double_append_to_raft_log
     ((unsigned char *)ety,
      sizeof(raft_entry_t),
      (unsigned char *)(ety + 1), 
      ety->data.len);
+  */
 }
 
 
@@ -344,10 +348,8 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
       				       int count)
 {
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state, raft_pstate_t);
-  log_t tmp = D_RO(root)->log;
-  struct circular_log *log = D_RW(tmp);
-  unsigned long tail = log->log_tail;
+  struct circular_log *log = cyclone_handle->log;
+  unsigned long tail = log->tail;
   raft_entry_t *e = ety;
   for(int i=0; i<count;i++,e++) {
     if(cyclone_is_leader(cyclone_handle)) {
@@ -363,24 +365,14 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
       exit(-1);
     }
     prev = e;
-    tail = cyclone_handle->append_to_raft_log_noupdate(log,
-      						       (unsigned char *)e,
-      						       sizeof(raft_entry_t),
-      						       tail);
+    tail = log_offer(log, m, tail, cyclone_handle->RAFT_LOGENTRIES);
+    if(tail == -1) {
+      BOOST_LOG_TRIVIAL(fatal) << "Out of raft logspace !";
+      exit(-1);
+    }
     e->data.buf = (void *)tail;
     int seg_no = 0;
     char *pkt_end;
-    if(cyclone_handle->log_space_left(log, tail) < (2*sizeof(int) + e->data.len)) {
-      BOOST_LOG_TRIVIAL(fatal) << "Out of RAFT logspace !!";
-      exit(-1);
-    }
-    copy_to_circular_log(cyclone_handle->pop_raft_state,
-			 log,
-			 cyclone_handle->RAFT_LOGSIZE,
-			 tail, 
-			 (unsigned char *)&e->data.len,
-			 sizeof(int));
-    tail = circular_log_advance_ptr(tail, sizeof(int), cyclone_handle->RAFT_LOGSIZE);
     while(m != NULL) {
       rpc_t *rpc;
       if(seg_no == 0) {
@@ -391,15 +383,6 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
       }
       pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
       while(true) {
-	copy_to_circular_log(cyclone_handle->pop_raft_state,
-			     log,
-			     cyclone_handle->RAFT_LOGSIZE,
-			     tail, 
-			     (unsigned char *)rpc,
-			     sizeof(rpc_t) + rpc->payload_sz);
-	tail = circular_log_advance_ptr(tail, 
-					sizeof(rpc_t) + rpc->payload_sz, 
-					cyclone_handle->RAFT_LOGSIZE);
 	//handle_cfg_change(cyclone_handle, e, (unsigned char *)rpc);
 	if(e->type != RAFT_LOGTYPE_ADD_NODE) { 
 	  rpc->wal.rep = REP_UNKNOWN;
@@ -409,16 +392,6 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	  void *pair[2];
 	  pair[0] = m;
 	  pair[1] = rpc;
-	  /*
-	  if(rte_ring_sp_enqueue(to_cores[core], m) == -ENOBUFS) {
-	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
-	    exit(-1);
-	  }
-	  if(rte_ring_sp_enqueue(to_cores[core], rpc) == -ENOBUFS) {
-	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
-	    exit(-1);
-	  }
-	  */
 	  if(rte_ring_sp_enqueue_bulk(to_cores[core], pair, 2) == -ENOBUFS) {
 	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
 	    exit(-1);
@@ -436,26 +409,8 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
       m = m->next;
       seg_no++;
     }
-    copy_to_circular_log(cyclone_handle->pop_raft_state,
-			 log,
-			 cyclone_handle->RAFT_LOGSIZE,
-			 tail, 
-			 (unsigned char *)&e->data.len,
-			 sizeof(int));
-    tail = circular_log_advance_ptr(tail, sizeof(int), cyclone_handle->RAFT_LOGSIZE);
-    
   }
-
-  persist_to_circular_log(cyclone_handle->pop_raft_state, 
-			  log,
-			  cyclone_handle->RAFT_LOGSIZE,
-			  log->log_tail,
-			  tail - log->log_tail);
-
-  log->log_tail = tail;
-
-  clflush(&log->log_tail, sizeof(unsigned long));
-
+  log_persist(log, tail, cyclone_handle->RAFT_LOGENTRIES);
   return 0;
 }
 
@@ -467,11 +422,11 @@ static int __raft_logentry_poll_batch(raft_server_t* raft,
 {
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
+  log_poll_batch(cyclone_handle->log, cnt, cyclone_handle->RAFT_LOGENTRIES);
   for(int i=0;i<cnt;i++) {
     rte_pktmbuf_free((rte_mbuf *)entry->pkt);
     entry++;
   }
-  cyclone_handle->double_remove_head_raft_log_cnt(cnt);
   return result;
 }
 
@@ -485,6 +440,7 @@ static int __raft_logentry_pop(raft_server_t* raft,
 {
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
+  log_pop(cyclone_handle->log, cyclone_handle->RAFT_LOGENTRIES);
   if(entry->type != RAFT_LOGTYPE_ADD_NODE) {
     int seg_no = 0;
     char *pkt_end;
@@ -514,7 +470,6 @@ static int __raft_logentry_pop(raft_server_t* raft,
     }
     rte_pktmbuf_free((rte_mbuf *)entry->pkt);
   }
-  cyclone_handle->double_remove_tail_raft_log();
   return result;
 }
 
@@ -599,14 +554,6 @@ int cyclone_get_term(void *cyclone_handle)
   return raft_get_current_term(handle->raft_handle);
 }
 
-static void init_log(PMEMobjpool *pop, void *ptr, void *arg)
-{
-  struct circular_log *log = (struct circular_log *)ptr;
-  log->log_head  = 0;
-  log->log_tail  = 0;
-}
-
-
 int dpdk_raft_monitor(void *arg)
 {
   struct cyclone_monitor *monitor = (struct cyclone_monitor *)arg;
@@ -663,7 +610,7 @@ void* cyclone_boot(const char *config_quorum_path,
   char me_str[100];
   sprintf(me_str, "%d", me);
   path_raft.append(me_str);
-  cyclone_handle->RAFT_LOGSIZE    = cyclone_handle->pt.get<unsigned long>("storage.logsize");
+  cyclone_handle->RAFT_LOGENTRIES = cyclone_handle->pt.get<int>("storage.logsize")/8;
   cyclone_handle->replicas        = cyclone_handle->pt.get<int>("quorum.replicas");
   cyclone_handle->me              = me;
   int baseport  = cyclone_handle->pt.get<int>("quorum.baseport"); 
@@ -675,7 +622,7 @@ void* cyclone_boot(const char *config_quorum_path,
     // TBD: figure out how to make this atomic
     cyclone_handle->pop_raft_state = pmemobj_create(path_raft.c_str(),
 						    POBJ_LAYOUT_NAME(raft_persistent_state),
-						    cyclone_handle->RAFT_LOGSIZE + PMEMOBJ_MIN_POOL,
+						    8*cyclone_handle->RAFT_LOGENTRIES + PMEMOBJ_MIN_POOL,
 						    0666);
     if(cyclone_handle->pop_raft_state == NULL) {
       BOOST_LOG_TRIVIAL(fatal)
@@ -691,11 +638,12 @@ void* cyclone_boot(const char *config_quorum_path,
       D_RW(root)->voted_for = -1;
       D_RW(root)->log = 
 	TX_ALLOC(struct circular_log, 
-		 (sizeof(struct circular_log) + cyclone_handle->RAFT_LOGSIZE));
+		 (sizeof(struct circular_log) + 8*cyclone_handle->RAFT_LOGENTRIES));
       log_t log = D_RO(root)->log;
+      cyclone_handle->log = D_RW(log);
       TX_ADD(log);
-      D_RW(log)->log_head = 0;
-      D_RW(log)->log_tail = 0;
+      D_RW(log)->head = 0;
+      D_RW(log)->tail = 0;
     } TX_ONABORT {
       BOOST_LOG_TRIVIAL(fatal) 
 	<< "Unable to allocate log:"
@@ -715,6 +663,8 @@ void* cyclone_boot(const char *config_quorum_path,
     BOOST_LOG_TRIVIAL(info) << "CYCLONE: Recovering state";
     TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state, raft_pstate_t);
     log_t log = D_RO(root)->log;
+    cyclone_handle->log = D_RW(log);
+    /* TBD
     raft_vote(cyclone_handle->raft_handle, 
 	      raft_get_node(cyclone_handle->raft_handle,
 			    D_RO(root)->voted_for));
@@ -730,8 +680,8 @@ void* cyclone_boot(const char *config_quorum_path,
       raft_append_entry(cyclone_handle->raft_handle, &ety);
     }
     BOOST_LOG_TRIVIAL(info) << "CYCLONE: Recovery complete";
+    */
   }
-
   // Note: set raft callbacks AFTER recovery
   raft_set_callbacks(cyclone_handle->raft_handle, &raft_funcs, cyclone_handle);
   raft_set_election_timeout(cyclone_handle->raft_handle, RAFT_ELECTION_TIMEOUT);

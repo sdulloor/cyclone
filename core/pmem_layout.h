@@ -2,8 +2,8 @@
 #define _PMEM_LAYOUT_
 struct circular_log
 {
-  unsigned long log_head;
-  unsigned long log_tail;
+  volatile int head;
+  volatile int tail;
 };
 POBJ_LAYOUT_BEGIN(raft_persistent_state);
 POBJ_LAYOUT_TOID(raft_persistent_state, struct circular_log)
