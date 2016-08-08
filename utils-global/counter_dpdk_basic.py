@@ -9,9 +9,9 @@ def launch_cmds_server_gen(f, q, r, m, quorums, replicas, clients):
     cmd=cmd + ' PMEM_IS_PMEM_FORCE=1 '
     cmd=cmd + 'counter_server '
     cmd=cmd + str(r) + ' '
-    cmd=cmd + str(replicas) + ' '
+    cmd=cmd + str(m) + ' '
     cmd=cmd + str(clients) + ' '
-    cmd=cmd + 'config_server.ini config_client.ini &> server_log &\n'
+    cmd=cmd + 'config_cluster.ini config_quorum.ini &> server_log &\n'
     f.write(cmd)
 
 def launch_cmds_preload_gen(f, m, c, quorums, replicas, clients, machines):
