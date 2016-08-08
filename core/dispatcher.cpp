@@ -273,29 +273,28 @@ int dpdk_executor(void *arg)
 void cyclone_network_init(const char *config_cluster_path, int me_mc, int queues)
 {
   boost::property_tree::ptree pt_cluster;
-  std::stringstream key;
-  std::stringstream addr;
   boost::property_tree::read_ini(config_cluster_path, pt_cluster);
+  char key[150];
   global_dpdk_context = (dpdk_context_t *)malloc(sizeof(dpdk_context_t));
   global_dpdk_context->me = me_mc;
   int cluster_machines = pt_cluster.get<int>("machines.count");
   global_dpdk_context->mc_addresses = (struct ether_addr *)
     malloc(cluster_machines*sizeof(struct ether_addr));
   for(int i=0;i<cluster_machines;i++) {
-    key.str("");key.clear();
-    addr.str("");addr.clear();
-    key << "machines.addr" << i;
-    addr << pt_cluster.get<std::string>(key.str().c_str());
-    sscanf(addr.str().c_str(),
+    sprintf(key, "machines.addr%d", i);
+    std::string s = pt_cluster.get<std::string>(key);
+    unsigned int bytes[6];
+    sscanf(s.c_str(),
 	   "%02X:%02X:%02X:%02X:%02X:%02X",
-	   &global_dpdk_context->mc_addresses[i].addr_bytes[0],
-	   &global_dpdk_context->mc_addresses[i].addr_bytes[1],
-	   &global_dpdk_context->mc_addresses[i].addr_bytes[2],
-	   &global_dpdk_context->mc_addresses[i].addr_bytes[3],
-	   &global_dpdk_context->mc_addresses[i].addr_bytes[4],
-	   &global_dpdk_context->mc_addresses[i].addr_bytes[5]);
+	   &bytes[0], &bytes[1], &bytes[2], &bytes[3], &bytes[4], &bytes[5]);
+    global_dpdk_context->mc_addresses[i].addr_bytes[0] = bytes[0];
+    global_dpdk_context->mc_addresses[i].addr_bytes[1] = bytes[1];
+    global_dpdk_context->mc_addresses[i].addr_bytes[2] = bytes[2];
+    global_dpdk_context->mc_addresses[i].addr_bytes[3] = bytes[3];
+    global_dpdk_context->mc_addresses[i].addr_bytes[4] = bytes[4];
+    global_dpdk_context->mc_addresses[i].addr_bytes[5] = bytes[5];
     BOOST_LOG_TRIVIAL(info) << "CYCLONE::COMM::DPDK Cluster machine "
-                            << addr.str().c_str();
+                            << s.c_str();
   }
   dpdk_context_init(global_dpdk_context,
 		    sizeof(struct ether_hdr) +

@@ -358,8 +358,8 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
     e->id = ety_idx + i;
     rte_mbuf *m = (rte_mbuf *)e->data.buf;
     rte_mbuf *saved_head = m;
-    // Stash away a clone. 
-    e->pkt = (void *)rte_pktmbuf_clone(m, global_dpdk_context->clone_pool); 
+    // Stash away a reference. 
+    e->pkt = m;
     if(e->pkt == NULL) {
       BOOST_LOG_TRIVIAL(fatal) << "Failed to create clone";
       exit(-1);
@@ -399,8 +399,6 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	  break;
 	rpc = (rpc_t *)point;
       }
-      // Release this mbuf -- we still have the clone
-      rte_mbuf_refcnt_update(m, -1);
       m = m->next;
       seg_no++;
     }
@@ -418,6 +416,17 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
   return 0;
 }
 
+static void free_mbuf_chain(rte_mbuf *m)
+{
+  rte_mbuf * tmp;
+  while(m != NULL) {
+    tmp = m;
+    m = m->next;
+    __sync_synchronize(); // Must get next before decrementing refcnt
+    rte_pktmbuf_free_seg(tmp);
+  }
+}
+
 static int __raft_logentry_poll_batch(raft_server_t* raft,
 				      void *udata,
 				      raft_entry_t *entry,
@@ -428,7 +437,7 @@ static int __raft_logentry_poll_batch(raft_server_t* raft,
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   log_poll_batch(cyclone_handle->log, cnt, cyclone_handle->RAFT_LOGENTRIES);
   for(int i=0;i<cnt;i++) {
-    rte_pktmbuf_free((rte_mbuf *)entry->pkt);
+    free_mbuf_chain((rte_mbuf *)entry->pkt);
     entry++;
   }
   return result;
@@ -472,7 +481,7 @@ static int __raft_logentry_pop(raft_server_t* raft,
       m = m->next;
       seg_no++;
     }
-    rte_pktmbuf_free((rte_mbuf *)entry->pkt);
+    free_mbuf_chain((rte_mbuf *)entry->pkt);
   }
   return result;
 }

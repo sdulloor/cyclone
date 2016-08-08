@@ -108,7 +108,6 @@ typedef struct {
   struct ether_addr *mc_addresses;
   struct rte_mempool **mempools;
   struct rte_mempool *extra_pool;
-  struct rte_mempool *clone_pool;
   struct rte_eth_dev_tx_buffer **buffers;
   int me;
   int port_id;
@@ -409,7 +408,7 @@ static void dpdk_context_init(dpdk_context_t *context,
   // Assume port 0, core 1 ....
 
   for(int i=0;i<queues;i++) {
-    char pool_name[50];
+    char pool_name[500];
     sprintf(pool_name, "mbuf_pool%d", i);
     // Mempool
     if(max_pktsize < 2048) {
@@ -447,17 +446,6 @@ static void dpdk_context_init(dpdk_context_t *context,
       if (context->extra_pool == NULL)
 	rte_exit(EXIT_FAILURE, "Cannot init mbuf extra pool\n");
       
-      
-      strcat(pool_name, "clone");
-      context->clone_pool = rte_pktmbuf_pool_create(pool_name,
-						    Q_BUFS*pack_ratio,
-						    4*PKT_BURST,
-						    0,
-						    0,
-						    rte_socket_id());
-      if (context->clone_pool == NULL)
-	rte_exit(EXIT_FAILURE, "Cannot init mbuf clone pool\n");
-	       
     }
 
     //tx queue
