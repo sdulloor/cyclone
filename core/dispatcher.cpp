@@ -397,7 +397,7 @@ void dispatcher_start(const char* config_cluster_path,
   for(int i=0;i < executor_threads;i++) {
     executor_t *ex = new executor_t();
     ex->tid = i;
-    int e = rte_eal_remote_launch(dpdk_executor, (void *)ex, 3 + i);
+    int e = rte_eal_remote_launch(dpdk_executor, (void *)ex, 2 + i);
     if(e != 0) {
       BOOST_LOG_TRIVIAL(fatal) << "Failed to launch executor on remote lcore";
       exit(-1);
