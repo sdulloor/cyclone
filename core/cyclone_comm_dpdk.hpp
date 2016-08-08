@@ -47,6 +47,8 @@
 #include <rte_ip.h>
 #include <rte_byteorder.h>
 
+#include "clwb_sim.hpp"
+
 #define JUMBO_FRAME_MAX_SIZE    0x2600
 #define RTE_TEST_RX_DESC_DEFAULT 128
 #define RTE_TEST_TX_DESC_DEFAULT 512
@@ -117,6 +119,16 @@ typedef struct {
   int buffered;
   int consumed;
 } dpdk_rx_buffer_t;
+
+static void persist_mbuf(rte_mbuf *m)
+{
+  int block_counts = 0;
+  while(m != NULL) {
+    block_counts = clflush_partial(m, sizeof(rte_mbuf), block_counts);
+    block_counts = clflush_partial(m->buf_addr, m->data_len, block_counts);
+    m = m->next;
+  }
+}
 
 static void initialize_ipv4_header(rte_mbuf *m,
 				   struct ipv4_hdr *ip_hdr, 
