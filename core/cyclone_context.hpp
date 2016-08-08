@@ -327,7 +327,7 @@ struct cyclone_monitor {
     unsigned long PERIODICITY_CYCLES = PERIODICITY*tsc_mhz;
     unsigned long elapsed_time;
     msg_entry_t *messages;
-    rte_mbuf *pkt_array[PKT_BURST], *m;
+    rte_mbuf *pkt_array[PKT_BURST], *m, *chain_tail;
     int chain_size[2*PKT_BURST];
     messages = (msg_entry_t *)malloc(2*PKT_BURST*sizeof(msg_entry_t));
     int available;
@@ -390,12 +390,15 @@ struct cyclone_monitor {
 	  if(accepted > 0 && 
 	     (messages[accepted - 1].data.len + pktadj2rpcsz(m)) <= MSG_MAXSIZE &&
 	     chain_size[accepted - 1] < PKT_BURST) {
-	    rte_mbuf *mprev = (rte_mbuf *)messages[accepted - 1].data.buf;
+	    rte_mbuf *mhead = (rte_mbuf *)messages[accepted - 1].data.buf;
 	    messages[accepted - 1].data.len += pktadj2rpcsz(m);
 	    // Wipe out the hdr in the chained packet
 	    del_adj_header(m);
 	    // Chain to prev packet
-	    rte_pktmbuf_chain(mprev, m);
+	    chain_tail->next = m;
+	    chain_tail = m;
+	    mhead->nb_segs++;
+	    mhead->pkt_len += m->data_len;
 	    chain_size[accepted - 1]++;
 	    //compact(mprev); // debug
 	  }
@@ -403,6 +406,7 @@ struct cyclone_monitor {
 	    messages[accepted].data.buf = (void *)m;
 	    messages[accepted].data.len = pktadj2rpcsz(m);
 	    messages[accepted].type = RAFT_LOGTYPE_NORMAL;
+	    chain_tail = m;
 	    accepted++;
 	  }
 	}
