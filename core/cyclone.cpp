@@ -357,14 +357,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
     }
     e->id = ety_idx + i;
     rte_mbuf *m = (rte_mbuf *)e->data.buf;
-    // Flush the packet to NVM
-    persist_mbuf(m);
-    // Add to log
-    tail = log_offer(log, m, tail, cyclone_handle->RAFT_LOGENTRIES);
-    if(tail == -1) {
-      BOOST_LOG_TRIVIAL(fatal) << "Out of raft logspace !";
-      exit(-1);
-    }
+    rte_mbuf *saved_head = m;
     // Stash away a clone. 
     e->pkt = (void *)rte_pktmbuf_clone(m, global_dpdk_context->clone_pool); 
     if(e->pkt == NULL) {
@@ -411,6 +404,15 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
       m = m->next;
       seg_no++;
     }
+    // Flush the packet to NVM
+    persist_mbuf(saved_head);
+    // Add to log
+    tail = log_offer(log, saved_head, tail, cyclone_handle->RAFT_LOGENTRIES);
+    if(tail == -1) {
+      BOOST_LOG_TRIVIAL(fatal) << "Out of raft logspace !";
+      exit(-1);
+    }
+
   }
   log_persist(log, tail, cyclone_handle->RAFT_LOGENTRIES);
   return 0;
