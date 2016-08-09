@@ -63,7 +63,6 @@ void init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
 
 int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie)
 {
-  while(building_image);
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   void *tx_handle;
   init_rpc_cookie_info(cookie, rpc);
@@ -84,37 +83,10 @@ int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie)
 
 void exec_rpc_internal_ro(rpc_t *rpc, int len, rpc_cookie_t *cookie)
 {
-  while(building_image);
   init_rpc_cookie_info(cookie, rpc);
   app_callbacks.rpc_callback((const unsigned char *)(rpc + 1),
 			     len - sizeof(rpc_t),
 			     cookie);
-}
-
-void checkpoint_callback(void *socket)
-{
-  build_image(socket);
-  state = pmemobj_open(get_checkpoint_fname(), "disp_state");
-  if(state == NULL) {
-    BOOST_LOG_TRIVIAL(fatal)
-      << "Unable to open pmemobj pool "
-      << get_checkpoint_fname()
-      << " for dispatcher state:"
-      << strerror(errno);
-    exit(-1);
-  }
-  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  TX_BEGIN(state) {
-    D_RW(root)->nvheap_root = 
-      app_callbacks.nvheap_setup_callback(D_RO(root)->nvheap_root, state);
-  } TX_ONABORT {
-    BOOST_LOG_TRIVIAL(fatal)
-      << "Application unable to recover state:"
-      << strerror(errno);
-    exit(-1);
-  } TX_END
-  BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered from checkpoint";
-  building_image = false;
 }
 
 typedef struct executor_st {
@@ -340,7 +312,6 @@ void dispatcher_start(const char* config_cluster_path,
   char me_str[100];
   sprintf(me_str,"%d", me);
   file_path.append(me_str);
-  init_checkpoint(file_path.c_str(), me);
   app_callbacks = *rpc_callbacks;
   bool i_am_active = false;
   for(int i=0;i<pt_quorum.get<int>("active.replicas");i++) {
@@ -405,7 +376,6 @@ void dispatcher_start(const char* config_cluster_path,
   router = new quorum_switch(&pt_cluster, &pt_quorum);
   cyclone_handle = cyclone_boot(config_quorum_path,
 				router,
-				&checkpoint_callback,
 				me,
 				clients,
 				NULL);

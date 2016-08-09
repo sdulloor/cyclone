@@ -394,6 +394,13 @@ struct cyclone_monitor {
 	    chain_tail = m;
 	    accepted++;
 	  }
+	  else if(rpc->code == RPC_REQ_NODEADD) {
+	    messages[accepted].data.buf = (void *)m;
+	    messages[accepted].data.len = pktadj2rpcsz(m);
+	    messages[accepted].type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
+	    chain_tail = m;
+	    accepted++;
+	  }
 	  else if(accepted > 0 && 
 		  (messages[accepted - 1].data.len + pktadj2rpcsz(m)) <= MSG_MAXSIZE &&
 		  messages[accepted - 1].type == RAFT_LOGTYPE_NORMAL &&

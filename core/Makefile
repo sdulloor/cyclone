@@ -19,8 +19,7 @@ BOOST_THREAD_LIB=-lboost_thread-mt
 #BOOST_THREAD_LIB=-lboost_thread
 
 
-libcyclone.a: libcyclone.o dispatcher.o dispatch_client.o \
-	checkpoint.o checkpoint_savepage.o
+libcyclone.a: libcyclone.o dispatcher.o dispatch_client.o
 	ar rcs $@ $^
 
 libcyclone.o: cyclone.cpp libcyclone.hpp

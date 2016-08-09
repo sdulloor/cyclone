@@ -37,40 +37,6 @@ static int __send_requestvote(raft_server_t* raft,
   return 0;
 }
 
-int cyclone_serialize_last_applied(void *cyclone_handle, void *buf)
-{
-  char *buffer = (char *)buf;
-  cyclone_t* handle = (cyclone_t *)cyclone_handle;
-  int size = 0;
-  raft_entry_t *ety = raft_last_applied_ety(handle->raft_handle);
-  if(ety != NULL) {
-    memcpy(buffer, ety, sizeof(raft_entry_t));
-    size += sizeof(raft_entry_t);
-    buffer  += sizeof(raft_entry_t);
-    /* TBD
-    (void)handle->read_from_log((unsigned char *)buffer, 
-				(unsigned long)ety->data.buf);
-    */
-    buffer  += ety->data.len;
-    size    += ety->data.len;
-  }
-  return size;
-}
-
-void cyclone_deserialize_last_applied(void *cyclone_handle, raft_entry_t *ety)
-{
-  cyclone_t* handle = (cyclone_t *)cyclone_handle;
-  /* TBD
-  ety->data.buf = (void *)
-    handle->double_append_to_raft_log
-    ((unsigned char *)ety,
-     sizeof(raft_entry_t),
-     (unsigned char *)(ety + 1), 
-     ety->data.len);
-  */
-}
-
-
 /** Raft callback for sending appendentries message */
 static void __send_appendentries_response(void *udata,
 					  raft_node_t *node,
@@ -227,32 +193,30 @@ static int __applylog(raft_server_t* raft,
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   unsigned char *chunk = (unsigned char *)pktadj2rpc((rte_mbuf *)ety->pkt);
   int delta_node_id;
-  if(ety->type != RAFT_LOGTYPE_ADD_NODE) {    
-    int seg_no = 0;
-    char *pkt_end;
-    rte_mbuf *m = (rte_mbuf *)(ety->pkt);
-    while(m != NULL) {
-      rpc_t *rpc;
-      if(seg_no == 0) {
-	rpc = pktadj2rpc(m);
-      }
-      else {
-	rpc = rte_pktmbuf_mtod(m, rpc_t *);
-      }
-      pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
-      while(true) {
-	rpc->wal.rep = REP_SUCCESS;
-	__sync_synchronize();
-	char *point = (char *)rpc;
-	point = point + sizeof(rpc_t);
-	point = point + rpc->payload_sz;
-	if(point >= pkt_end)
-	  break;
-	rpc = (rpc_t *)point;
-      }
-      m = m->next;
-      seg_no++;
+  int seg_no = 0;
+  char *pkt_end;
+  rte_mbuf *m = (rte_mbuf *)(ety->pkt);
+  while(m != NULL) {
+    rpc_t *rpc;
+    if(seg_no == 0) {
+      rpc = pktadj2rpc(m);
     }
+    else {
+      rpc = rte_pktmbuf_mtod(m, rpc_t *);
+    }
+    pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
+    while(true) {
+      rpc->wal.rep = REP_SUCCESS;
+      __sync_synchronize();
+      char *point = (char *)rpc;
+      point = point + sizeof(rpc_t);
+      point = point + rpc->payload_sz;
+      if(point >= pkt_end)
+	break;
+      rpc = (rpc_t *)point;
+    }
+    m = m->next;
+    seg_no++;
   }
 
   if(ety->type == RAFT_LOGTYPE_REMOVE_NODE) {
@@ -269,8 +233,9 @@ static int __applylog(raft_server_t* raft,
     BOOST_LOG_TRIVIAL(info) << "INIT nonvoting node " << delta_node_id;
   }
   else if(ety->type == RAFT_LOGTYPE_ADD_NODE) {
-    int *delta_node_idp = (int *)chunk;
-    BOOST_LOG_TRIVIAL(info) << "STARTUP node " << *delta_node_idp;
+    cfg_change_t *cfg = (cfg_change_t *)(chunk + sizeof(rpc_t));
+    delta_node_id = cfg->node;
+    BOOST_LOG_TRIVIAL(info) << "STARTUP node " << delta_node_id;
   }
   return 0;
 }
@@ -284,15 +249,13 @@ static void handle_cfg_change(cyclone_t * cyclone_handle,
     int delta_node_id = cfg->node;
     // call raft add non-voting node
     raft_add_non_voting_node(cyclone_handle->raft_handle,
-			     cfg->last_included_idx,
-			     //cyclone_handle->router->output_socket(delta_node_id),
 			     NULL,
 			     delta_node_id,
 			     delta_node_id == cyclone_handle->me ? 1:0);
-    
   }
   else if(ety->type == RAFT_LOGTYPE_ADD_NODE) {
-    int delta_node_id = *(int *)chunk;
+    cfg_change_t *cfg = (cfg_change_t *)((char *)chunk + sizeof(rpc_t));
+    int delta_node_id = cfg->node;
     // call raft add node
     raft_add_node(cyclone_handle->raft_handle,
 		  //cyclone_handle->router->output_socket(delta_node_id),
@@ -379,8 +342,9 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
       pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
       while(true) {
 	handle_cfg_change(cyclone_handle, e, (unsigned char *)rpc);
+	rpc->wal.rep = REP_UNKNOWN;
+	// Issue unless nodeadd final step
 	if(e->type != RAFT_LOGTYPE_ADD_NODE) { 
-	  rpc->wal.rep = REP_UNKNOWN;
 	  int core = rpc->client_id % executor_threads;
 	  //Increment refcount handoff segment for exec 
 	  rte_mbuf_refcnt_update(m, 1);
@@ -454,35 +418,33 @@ static int __raft_logentry_pop(raft_server_t* raft,
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   log_pop(cyclone_handle->log, cyclone_handle->RAFT_LOGENTRIES);
-  if(entry->type != RAFT_LOGTYPE_ADD_NODE) {
-    int seg_no = 0;
-    char *pkt_end;
-    rte_mbuf *m = (rte_mbuf *)(entry->pkt);
-    while(m != NULL) {
-      rpc_t *rpc;
-      if(seg_no == 0) {
-	rpc = pktadj2rpc(m);
-      }
-      else {
-	rpc = rte_pktmbuf_mtod(m, rpc_t *);
-      }
-      pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
-      while(true) {
-	__sync_synchronize();
-	rpc->wal.rep = REP_FAILED;
-	__sync_synchronize();
-	char *point = (char *)rpc;
-	point = point + sizeof(rpc_t);
-	point = point + rpc->payload_sz;
-	if(point >= pkt_end)
-	  break;
-	rpc = (rpc_t *)point;
-      }
-      m = m->next;
-      seg_no++;
+  int seg_no = 0;
+  char *pkt_end;
+  rte_mbuf *m = (rte_mbuf *)(entry->pkt);
+  while(m != NULL) {
+    rpc_t *rpc;
+    if(seg_no == 0) {
+      rpc = pktadj2rpc(m);
     }
-    free_mbuf_chain((rte_mbuf *)entry->pkt);
+    else {
+      rpc = rte_pktmbuf_mtod(m, rpc_t *);
+    }
+    pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
+    while(true) {
+      __sync_synchronize();
+      rpc->wal.rep = REP_FAILED;
+      __sync_synchronize();
+      char *point = (char *)rpc;
+      point = point + sizeof(rpc_t);
+      point = point + rpc->payload_sz;
+      if(point >= pkt_end)
+	break;
+      rpc = (rpc_t *)point;
+    }
+    m = m->next;
+    seg_no++;
   }
+  free_mbuf_chain((rte_mbuf *)entry->pkt);
   return result;
 }
 
@@ -491,24 +453,36 @@ void __raft_has_sufficient_logs(raft_server_t *raft,
 				void *user_data,
 				raft_node_t *node)
 {
-  msg_entry_t client_req;
-  msg_entry_response_t *client_rep;
+  msg_entry_t completion_entry;
   cyclone_t* cyclone_handle = (cyclone_t *)user_data;
-  client_req.id = rand();
-  if(client_req.id == 0) {
-    client_req.id = 1;
+  completion_entry.id = 1;
+  rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[q_dispatcher]);
+  if(m == NULL) {
+    BOOST_LOG_TRIVIAL(fatal) << "Unable to alloc membuf for addnode completion.";
+    exit(-1);
   }
-  client_req.data.buf = malloc(sizeof(int));
-  *(int *)client_req.data.buf = raft_node_get_id(node);
-  BOOST_LOG_TRIVIAL(info) << "NODE HAS SUFFICIENT LOGS " << *(int *)client_req.data.buf;
-  client_req.data.len = sizeof(int);
-  client_req.type = RAFT_LOGTYPE_ADD_NODE;
+  completion_entry.data.buf = m;
+  m->data_len = sizeof(ipv4_hdr) + 
+    sizeof(msg_t) + 
+    sizeof(msg_entry_t) + 
+    sizeof(rpc_t) +
+    sizeof(cfg_change_t);
+  m->pkt_len  = m->data_len;
+  rpc_t *rpc = pktadj2rpc(m);
+  rpc->code = RPC_REQ_NODEADDFINAL;
+  cfg_change_t *cfg = (cfg_change_t *)(rpc + 1);
+  cfg->node = raft_node_get_id(node);
+  BOOST_LOG_TRIVIAL(info) << "NODE HAS SUFFICIENT LOGS " << cfg->node;
+  completion_entry.data.len = pktadj2rpcsz(m);
+  completion_entry.type = RAFT_LOGTYPE_ADD_NODE;
   // TBD: Handle error
-  client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
-  (void)raft_recv_entry(cyclone_handle->raft_handle, 
-			&client_req, 
-			client_rep);
-  free(client_rep);
+  int e = raft_recv_entry_batch(cyclone_handle->raft_handle, 
+				&completion_entry,
+				NULL,
+				1);
+  if(e != 0) {
+    rte_pktmbuf_free(m);
+  }
 }
 
 /** Raft callback for displaying debugging information */
@@ -574,22 +548,8 @@ int dpdk_raft_monitor(void *arg)
   return 0;
 }
 
-static struct cyclone_img_load_st {
-  cyclone_t * cyclone_handle;
-  cyclone_build_image_t cyclone_build_image_callback;
-  void operator ()()
-  {
-    __sync_synchronize(); // Taking over socket
-    //cyclone_build_image_callback(cyclone_handle->router->control_input_socket());
-    cyclone_build_image_callback(NULL);
-    raft_unset_img_build(cyclone_handle->raft_handle);
-  }
-  
-} cyclone_image_loader;
-
 void* cyclone_boot(const char *config_quorum_path,
 		   void *router,
-		   cyclone_build_image_t cyclone_build_image_callback,
 		   int me,
 		   int clients,
 		   void *user_arg)
@@ -725,32 +685,11 @@ void* cyclone_boot(const char *config_quorum_path,
 
   // Must activate myself
   if(!i_am_active) {
-    raft_set_img_build(cyclone_handle->raft_handle);
+    raft_set_img_build(cyclone_handle->raft_handle); // do not become leader till image building is complete
     raft_add_peer(cyclone_handle->raft_handle,
 		  (void *)(unsigned long)cyclone_handle->router->replica_mc(cyclone_handle->me),
 		  cyclone_handle->me,
 		  1);
-
-    // Obtain and load checkpoint
-    int loaded_term, loaded_idx, master;
-    raft_entry_t *init_ety;
-    init_build_image(//cyclone_handle->router->control_input_socket(),
-		     NULL,
-		     &loaded_term,
-		     &loaded_idx,
-		     &master,
-		     (void **)&init_ety);
-    if(init_ety != NULL) {
-      cyclone_deserialize_last_applied(cyclone_handle, init_ety);
-    }
-    raft_loaded_checkpoint(cyclone_handle->raft_handle,
-			   loaded_term, 
-			   loaded_idx,
-			   init_ety,
-			   master);
-    cyclone_image_loader.cyclone_handle = cyclone_handle;
-    cyclone_image_loader.cyclone_build_image_callback = cyclone_build_image_callback;
-    cyclone_handle->checkpoint_thread = new boost::thread(boost::ref(cyclone_image_loader));
   }
   /* Launch cyclone service */
   __sync_synchronize(); // Going to give the thread control over the socket
