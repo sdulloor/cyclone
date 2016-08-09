@@ -387,9 +387,17 @@ struct cyclone_monitor {
 	    }
 	    continue;
 	  }
-	  if(accepted > 0 && 
-	     (messages[accepted - 1].data.len + pktadj2rpcsz(m)) <= MSG_MAXSIZE &&
-	     chain_size[accepted - 1] < PKT_BURST) {
+	  else if(rpc->code == RPC_REQ_NODEDEL) {
+	    messages[accepted].data.buf = (void *)m;
+	    messages[accepted].data.len = pktadj2rpcsz(m);
+	    messages[accepted].type = RAFT_LOGTYPE_REMOVE_NODE;
+	    chain_tail = m;
+	    accepted++;
+	  }
+	  else if(accepted > 0 && 
+		  (messages[accepted - 1].data.len + pktadj2rpcsz(m)) <= MSG_MAXSIZE &&
+		  messages[accepted - 1].type == RAFT_LOGTYPE_NORMAL &&
+		  chain_size[accepted - 1] < PKT_BURST) {
 	    rte_mbuf *mhead = (rte_mbuf *)messages[accepted - 1].data.buf;
 	    messages[accepted - 1].data.len += pktadj2rpcsz(m);
 	    // Wipe out the hdr in the chained packet

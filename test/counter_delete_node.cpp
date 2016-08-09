@@ -46,26 +46,19 @@
 
 
 int main(int argc, const char *argv[]) {
-  if(argc != 9) {
-    printf("Usage: %s client_id mc_id replicas clients server_prefix client_prefix partition replica\n", argv[0]); 
+  if(argc != 7) {
+    printf("Usage: %s client_id mc replicas cluster_config quorum_config node_to_delete\n", argv[0]);
     exit(-1);
   }
-  int me = atoi(argv[1]);
-  int replicas = atoi(argv[3]);
-  int clients  = atoi(argv[4]);
-  char fname_server[50];
-  char fname_client[50];
-  sprintf(fname_server, "%s%s.ini", argv[5], argv[7]);
-  sprintf(fname_client, "%s%s.ini", argv[6], argv[7]);
-  boost::property_tree::ptree pt_client;
-  boost::property_tree::read_ini(fname_client, pt_client);
-  void* handle = cyclone_client_init(me,
+  cyclone_network_init(argv[4], atoi(argv[2]), 1);
+  void* handle = cyclone_client_init(atoi(argv[1]),
 				     atoi(argv[2]),
-				     replicas,
-				     fname_server,
-				     fname_client);
+				     0,
+				     argv[4],
+				     argv[5]);
+  
   int ctr = get_last_txid(handle) + 1;
-  int sz  = delete_node(handle, ctr, atoi(argv[8])); 
-  BOOST_LOG_TRIVIAL(info) << "Done, code = " << sz;
+  int sz  = delete_node(handle, ctr, atoi(argv[6])); 
+  BOOST_LOG_TRIVIAL(info) << "Done";
   return 0;
 }

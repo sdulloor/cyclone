@@ -226,22 +226,37 @@ typedef struct executor_st {
 	}
       }
       else {
-	int e = exec_rpc_internal(client_buffer, sz, &cookie);
-	if(client_buffer->wal.leader) {
-	  if(e) {
-	    resp_buffer->code = RPC_REP_UNKNOWN;
+	if(client_buffer->code == RPC_REQ_NODEDEL) {
+	  while(client_buffer->wal.rep == REP_UNKNOWN);
+	  if(client_buffer->wal.leader) {
+	    if(client_buffer->wal.rep == REP_SUCCESS) {
+	      resp_buffer->code = RPC_REP_COMPLETE;
+	      client_reply(client_buffer, resp_buffer, NULL, 0, num_queues + tid);
+	    }
+	    else {
+	      resp_buffer->code = RPC_REP_UNKNOWN;
+	      client_reply(client_buffer, resp_buffer, NULL, 0, num_queues + tid);
+	    }
 	  }
-	  else {
-	    resp_buffer->code = RPC_REP_COMPLETE;
-	  }
-	  client_reply(client_buffer, 
-		       resp_buffer, 
-		       cookie.ret_value, 
-		       cookie.ret_size,
-		       num_queues + tid);
 	}
-	if(cookie.ret_size > 0) {
-	  free(cookie.ret_value);
+	else {
+	  int e = exec_rpc_internal(client_buffer, sz, &cookie);
+	  if(client_buffer->wal.leader) {
+	    if(e) {
+	      resp_buffer->code = RPC_REP_UNKNOWN;
+	    }
+	    else {
+	      resp_buffer->code = RPC_REP_COMPLETE;
+	    }
+	    client_reply(client_buffer, 
+			 resp_buffer, 
+			 cookie.ret_value, 
+			 cookie.ret_size,
+			 num_queues + tid);
+	  }
+	  if(cookie.ret_size > 0) {
+	    free(cookie.ret_value);
+	  }
 	}
       }
     }

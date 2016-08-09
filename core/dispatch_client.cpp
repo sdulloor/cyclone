@@ -90,6 +90,7 @@ typedef struct rpc_client_st {
     int resp_sz;
     while(true) {
       packet_out->code        = RPC_REQ_LAST_TXID;
+      packet_out->flags       = 0;
       packet_out->client_id   = me;
       packet_out->client_port = me_queue;
       packet_out->client_txid = (int)packet_out->timestamp;
@@ -133,11 +134,13 @@ typedef struct rpc_client_st {
     int resp_sz;
     while(true) {
       packet_out->code        = RPC_REQ_NODEDEL;
+      packet_out->flags       = 0;
       packet_out->client_id   = me;
       packet_out->client_port = me_queue;
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
+      packet_out->payload_sz  = sizeof(cfg_change_t);
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
       cfg->node = nodeid;
       send_to_server(sizeof(rpc_t) + sizeof(cfg_change_t));
@@ -150,9 +153,15 @@ typedef struct rpc_client_st {
 	update_server("Server not leader");
 	continue;
       }
+      if(packet_in->code == RPC_REP_UNKNOWN) {
+	continue;
+      }
       break;
     }
-    return packet_in->last_client_txid;
+    if(packet_in->code == RPC_REP_OLD) {
+      return RPC_EOLD;
+    }
+    return 0;
   }
 
   int add_node(int txid, int nodeid)
@@ -161,11 +170,13 @@ typedef struct rpc_client_st {
     int resp_sz;
     while(true) {
       packet_out->code        = RPC_REQ_NODEADD;
+      packet_out->flags       = 0;
       packet_out->client_id   = me;
       packet_out->client_port = me_queue;
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
+      packet_out->payload_sz  = sizeof(cfg_change_t);
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
       cfg->node      = nodeid;
       send_to_server(sizeof(rpc_t) + sizeof(cfg_change_t));
@@ -194,6 +205,7 @@ typedef struct rpc_client_st {
     packet_out->requestor   = me_mc;
     while(true) {
       packet_out->code        = RPC_REQ_STATUS;
+      packet_out->flags       = 0;
       send_to_server(sizeof(rpc_t));
       while(true) {
 	resp_sz = cyclone_rx_timeout(global_dpdk_context,

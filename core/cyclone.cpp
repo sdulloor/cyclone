@@ -378,7 +378,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
       }
       pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
       while(true) {
-	//handle_cfg_change(cyclone_handle, e, (unsigned char *)rpc);
+	handle_cfg_change(cyclone_handle, e, (unsigned char *)rpc);
 	if(e->type != RAFT_LOGTYPE_ADD_NODE) { 
 	  rpc->wal.rep = REP_UNKNOWN;
 	  int core = rpc->client_id % executor_threads;
