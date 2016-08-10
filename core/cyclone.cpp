@@ -231,7 +231,7 @@ static int __applylog(raft_server_t* raft,
   else if(ety->type == RAFT_LOGTYPE_ADD_NONVOTING_NODE) {
     cfg_change_t *cfg = (cfg_change_t *)(chunk + sizeof(rpc_t));
     delta_node_id = cfg->node;
-    BOOST_LOG_TRIVIAL(info) << "INIT nonvoting node " << delta_node_id;
+    BOOST_LOG_TRIVIAL(info) << "COMPLETE ADD nonvoting node " << delta_node_id;
     // TBD: This should be a signal from the application
     sending_checkpoints = 0;
   }
@@ -251,6 +251,7 @@ static void handle_cfg_change(cyclone_t * cyclone_handle,
     cfg_change_t *cfg = (cfg_change_t *)((char *)chunk + sizeof(rpc_t));
     int delta_node_id = cfg->node;
     // call raft add non-voting node
+    BOOST_LOG_TRIVIAL(info) << "ADD nonvoting node " << delta_node_id;
     raft_add_non_voting_node(cyclone_handle->raft_handle,
 			     (void *)(unsigned long)cyclone_handle->router->replica_mc(delta_node_id),
 			     delta_node_id,
