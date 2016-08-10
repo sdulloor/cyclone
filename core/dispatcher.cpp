@@ -27,7 +27,7 @@ extern struct rte_ring *from_cores;
 static quorum_switch *router;
 static PMEMobjpool *state;
 static rpc_callbacks_t app_callbacks;
-static volatile bool building_image = false;
+static volatile int sending_checkpoints = 0;
 static void client_reply(rpc_t *req, 
 			 rpc_t *rep,
 			 void *payload,
@@ -198,7 +198,7 @@ typedef struct executor_st {
 	}
       }
       else {
-	if(client_buffer->code == RPC_REQ_NODEDEL) {
+	if(client_buffer->code == RPC_REQ_NODEDEL || client_buffer->code == RPC_REQ_NODEADD) {
 	  while(client_buffer->wal.rep == REP_UNKNOWN);
 	  if(client_buffer->wal.leader) {
 	    if(client_buffer->wal.rep == REP_SUCCESS) {
@@ -325,7 +325,6 @@ void dispatcher_start(const char* config_cluster_path,
 
   if(!i_am_active) {
     BOOST_LOG_TRIVIAL(info) << "Starting inactive server";
-    building_image = true;
   }
   else {
     if(access(file_path.c_str(), F_OK)) {

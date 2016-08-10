@@ -9,6 +9,7 @@
 extern dpdk_context_t * global_dpdk_context;
 struct rte_ring ** to_cores;
 struct rte_ring *from_cores;
+extern volatile int sending_checkpoints;
 
 /** Raft callback for sending request vote message */
 static int __send_requestvote(raft_server_t* raft,
@@ -231,6 +232,8 @@ static int __applylog(raft_server_t* raft,
     cfg_change_t *cfg = (cfg_change_t *)(chunk + sizeof(rpc_t));
     delta_node_id = cfg->node;
     BOOST_LOG_TRIVIAL(info) << "INIT nonvoting node " << delta_node_id;
+    // TBD: This should be a signal from the application
+    sending_checkpoints = 0;
   }
   else if(ety->type == RAFT_LOGTYPE_ADD_NODE) {
     cfg_change_t *cfg = (cfg_change_t *)(chunk + sizeof(rpc_t));
@@ -249,9 +252,10 @@ static void handle_cfg_change(cyclone_t * cyclone_handle,
     int delta_node_id = cfg->node;
     // call raft add non-voting node
     raft_add_non_voting_node(cyclone_handle->raft_handle,
-			     NULL,
+			     (void *)(unsigned long)cyclone_handle->router->replica_mc(delta_node_id),
 			     delta_node_id,
 			     delta_node_id == cyclone_handle->me ? 1:0);
+    sending_checkpoints = 1; // Start sending checkpoints
   }
   else if(ety->type == RAFT_LOGTYPE_ADD_NODE) {
     cfg_change_t *cfg = (cfg_change_t *)((char *)chunk + sizeof(rpc_t));
@@ -449,12 +453,14 @@ static int __raft_logentry_pop(raft_server_t* raft,
 }
 
 /** Raft callback for detecting when a node has sufficient logs */
-void __raft_has_sufficient_logs(raft_server_t *raft,
-				void *user_data,
-				raft_node_t *node)
+int __raft_has_sufficient_logs(raft_server_t *raft,
+			       void *user_data,
+			       raft_node_t *node)
 {
   msg_entry_t completion_entry;
   cyclone_t* cyclone_handle = (cyclone_t *)user_data;
+  if(sending_checkpoints)
+    return -1;
   completion_entry.id = 1;
   rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[q_dispatcher]);
   if(m == NULL) {
@@ -685,11 +691,10 @@ void* cyclone_boot(const char *config_quorum_path,
 
   // Must activate myself
   if(!i_am_active) {
-    raft_set_img_build(cyclone_handle->raft_handle); // do not become leader till image building is complete
-    raft_add_peer(cyclone_handle->raft_handle,
-		  (void *)(unsigned long)cyclone_handle->router->replica_mc(cyclone_handle->me),
-		  cyclone_handle->me,
-		  1);
+    raft_add_non_voting_node(cyclone_handle->raft_handle,
+			     (void *)(unsigned long)cyclone_handle->router->replica_mc(cyclone_handle->me),
+			     cyclone_handle->me,
+			     1);
   }
   /* Launch cyclone service */
   __sync_synchronize(); // Going to give the thread control over the socket

@@ -25,7 +25,6 @@ typedef void (*cyclone_build_image_t)(void *socket);
 // Returns a cyclone handle
 extern void* cyclone_boot(const char *config_quorum_path,
 			  void *router,
-			  cyclone_build_image_t cyclone_build_image_callback,
 			  int me,
 			  int clients,
 			  void *user_arg);
@@ -34,9 +33,7 @@ extern void cyclone_shutdown(void *cyclone_handle);
 
 //////// Cfg changes
 typedef struct cfg_change_st {
-  int node; // Client fills in
-  int last_included_term; // server fills in
-  int last_included_idx; // server fills in
+  int node; // Node to be added/deleted
 } cfg_change_t;
 
 const int REP_UNKNOWN = 0;
@@ -71,15 +68,16 @@ typedef struct rpc_st {
 
 // Request
 
-static const int RPC_REQ_STATUS         = 0; // Check status (block on completion)
+static const int RPC_REQ_STATUS         = 0; // Check status 
 static const int RPC_REQ_LAST_TXID      = 1; // Get last seen txid from this client
-static const int RPC_REQ_FN             = 2; // Execute (block on completion)
-static const int RPC_REQ_NODEADD        = 3; // Add a replica (non blocking)
-static const int RPC_REQ_NODEDEL        = 4; // Delete a replica (non blocking)
-static const int RPC_REQ_NOOP           = 5; // No-op
+static const int RPC_REQ_FN             = 2; // Execute 
+static const int RPC_REQ_NODEADD        = 3; // Add a replica 
+static const int RPC_REQ_NODEADDFINAL   = 4; // Completion of add replica
+static const int RPC_REQ_NODEDEL        = 5; // Delete a replica 
+static const int RPC_REQ_NOOP           = 6; // No-op
 // Responses
-static const int RPC_REP_COMPLETE       = 6; // DONE 
-static const int RPC_REP_UNKNOWN        = 7; // UNKNOWN RPC
-static const int RPC_REP_INVSRV         = 8; // Not leader
-static const int RPC_REP_OLD            = 9; // RPC too old to cache results
+static const int RPC_REP_COMPLETE       = 7; // DONE 
+static const int RPC_REP_UNKNOWN        = 8; // UNKNOWN RPC
+static const int RPC_REP_INVSRV         = 9; // Not leader
+static const int RPC_REP_OLD            = 10; // RPC too old to cache results
 #endif
