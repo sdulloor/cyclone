@@ -323,53 +323,51 @@ void dispatcher_start(const char* config_cluster_path,
     }
   }
 
-  if(!i_am_active) {
+  if(i_am_active) {
     BOOST_LOG_TRIVIAL(info) << "Starting inactive server";
   }
+  if(access(file_path.c_str(), F_OK)) {
+    state = pmemobj_create(file_path.c_str(),
+			   POBJ_LAYOUT_NAME(disp_state),
+			   heapsize + PMEMOBJ_MIN_POOL,
+			   0666);
+    if(state == NULL) {
+      BOOST_LOG_TRIVIAL(fatal)
+	<< "Unable to creat pmemobj pool for dispatcher:"
+	<< strerror(errno);
+      exit(-1);
+    }
+    
+    TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+    TX_BEGIN(state) {
+      TX_ADD(root); // Add everything
+      D_RW(root)->nvheap_root = app_callbacks.nvheap_setup_callback(TOID_NULL(char), state);
+    } TX_ONABORT {
+      BOOST_LOG_TRIVIAL(fatal) 
+	<< "Unable to setup dispatcher state:"
+	<< strerror(errno);
+      exit(-1);
+    } TX_END
+  }
   else {
-    if(access(file_path.c_str(), F_OK)) {
-      state = pmemobj_create(file_path.c_str(),
-			     POBJ_LAYOUT_NAME(disp_state),
-			     heapsize + PMEMOBJ_MIN_POOL,
-			     0666);
-      if(state == NULL) {
-	BOOST_LOG_TRIVIAL(fatal)
-	  << "Unable to creat pmemobj pool for dispatcher:"
-	  << strerror(errno);
-	exit(-1);
-      }
-  
-      TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-      TX_BEGIN(state) {
-	TX_ADD(root); // Add everything
-	D_RW(root)->nvheap_root = app_callbacks.nvheap_setup_callback(TOID_NULL(char), state);
-      } TX_ONABORT {
-	BOOST_LOG_TRIVIAL(fatal) 
-	  << "Unable to setup dispatcher state:"
-	  << strerror(errno);
-	exit(-1);
-      } TX_END
+    state = pmemobj_open(file_path.c_str(), "disp_state");
+    if(state == NULL) {
+      BOOST_LOG_TRIVIAL(fatal)
+	<< "Unable to open pmemobj pool for dispatcher state:"
+	<< strerror(errno);
+      exit(-1);
     }
-    else {
-      state = pmemobj_open(file_path.c_str(), "disp_state");
-      if(state == NULL) {
-	BOOST_LOG_TRIVIAL(fatal)
-	  << "Unable to open pmemobj pool for dispatcher state:"
-	  << strerror(errno);
-	exit(-1);
-      }
-      TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-      TX_BEGIN(state) {
-	D_RW(root)->nvheap_root = 
-	  app_callbacks.nvheap_setup_callback(D_RO(root)->nvheap_root, state);
-      } TX_ONABORT {
-	BOOST_LOG_TRIVIAL(fatal)
-	  << "Application unable to recover state:"
-	  << strerror(errno);
-	exit(-1);
-      } TX_END
-      BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered state";
-    }
+    TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
+    TX_BEGIN(state) {
+      D_RW(root)->nvheap_root = 
+	app_callbacks.nvheap_setup_callback(D_RO(root)->nvheap_root, state);
+    } TX_ONABORT {
+      BOOST_LOG_TRIVIAL(fatal)
+	<< "Application unable to recover state:"
+	<< strerror(errno);
+      exit(-1);
+    } TX_END
+    BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered state";
   }
 
   router = new quorum_switch(&pt_cluster, &pt_quorum);
