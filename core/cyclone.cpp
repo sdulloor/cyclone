@@ -263,8 +263,7 @@ static void handle_cfg_change(cyclone_t * cyclone_handle,
     int delta_node_id = cfg->node;
     // call raft add node
     raft_add_node(cyclone_handle->raft_handle,
-		  //cyclone_handle->router->output_socket(delta_node_id),
-		  NULL,
+		  (void *)(unsigned long)cyclone_handle->router->replica_mc(delta_node_id),
 		  delta_node_id,
 		  delta_node_id == cyclone_handle->me ? 1:0);
   }
