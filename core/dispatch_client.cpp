@@ -189,9 +189,15 @@ typedef struct rpc_client_st {
 	update_server("Server not leader");
 	continue;
       }
+      if(packet_in->code == RPC_REP_UNKNOWN) {
+	continue;
+      }
       break;
     }
-    return packet_in->last_client_txid;
+    if(packet_in->code == RPC_REP_OLD) {
+      return RPC_EOLD;
+    }
+    return 0;
   }
 
   int retrieve_response(void **response, int txid)
