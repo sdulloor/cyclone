@@ -27,7 +27,7 @@ extern struct rte_ring *from_cores;
 static quorum_switch *router;
 static PMEMobjpool *state;
 static rpc_callbacks_t app_callbacks;
-static volatile int sending_checkpoints = 0;
+volatile int sending_checkpoints = 0;
 static void client_reply(rpc_t *req, 
 			 rpc_t *rep,
 			 void *payload,
