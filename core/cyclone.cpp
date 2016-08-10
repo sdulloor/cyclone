@@ -489,6 +489,7 @@ int __raft_has_sufficient_logs(raft_server_t *raft,
   if(e != 0) {
     rte_pktmbuf_free(m);
   }
+  return 0;
 }
 
 /** Raft callback for displaying debugging information */
