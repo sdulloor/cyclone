@@ -41,6 +41,8 @@ do
 	scp ${i}/* ${ip}:${deploy_dir}/${node}
 	if [ -f "$i/launch_servers" ] ; then
 	    scp exec_servers.sh ${ip}:${deploy_dir}/${node}
+	fi
+	if [ -f "$i/launch_inactive_servers" ] ; then
 	    scp exec_inactive_servers.sh ${ip}:${deploy_dir}/${node}
 	fi
 	scp exec_preload.sh ${ip}:${deploy_dir}/${node}

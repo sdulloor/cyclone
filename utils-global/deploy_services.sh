@@ -15,5 +15,11 @@ do
 	    clush -w ${ip} 'rm -rf /dev/shm/*.cyclone*'
 	    clush -w ${ip} ${deploy_dir}/${node}/exec_servers.sh
 	fi
+	if [ -f "$i/launch_inactive_servers" ] ; then
+	    node=$(basename $i)
+	    ip=`cat ${i}/ip_address`
+	    echo "cleaning up on node $node"
+	    clush -w ${ip} 'rm -rf /dev/shm/*.cyclone*'
+	fi
     fi
 done
