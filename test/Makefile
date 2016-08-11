@@ -8,7 +8,7 @@ all: counter_server counter_driver_noop_mt counter_delete_node counter_add_node
 CXXFLAGS = -O3 -DBOOST_LOG_DYN_LINK
 #CXXFLAGS = -O1 -g -fno-omit-frame-pointer -DBOOST_LOG_DYN_LINK
 
-LIBS = -lc -lcyclone -lcraft -lzmq -lboost_system -lboost_date_time -lpmemobj -lpmem -lpthread
+LIBS = -lc -lcyclone /usr/lib/libcraft.a -lzmq -lboost_system -lboost_date_time -lpmemobj -lpmem -lpthread
 #DPDK extras
 RTE_SDK=/root/dpdk-16.04
 CXXFLAGS += -DDPDK_STACK
