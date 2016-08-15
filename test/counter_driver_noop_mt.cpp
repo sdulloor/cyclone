@@ -83,7 +83,7 @@ int driver(void *arg)
   int ctr[partitions];
   for(int i=0;i<partitions;i++) {
     BOOST_LOG_TRIVIAL(info) << "Connecting to quorum " << i;
-    ctr[i] = get_last_txid(handles[i]) + 1;
+    ctr[i] = get_last_txid(handles[i], 0) + 1;
     BOOST_LOG_TRIVIAL(info) << "Done";
   }
 

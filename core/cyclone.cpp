@@ -564,7 +564,6 @@ void* cyclone_boot(const char *config_quorum_path,
   cyclone_t *cyclone_handle;
   std::stringstream key;
   std::stringstream addr;
-  char ringname[50];
   
   cyclone_handle = new cyclone_t();
   cyclone_handle->user_arg   = user_arg;

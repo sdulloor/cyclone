@@ -342,7 +342,7 @@ struct cyclone_monitor {
     while(!terminate) {
       // Handle any outstanding requests
       available = rte_eth_rx_burst(global_dpdk_context->port_id,
-				   my_q(q_raft),
+				   cyclone_handle->my_q(q_raft),
 				   &pkt_array[0],
 				   PKT_BURST);
       cyclone_handle->ae_response_cnt = 0;
@@ -360,7 +360,7 @@ struct cyclone_monitor {
       memset(chain_size, 0, 2*PKT_BURST);
       while(accepted <= PKT_BURST) {
 	available = rte_eth_rx_burst(global_dpdk_context->port_id,
-				     my_q(q_dispatcher),
+				     cyclone_handle->my_q(q_dispatcher),
 				     &pkt_array[0],
 				     PKT_BURST);
 	if(available == 0) {

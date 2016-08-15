@@ -312,6 +312,7 @@ void dispatcher_start(const char* config_cluster_path,
   file_path.append(me_str);
   app_callbacks = *rpc_callbacks;
   bool i_am_active = false;
+  char ringname[50];
 
   // Initialize comm rings
   
@@ -387,7 +388,7 @@ void dispatcher_start(const char* config_cluster_path,
   }
 
   for(int i=0;i<quorums;i++) {
-    router = new quorum_switch(&pt_cluster, &pt_quorum);
+    quorum_switch *router = new quorum_switch(&pt_cluster, &pt_quorum);
     cyclone_boot(config_quorum_path,
 		 router,
 		 i,
