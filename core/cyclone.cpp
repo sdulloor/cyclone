@@ -115,7 +115,7 @@ static int __send_appendentries_opt(raft_server_t* raft,
     msg->ae.term          = m->term;
     msg->source        = cyclone_handle->me;
     // Bump refcnt, add ethernet header and handoff for transmission
-    rte_mbuf *e = rte_pktmbuf_alloc(global_dpdk_context->extra_pool);
+    rte_mbuf *e = rte_pktmbuf_alloc(global_dpdk_context->extra_pools[cyclone_handle->me_quorum]);
     if(e == NULL) {
       BOOST_LOG_TRIVIAL(info) << "Unable to allocate header ";
       break;

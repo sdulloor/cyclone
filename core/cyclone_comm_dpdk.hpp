@@ -107,7 +107,7 @@ static void init_fdir_conf()
 typedef struct {
   struct ether_addr *mc_addresses;
   struct rte_mempool **mempools;
-  struct rte_mempool *extra_pool;
+  struct rte_mempool **extra_pools;
   struct rte_eth_dev_tx_buffer **buffers;
   int me;
   int port_id;
@@ -405,6 +405,7 @@ static void dpdk_context_init(dpdk_context_t *context,
   context->mempools = (rte_mempool **)malloc(queues*sizeof(rte_mempool *));
   context->buffers   = (rte_eth_dev_tx_buffer **)malloc
     (queues*sizeof(rte_eth_dev_tx_buffer *));
+  context->extra_pools = (rte_mempool **)malloc(num_quorums*sizeof(rte_mempool *));
   // Assume port 0, core 1 ....
 
   for(int i=0;i<queues;i++) {
@@ -425,8 +426,10 @@ static void dpdk_context_init(dpdk_context_t *context,
     
     
     BOOST_LOG_TRIVIAL(info) << "Init mempool max pktsize = " << max_pktsize;
+    bool is_disp_pool = (i < num_queues*num_quorums) && (i % num_queues == q_dispatcher);
+    bool is_raft_pool = (i < num_queues*num_quorums) && (i % num_queues == q_raft);
     context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
-						   i != q_dispatcher ? Q_BUFS:Q_BUFS*pack_ratio,
+						   !is_disp_pool ? Q_BUFS:Q_BUFS*pack_ratio,
 						   32,
 						   0,
 						   RTE_PKTMBUF_HEADROOM + max_pktsize,
@@ -434,16 +437,16 @@ static void dpdk_context_init(dpdk_context_t *context,
     if (context->mempools[i] == NULL)
       rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
 
-    if(i == q_raft) {
-      strcat(pool_name, "extra");
-      context->extra_pool = rte_pktmbuf_pool_create(pool_name,
-						    Q_BUFS,
-						    4*PKT_BURST,
-						    0,
-						    RTE_PKTMBUF_HEADROOM + sizeof(struct ether_hdr),
-						    rte_socket_id());
-
-      if (context->extra_pool == NULL)
+    if(is_raft_pool) {
+      sprintf(pool_name, "extra_%d", i);
+      context->extra_pools[i/num_queues] = rte_pktmbuf_pool_create(pool_name,
+								  Q_BUFS,
+								  4*PKT_BURST,
+								  0,
+								  RTE_PKTMBUF_HEADROOM + sizeof(struct ether_hdr),
+								  rte_socket_id());
+      
+      if (context->extra_pools[i/num_queues] == NULL)
 	rte_exit(EXIT_FAILURE, "Cannot init mbuf extra pool\n");
       
     }
