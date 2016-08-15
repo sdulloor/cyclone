@@ -128,6 +128,7 @@ typedef struct cyclone_st {
   quorum_switch *router;
   int replicas;
   int me;
+  int me_quorum;
   boost::thread *checkpoint_thread;
   int RAFT_LOGENTRIES;
   PMEMobjpool *pop_raft_state;
@@ -137,24 +138,30 @@ typedef struct cyclone_st {
   unsigned char* cyclone_buffer_out;
   unsigned char* cyclone_buffer_in;
   cyclone_monitor *monitor_obj;
+  volatile int sending_checkpoints;
 
   msg_t ae_responses[PKT_BURST];
   int ae_response_sources[PKT_BURST];
   int ae_response_cnt;
 
+  int my_q(int q)
+  {
+    return num_queues*me_quorum + q;
+  }
+  
   void send_msg(msg_t *msg, int dst_replica)
   {
-    rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[q_raft]);
+    rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[my_q(q_raft)]);
     if(m == NULL) {
       BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send mesg";
     }
     cyclone_prep_mbuf(global_dpdk_context, 
 		      router->replica_mc(dst_replica), 
-		      q_raft, 
+		      my_q(q_raft), 
 		      m, 
 		      msg, 
 		      sizeof(msg_t));
-    cyclone_tx(global_dpdk_context, m, q_raft);
+    cyclone_tx(global_dpdk_context, m, my_q(q_raft));
   }
   
   void send_ae_responses()
@@ -335,7 +342,7 @@ struct cyclone_monitor {
     while(!terminate) {
       // Handle any outstanding requests
       available = rte_eth_rx_burst(global_dpdk_context->port_id,
-				   q_raft,
+				   my_q(q_raft),
 				   &pkt_array[0],
 				   PKT_BURST);
       cyclone_handle->ae_response_cnt = 0;
@@ -353,7 +360,7 @@ struct cyclone_monitor {
       memset(chain_size, 0, 2*PKT_BURST);
       while(accepted <= PKT_BURST) {
 	available = rte_eth_rx_burst(global_dpdk_context->port_id,
-				     q_dispatcher,
+				     my_q(q_dispatcher),
 				     &pkt_array[0],
 				     PKT_BURST);
 	if(available == 0) {
@@ -373,11 +380,11 @@ struct cyclone_monitor {
 	     rpc->code == RPC_REQ_STATUS ||  
 	     rpc->flags & RPC_FLAG_RO) {
 	    if(cyclone_is_leader(cyclone_handle)) {
-	      if(rte_ring_sp_enqueue(to_cores[core], m) == -ENOBUFS) {
+	      if(rte_ring_mp_enqueue(to_cores[core], m) == -ENOBUFS) {
 		BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
 		exit(-1);
 	      }
-	      if(rte_ring_sp_enqueue(to_cores[core], rpc) == -ENOBUFS) {
+	      if(rte_ring_mp_enqueue(to_cores[core], rpc) == -ENOBUFS) {
 		BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
 		exit(-1);
 	      }

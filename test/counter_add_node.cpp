@@ -42,6 +42,7 @@
 #include "counter.hpp"
 #include "../core/clock.hpp"
 #include "../core/logging.hpp"
+#include "../core/tuning.hpp"
 #include <libcyclone.hpp>
 
 
@@ -56,9 +57,11 @@ int main(int argc, const char *argv[]) {
 				     0,
 				     argv[4],
 				     argv[5]);
-  
-  int ctr = get_last_txid(handle) + 1;
-  int sz  = add_node(handle, ctr, atoi(argv[6])); 
+  int ctr = get_last_txid(handle, i) + 1;
+  for(int i=0;i<num_quorums;i++) {
+    int sz  = add_node(handle, ctr, i, atoi(argv[6]));
+    ctr++;
+  }
   BOOST_LOG_TRIVIAL(info) << "Done";
   return 0;
 }

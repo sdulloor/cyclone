@@ -9,7 +9,6 @@
 extern dpdk_context_t * global_dpdk_context;
 struct rte_ring ** to_cores;
 struct rte_ring *from_cores;
-extern volatile int sending_checkpoints;
 
 /** Raft callback for sending request vote message */
 static int __send_requestvote(raft_server_t* raft,
@@ -233,7 +232,7 @@ static int __applylog(raft_server_t* raft,
     delta_node_id = cfg->node;
     BOOST_LOG_TRIVIAL(info) << "COMPLETE ADD nonvoting node " << delta_node_id;
     // TBD: This should be a signal from the application
-    sending_checkpoints = 0;
+    cyclone_handle->sending_checkpoints = 0;
   }
   else if(ety->type == RAFT_LOGTYPE_ADD_NODE) {
     cfg_change_t *cfg = (cfg_change_t *)(chunk + sizeof(rpc_t));
@@ -256,7 +255,7 @@ static void handle_cfg_change(cyclone_t * cyclone_handle,
 			     (void *)(unsigned long)cyclone_handle->router->replica_mc(delta_node_id),
 			     delta_node_id,
 			     delta_node_id == cyclone_handle->me ? 1:0);
-    sending_checkpoints = 1; // Start sending checkpoints
+    cyclone_handle->sending_checkpoints = 1; // Start sending checkpoints
   }
   else if(ety->type == RAFT_LOGTYPE_ADD_NODE) {
     cfg_change_t *cfg = (cfg_change_t *)((char *)chunk + sizeof(rpc_t));
@@ -355,7 +354,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	  void *pair[2];
 	  pair[0] = m;
 	  pair[1] = rpc;
-	  if(rte_ring_sp_enqueue_bulk(to_cores[core], pair, 2) == -ENOBUFS) {
+	  if(rte_ring_mp_enqueue_bulk(to_cores[core], pair, 2) == -ENOBUFS) {
 	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
 	    exit(-1);
 	  }
@@ -459,7 +458,7 @@ int __raft_has_sufficient_logs(raft_server_t *raft,
 {
   msg_entry_t completion_entry;
   cyclone_t* cyclone_handle = (cyclone_t *)user_data;
-  if(sending_checkpoints)
+  if(cyclone_handle->sending_checkpoints)
     return -1;
   completion_entry.id = 1;
   rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[q_dispatcher]);
@@ -557,6 +556,7 @@ int dpdk_raft_monitor(void *arg)
 
 void* cyclone_boot(const char *config_quorum_path,
 		   void *router,
+		   int quorum_id,
 		   int me,
 		   int clients,
 		   void *user_arg)
@@ -565,35 +565,19 @@ void* cyclone_boot(const char *config_quorum_path,
   std::stringstream key;
   std::stringstream addr;
   char ringname[50];
-
-  to_cores = (struct rte_ring **)malloc(executor_threads*sizeof(struct rte_ring *));
-
-  sprintf(ringname, "FROM_CORES");
-  from_cores =  rte_ring_create(ringname, 
-				65536,
-				rte_socket_id(), 
-				RING_F_SC_DEQ);
-  for(int i=0;i<executor_threads;i++) {
-    sprintf(ringname, "TO_CORE%d", i);
-    to_cores[i] =  rte_ring_create(ringname, 
-				   65536,
-				   rte_socket_id(), 
-				   RING_F_SC_DEQ|RING_F_SP_ENQ); 
-  }
   
-
   cyclone_handle = new cyclone_t();
   cyclone_handle->user_arg   = user_arg;
   
   boost::property_tree::read_ini(config_quorum_path, cyclone_handle->pt);
   std::string path_raft           = cyclone_handle->pt.get<std::string>("storage.raftpath");
   char me_str[100];
-  sprintf(me_str, "%d", me);
+  sprintf(me_str, "%d.%d", me, quorum_id);
   path_raft.append(me_str);
   cyclone_handle->RAFT_LOGENTRIES = cyclone_handle->pt.get<int>("storage.logsize")/8;
   cyclone_handle->replicas        = cyclone_handle->pt.get<int>("quorum.replicas");
   cyclone_handle->me              = me;
-  int baseport  = cyclone_handle->pt.get<int>("quorum.baseport"); 
+  cyclone_handle->me_quorum       = quorum_id;
   cyclone_handle->raft_handle = raft_new();
   raft_set_multi_inflight(cyclone_handle->raft_handle);
 
@@ -689,7 +673,8 @@ void* cyclone_boot(const char *config_quorum_path,
   cyclone_handle->cyclone_buffer_out = new unsigned char[MSG_MAXSIZE];
   cyclone_handle->monitor_obj    = new cyclone_monitor();
   cyclone_handle->monitor_obj->cyclone_handle    = cyclone_handle;
-
+  cyclone_handle->sending_checkpoints = 0;
+  
   // Must activate myself
   if(!i_am_active) {
     raft_add_non_voting_node(cyclone_handle->raft_handle,

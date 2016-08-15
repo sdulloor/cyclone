@@ -11,34 +11,38 @@ introduction of directly addressable non-volatile memory both in the form of
 battery backed non-volatile DIMMs as well as newer memory types such as
 3D XPoint. Datacenter applications typically use storage devices to survive
 faults that take one more machines offline by combining the persistence offered by
-durable storage with availability through replication. Building such fault
-tolerant applications is hard and users are forced to either build
-them from scratch or modify their applications to fit the interfaces of solutions
-such as zookeeper. In addition to a loss of flexibility such applications today
-are unable to take advantage of the speed of directly attached non-volatile
-memory as opposed to older slower storage in the form of disks and SSDs.
+durable storage with availability through replication. Unfortunately, building
+fault tolerant applications is known to be hard - users must reason about and
+deal with faults by adding fault recovery to their applications. In addition,
+replication comes with performance overheads that current research contends can
+only be overcome with sophisticated network hardware and intrusive application
+changes such as RDMA.
 
-This paper presents Cyclone - fault tolerance middleware that exposes a
-replicated and durable heap. This heap can be directly manipulated using loads and
-stores. Cyclone provides both failure atomicity as well as
-strongly consistent replication when updates to the heap are enclosed in
-software transactions thereby giving strong guarantees to programmers
-with minimal effort on their part. Under the hood Cyclone decouples modification
-of local persistent memory from replication to maximize performance. Unlike
-traditional systems that provide strong replication, the ``in-memory'' image is
-persistent and there is no need for checkpoints - except when new replicas are
-added. In addition linearizable reads can be directly executed without the need to
-combine pending updates from a log.
+This paper presents Cyclone - fault tolerance middleware for adding reliability
+via replication to applications written for NVM. Cyclone aims for API
+transparency - replicating RPC calls across replicas for client-server programs
+to cause minimum disruption to NVM programming models. In addition, Cyclone
+provides at most once RPC execution across the set of replicas with the
+  ability to recall the result of the last executed RPC call. As we demonstrate
+in the paper - this is sufficient to execute distributed transactions without
+the need for users to explicitly handle fault recovery. Cyclone also includes a
+high performance but light weight zero copy batching implementation of the RAFT
+consensus protocol built around the DPDK network stack. This allows a single
+machine to efficiently support multiple RAFT logs at the same time, making full
+use of available network resources, replicating tens of millions of RPC calls a
+second. This allows Cyclone to provide transparent performance - that is -
+minimal performance overheads for concurrent applications written for NVM that
+also wish to use Cyclone for fault tolerance without limiting themselves to
+distributed transactions on RDMA capable network hardware.
 \end{abstract}  
 
-%\section{Introduction}
-
-\section{Single Node Programming Model}
-Cyclone provides users with a replicated and durable heap that can be
-manipulated via a set of library routines. Cyclone builds on top of Intel's Non
-Volatile Memory Library (NVML) and provides transparent replication to programs
-written to use NVML for persistence on a single node. This section therefore
-describes NVML's programming model.
+\section{Introduction}
+TBD
+\section{Background: Single Node Programming Model}
+Cyclone builds on top of Intel's Non Volatile Memory Library (NVML) and provides
+transparent replication to programs written to use NVML for persistence on a
+single node. We describe NVML's programming model in this section to provide
+adequate background for the rest of this paper.
 
 NVML provides special functions to allocate and free persistent memory as well
 as fat pointers to persistent memory to ensure that referential integrity in the
@@ -77,7 +81,7 @@ respectively. Other than the mechanics of using fat pointers the code entirely
 resembles that which a programmer might write for a standard linked list in
 DRAM.
 
-\section{Failure Atomicity}
+\subsection{Failure Atomicity}
 Programmers typically find it hard to reason about failures when writing
 code. This is a problem when directly manipulating data structures in persistent
 memory. Depending on the specifics of the system architecture, updates to
@@ -103,8 +107,7 @@ about objects that are updated. Figure~\ref{fig:example_fatomic} shows how to
 convert the function for adding a node to a linked list into a failure atomic
 one. The only additions are the transaction delimiters and the {\tt TX\_ADD}
 calls to mark the objects being updated \emph{before} the actual updates to
-them. Figure~\ref{fig:undo_log} shows how Cyclone maintains the undo-log of
-objects.
+them.
 
 \begin{figure}
 { \scriptsize
@@ -131,46 +134,9 @@ void insert_after(TOID(ll_node) prev, TOID(ll_node) new_node)
 \label{fig:example_fatomic}
 \end{figure}
 
-\begin{figure}
-{ \scriptsize
-\begin{verbatim}
-TX_BEGIN()
-{
-  Initialize undo log
-}
-
-TX_ADD(o)
-{
-  if(o not already in undo log) {
-    Append <o, value of o> to undo log
-  }
-}
-
-TX_END()
-{
-  for each entry <o, v> in undo log {
-    flush o to persistent storage
-  }
-  truncate undo log
-}
-
-Recover()
-{
-  for each entry <o, v> in undo log {
-    set o to v
-    flush o to persistent storage
-  }   
-}
-
-\end{verbatim}
-}
-\caption{Undo Log in Cyclone}
-\label{fig:undo_log}
-\end{figure}
-
 A crucial feature of NVML is that it abstracts the details of the persistence
 mechanism away from programmers. This allows the same code to be deployed on
-clusters with a range of persistence mechanisms - mapping pages from secondary
+across a range of persistence mechanisms - mapping pages from secondary
 storage such as SSDs, using battery backed NVDIMMs, using an onboard battery to
 save DRAM state to SSD on failure [FARM] or using directly accessed persistent
 memory [PMFS]. Each of these options has different requirements. For example the
@@ -184,54 +150,42 @@ right persistence mechanism without requiring code using the library to be aware
 of these details.
 
 \section{Replication}
-Cyclone replicates the state of the NVML heap across multiple machines in a
-cluster. Cyclone provides strong consistency - a majority of machines in the
-quorum of replicas always agrees on the current state of the NVM heap. Unlike
-traditional approaches to strong replication however, Cyclone is designed to
-decouple replication from execution of user code modifying NVM. It does so by
-encapsulating changes to the NVM heap in server side code driven by client RPC
-requests. We chose this model since it closely reflects the use cases most
-suitable for NVM-based clusters.
+Cyclone is designed to add fault tolerance to NVML client server applications
+via replication - multiple machines maintain \emph{equivalent} state. Server
+state is queried and manipulated via RPC calls from clients. Cyclone's approach
+to replication is simple - we replicate the RPC call itself across replicas
+rather than replicating every access made during execution of the RPC call,
+which would be prohibitively expensive.
 
-Cyclone replicates state \emph{by executing the same sequence of RPC calls on
-  all members of the quorum}. By executing the same sequence of RPC calls on all
-machines we end up with the same state\footnote{We discuss how to handle
-  non-determinism in Section~\ref{sec:synch}}. Cyclone uses RAFT [cite usenix
-  raft paper] under the hood for consensus on the log of RPC calls - although
-any other similar state machine replication protocol such as
-Paxos is also suitable. Cyclone provides the means to clients to achieve exactly
-once semantics for the RPC calls they make by numbering RPC calls and
-remembering the number and result of the last executed RPC call at the server end.
+Cyclone provides strongly consistent replication - every machines in the quorum of
+replicas maintains a log of RPC calls and all machines agree on the sequnce of
+RPC calls in the log. We achieve this by running an instance of the RAFT [raft]
+consensus protocol to keep the log of RPC calls on different machines in
+synchronization. The standard replicated state machine approach requires that
+commands (entries in the log) be committed before they can be applied to the
+state machine i.e. in our case - the RPC call be executed. However, the fact
+that RPC calls that modify state must themselves be executed in a crash
+consistent transaction allows us to overlap execution with replication as we
+describe next.
 
-\subsection{RPC Call Numbering}
-Cyclone is preconfigured for a fixed (large) number of clients. All RPC calls
-from a client are numbered and Cyclone remembers (in a persistent manner) the
-number and result of the last RPC call made by a client. A particular client can
-exist on any machine - cyclone treats all instances of the client as a single
-client. Cyclone rejects RPC calls that are not in sequence. Any RPC call is
-executed exactly once across the quorum - regardless of failure and
-reconfigurations. This provides the means for clients to easily achieve exactly
-once semantics, provided the client does not crash. Cyclone can supply the last
-executed RPC call number and its result to assist recovering and stateless
-clients.
+\subsection{Decoupled Replication}
+Cyclone decouples execution of the RPC call on any replica from its replication
+by performing them in parallel to save time. Normally, this is a problem with
+any consenus protocol including RAFT as replication might failt for a number of
+reasons primarily due to a change of leader and subsequent of rollback of
+previously appended (but not committed) log entries. In order to achieve
+decoupled replication therefore Cyclone depends on the ability of NVML to roll
+back crash consistent transactions. The ability to roll back a crash consistent
+transaction is important to tolerate power failure as incomplete transactions
+must be rolled back after recovery from a power failure to preserve the
+integrity of the heap. NVML also allows the user to roll back a transaction if
+needed. Cyclone exploits this feature by delaying the commit of the failure
+atomic transaction after execution till replication is complete. In the event
+that replication fails, the transaction is aborted and any changes to the non
+volatile heap are rolled back.
 
-\subsection{Asynchronous Replication}
-By default, Cyclone decouples execution of the RPC call on any replica from its
-replication. This is particularly beneficial to performance since it allows
-overlapping the update of non-volatile state with the network I/O associated
-with replication. Making the call to the application and executing the it in a
-failure atomic transaction takes a
-significant amount of time and therefore it makes sense to overlap this with the
-round-trip delay on the network for replication. This is possible in Cyclone
-since we use failure atomic transactions that can be rolled back. Replication
-can fail due to various reasons such as failure of nodes, a network partition or
-a new leader getting elected in the underlying replication protocol
-(we refer to this as a view change). Since failure atomic transactions can be
-rolled back, we are able to speculatively apply the changes to NVM without
-waiting for replication to finish.
-
-The runtime steps for asynchronous replication are shown in
-Figure~\ref{fig:async_rep}.
+A pseudocode description of how the runtime handles decoupled replication is
+shown in Figure~\ref{fig:async_rep}.
 
 \begin{figure}
 { \scriptsize
@@ -250,159 +204,61 @@ TX_BEGIN {
 \label{fig:async_rep}
 \end{figure}
 
-\subsection{Synchronous Replication}
-\label{sec:synch}
-Asynchronous replication provides good performance but lacks guarantees
-occasionally necessary for distributed systems paradigms such as output commit
-and the ability to integrate code that has non-deterministic execution paths
-(such as being dependent on the current time) or side effects - such as making
-further requests. Cyclone therefore provides programmers the ability to closely
-synchronize execution across the replicas using synchronous
-replication. Synchronous replication extends the programming model provided by
-cyclone - but neccessitates some awareness on the part of the user about the
-difference between the leader and follower replicas. We show later
-(Sec~\ref{sec:examples}) how this awareness enables the crafting of efficient
-fault tolerant applications with little effort on the part of the programmer.
+Asynchronous replication provides good performance and we believe would be the
+common case for RPC calls replicated via Cyclone. However the program might on
+occasion require successful replication to be a precondition to exection. A case
+where we find this necessary is output commit - where the RPC call has external
+side effects, such as communicating with other machines in the cluster and
+therefore crash consistency is insufficient to roll back the execution of the
+RPC call in the event that replication fails. We therefore provide users the
+ability to declare at the client side that an RPC call should execute
+synchronously at the server side. This results in Cyclone ensuring that the RPC
+call is successfully replicated before it attempts execution on any of the
+replicas.
 
-Figure~\ref{fig:sync_rep} shows how synchronous replication operates.  Execution
-of the RPC call \emph{waits until the call and its arguments have been
-  replicated.} This crucial difference from asynchronous RPC execution ensures
-that any externally visible side effects of the RPC such as calls to other
-machines only happen after it is guaranteed that the effects of the RPC call
-will be committed to the replicas. This provides the output commit property
-necessary in some applications.
+\subsection{Zero Copy Batching}
+Replication protocols are expensive to operate - fact that has been underlined in
+multiple pieces of research [FARM, in a box]. It would therefore appear that
+replication would become the bottleneck in Cyclone. We observed however that
+previous work did not implement replication around a high performance network
+stack possibly explaining why they chose both high performance hardware (40
+GigE+ NICS, custom FPGA designs) as well as specific high performance but
+restrictive software APIs (one sided RDMA with metadata co-location, application
+compiled down to the FPGA). As a counterpoint, we designed Cyclone around DPDK
+[dpdk] a high performance user-space network stack. DPDK provides convenient
+access to packets arriving at an ethernet NIC by moving them into packet buffers
+with the contained cache lines also directly placed into the last level cache of
+the CPU during DMA, a first step to a high performance implementation of RAFT.
 
-Next, the RPC call is executed on the leader and the result of the RPC call is
-replicated to the followers. The followers then proceed to execute the RPC call
-locally taking into account the result from the leader. This result can include
-data to synchronize non-deterministic steps such as reading the time on the
-replica.
+A second step is the observation that replication is by definition a zero copy
+activity. The exact same RPC call must be sent to all replicas - the protocol
+state machine by itself has no role to play in the contents of the log
+entries. We therefore designed our implementation of RAFT in Cyclone to avoid
+copying incoming packets containing RPC calls from clients when replicating
+them. The only addition from the protocol is a RAFT specific header containing
+the current term and index of the RPC call in the RAFT log and term of the
+leader, which is prepended to the packet before sending it out for replication.
 
-This process is made conditional on the view (current configuration of
-replicas and choice of leader) staying unchanged. To successfully complete
-execution, the leader must be able to execute the RPC call and replicate the
-result within the current view. This ensures that in the event of a network
-partition and later repair, an old execution of a previous leader cannot commit a
-log record with results from a synchronously executed RPC call.
+The third and final step is batching. Although simple, RAFT's consensus protocol
+requires a non-zero number of CPU cycles to process each entry in log. To
+amortize this cost, we make extensive use of batching. DPDK by itself can
+efficiently batch incoming packets under load - allowing the user to easily
+receive a burst (currently limited to 32) packets rather than a single one for a
+polling call. DPDKs separation of packet data from metadata means that we can
+chain these packets together and treat them as a single log entry for the
+purposes of replication.
 
-\begin{figure*}
-\centering
-\begin{minipage}{0.7\textwidth}  
-{ \scriptsize
-\begin{verbatim}
-Initiate replication of RPC call and arguments
-Block till replication of RPC call returns
-if(replication success) {  
-  while (true) { // Must complete 
-    view = current RAFT view (term)
-    TX_BEGIN {
-      if(is_leader && !have_execution_result) {
-        Execute RPC call and modify local NVM
-        replicate result in view;
-        Block till result replication returns
-        if(result replication failed) {
-          TX_ABORT;
-        }
-      }
-      else {
-        Block till committed result replication or view changes
-        if(!committed result replication) {
-          TX_ABORT;
-        }
-        Execute RPC call to modify local NVM with result from leader
-      }
-    } TX_ONABORT {
-      continue; // Try again
-    } TX_END
-    break; // All done
-  }
-}
-\end{verbatim}
-}
-\end{minipage}
-\caption{Synchronous Replication}
-\label{fig:sync_rep}
-\end{figure*}
+TBD - put it together diagram.
 
-\section{Concurrency}
-\subsection{Network}
-The single leader in RAFT is responsible for sending every log entry to every
-replica. Sending log entries one by one or even in batches causes inefficient
-use of the network link between the leader replica and followers when the leader
-must wait for an acknowledgment from the follower before sending the next batch
-of log entries. The solution is to send log entries from the leader as they are
-appended to its log without waiting for an acknowledgment. The result however is
-that entries can arrive out of order at follower replicas due to an unreliable
-network.
+\subsection{Multiple RAFT Logs}
+Say we maintain multiple RAFT logs on the same machine with dedicated NIC queue pairs.
 
-We note that RAFT as specified already tolerates out of order arrival of log
-entries at follower replicas (a newly elected leader assumed replicas are up to
-date when it starts sending out log entries). However follower replicas can only
-apply log entries \emph{in order}- dropping log entries that cannot be applied
-to extend the log at a follower replica. To bridge this gap, with no changes to
-the protocol, we added an in-memory cache of log entries (that we dub the log
-cache) at follower replicas to cache log fragments that arrive out of
-order. These are then applied opportunistically as soon as all preceding entries
-have arrived.
+\subsection{RPC Call Execution}
+Call steering
+Exactly once
 
-Pseudocode for the log cache is shown in Figure~\ref{fig:logcache}.
 
-\begin{figure}
-{ \scriptsize
-\begin{verbatim}
-on ReceiveEntry(leaderTerm, entry) {
-  if (leaderTerm < logcache_term) {
-    drop entry // Stale
-  }
-  else if(leaderTerm > logcache_term){
-    drop all entries from logcache
-    logcache_term = leaderTerm
-  }
-  while(entry = canAdd(raftLog, logcache)) {
-    AddEntry(raftLog, entry);
-    RemoveEntry(logcache, entry)
-    Send RAFT response for entry;
-  }
-}
-\end{verbatim}
-}
-\caption{Logcache}
-\label{fig:logcache}
-\end{figure}
-
-The log cache is built around the key property of RAFT that there is exactly one
-leader in any term and the log at the leader of a term can only be appended to. We
-therefore need only support adding entries to the log cache and flush the entire
-log cache on detecting a change in leadership due to a term larger than that of
-the leader whose entries are cached. Application of log entries follows the
-normal RAFT protocol where the last entry in the log must match the desired
-previous log index and previous log entry term specified in the new entry to be
-appended.
-
-The log cache enables leaders to send batches of log entries as soon as they are
-available rather than waiting for an acknowledgment from followers for the
-previous batch - enabling better utilization of the network link. We note
-however that the leader continues to track the last log entry \emph{known} to be
-replicated at any follower (the {\tt match index} in the RAFT protocol
-specification) as usual and resends log fragments on timeouts - tolerating
-unreliable networks that drop log fragments.
-
-In addition to better utilization of the network link out of the leader replica,
-the log cache also enables the leader replica to effectively offload the work of
-replication. To do so it simply informs the client originating the log entry of
-the list of replicas to which the entry must be sent. The client sends the
-entries, collects the responses and responds to the leader replica as soon as a
-majority quorum has responded. From the perspective of the RAFT protocol the
-client simply acts as an unreliable router. The log cache allows follower
-replicas to utilize chunks that might arrive out of order from different
-assisting clients. The benefit of such a scheme is that the replication load on
-the leader (in terms of network bandwidth) is distributed across the clients
-with a larger load (more clients) permitting more offload. As we show in the
-evaluation this is an effective technique to keeping tail latency under control
-in Cyclone deployments that can tolerate the loss in performance due to the
-extra hop but are willing to pay that price for better tail latencies.
-
-\section{Example Application}
+\section{Putting it Together - A linearizable hash table}
 \label{sec:examples}
 We now demonstrate how Cyclone can be used in practise by putting together an
 example of a linearizable set of counters. The problem is to construct a sparse

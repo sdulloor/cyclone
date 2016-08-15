@@ -25,6 +25,7 @@ typedef void (*cyclone_build_image_t)(void *socket);
 // Returns a cyclone handle
 extern void* cyclone_boot(const char *config_quorum_path,
 			  void *router,
+			  int quorum_id,
 			  int me,
 			  int clients,
 			  void *user_arg);

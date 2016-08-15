@@ -24,6 +24,11 @@ typedef struct rpc_client_st {
   int replicas;
   unsigned long channel_seq;
   dpdk_rx_buffer_t *buf;
+
+  int quorum_q(int quorum_id, int q)
+  {
+    return num_queues*quorum_id + q;
+  }
   
   void update_server(const char *context)
   {
@@ -69,7 +74,7 @@ typedef struct rpc_client_st {
     return resp_sz;
   }
 
-  void send_to_server(int sz)
+  void send_to_server(int sz, int quorum_id)
   {
     rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[me_queue]);
     if(mb == NULL) {
@@ -77,14 +82,14 @@ typedef struct rpc_client_st {
     }
     cyclone_prep_mbuf(global_dpdk_context,
 		      router->replica_mc(server),
-		      q_dispatcher,
+		      quorum_q(quorum_id, q_dispatcher),
 		      mb,
 		      packet_out,
 		      sz);
     cyclone_tx(global_dpdk_context, mb, me_queue);
   }
 
-  int get_last_txid()
+  int get_last_txid(int quorum_id)
   {
     int retcode;
     int resp_sz;
@@ -97,7 +102,7 @@ typedef struct rpc_client_st {
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
       packet_out->payload_sz  = 0;
-      send_to_server(sizeof(rpc_t));
+      send_to_server(sizeof(rpc_t), quorum_id);
       while(true) {
 	resp_sz = cyclone_rx_timeout(global_dpdk_context,
 				     me_queue,
@@ -128,7 +133,7 @@ typedef struct rpc_client_st {
     return packet_in->last_client_txid;
   }
 
-  int delete_node(int txid, int nodeid)
+  int delete_node(int txid, int quorum_id, int nodeid)
   {
     int retcode;
     int resp_sz;
@@ -143,7 +148,7 @@ typedef struct rpc_client_st {
       packet_out->payload_sz  = sizeof(cfg_change_t);
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
       cfg->node = nodeid;
-      send_to_server(sizeof(rpc_t) + sizeof(cfg_change_t));
+      send_to_server(sizeof(rpc_t) + sizeof(cfg_change_t), quorum_id);
       resp_sz = common_receive_loop(sizeof(rpc_t) + sizeof(cfg_change_t));
       if(resp_sz == -1) {
 	update_server("rx timeout");
@@ -164,7 +169,7 @@ typedef struct rpc_client_st {
     return 0;
   }
 
-  int add_node(int txid, int nodeid)
+  int add_node(int txid, int quorum_id, int nodeid)
   {
     int retcode;
     int resp_sz;
@@ -179,7 +184,7 @@ typedef struct rpc_client_st {
       packet_out->payload_sz  = sizeof(cfg_change_t);
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
       cfg->node      = nodeid;
-      send_to_server(sizeof(rpc_t) + sizeof(cfg_change_t));
+      send_to_server(sizeof(rpc_t) + sizeof(cfg_change_t), quorum_id);
       resp_sz = common_receive_loop(sizeof(rpc_t) + sizeof(cfg_change_t));
       if(resp_sz == -1) {
 	update_server("rx timeout");
@@ -200,7 +205,7 @@ typedef struct rpc_client_st {
     return 0;
   }
 
-  int retrieve_response(void **response, int txid)
+  int retrieve_response(void **response, int txid, int quorum_id)
   {
     int retcode;
     int resp_sz;
@@ -212,7 +217,7 @@ typedef struct rpc_client_st {
     while(true) {
       packet_out->code        = RPC_REQ_STATUS;
       packet_out->flags       = 0;
-      send_to_server(sizeof(rpc_t));
+      send_to_server(sizeof(rpc_t), quorum_id);
       while(true) {
 	resp_sz = cyclone_rx_timeout(global_dpdk_context,
 				     me_queue,
@@ -250,7 +255,7 @@ typedef struct rpc_client_st {
     return (int)(resp_sz - sizeof(rpc_t));
   }
   
-  int make_rpc(void *payload, int sz, void **response, int txid, int flags)
+  int make_rpc(void *payload, int sz, void **response, int txid, int quorum_id, int flags)
   {
     int retcode;
     int resp_sz;
@@ -265,7 +270,7 @@ typedef struct rpc_client_st {
       packet_out->requestor   = me_mc;
       packet_out->payload_sz  = sz;
       memcpy(packet_out + 1, payload, sz);
-      send_to_server(sizeof(rpc_t) + sz);
+      send_to_server(sizeof(rpc_t) + sz, quorum_id);
       resp_sz = common_receive_loop(sizeof(rpc_t) + sz);
       if(resp_sz == -1) {
 	update_server("rx timeout, make rpc");
@@ -287,7 +292,7 @@ typedef struct rpc_client_st {
     return (int)(resp_sz - sizeof(rpc_t));
   }
 
-  int make_noop_rpc(int txid, int flags)
+  int make_noop_rpc(int txid, int quorum_id, int flags)
   {
     int retcode;
     int resp_sz;
@@ -301,7 +306,7 @@ typedef struct rpc_client_st {
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
       packet_out->payload_sz  = 0;
-      send_to_server(sizeof(rpc_t));
+      send_to_server(sizeof(rpc_t), quorum_id);
       resp_sz = common_receive_loop(sizeof(rpc_t));
       if(resp_sz == -1) {
 	update_server("rx timeout, make rpc");
@@ -363,6 +368,7 @@ int make_rpc(void *handle,
 	     int sz,
 	     void **response,
 	     int txid,
+	     int quorum_id,
 	     int flags)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
@@ -372,37 +378,38 @@ int make_rpc(void *handle,
 			     << " DISP_MAX_MSGSIZE = " << DISP_MAX_MSGSIZE;
     exit(-1);
   }
-  return client->make_rpc(payload, sz, response, txid, flags);
+  return client->make_rpc(payload, sz, response, txid, quorum_id, flags);
 }
 
 int make_noop_rpc(void *handle,
 		  int txid,
+		  int quorum_id,
 		  int flags)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->make_noop_rpc(txid, flags);
+  return client->make_noop_rpc(txid, quorum_id, flags);
 }
 
-int get_last_txid(void *handle)
+int get_last_txid(void *handle, int quorum_id)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->get_last_txid();
+  return client->get_last_txid(quorum_id);
 }
 
-int get_response(void *handle, void **response, int txid)
+int get_response(void *handle, void **response, int txid, int quorum_id)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->retrieve_response(response, txid);
+  return client->retrieve_response(response, txid, quorum_id);
 }
 
-int delete_node(void *handle, int txid, int node)
+int delete_node(void *handle, int txid, int quorum_id, int node)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->delete_node(txid, node);
+  return client->delete_node(txid, quorum_id, node);
 }
 
-int add_node(void *handle, int txid, int node)
+int add_node(void *handle, int txid, int quorum_id, int node)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->add_node(txid, node);
+  return client->add_node(txid, quorum_id, node);
 }

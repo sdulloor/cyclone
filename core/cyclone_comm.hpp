@@ -15,7 +15,8 @@ const int MSG_MAXSIZE  = 3500; // Maximum user data in pkt
 class quorum_switch {
   int* replicas;
 public:
-  quorum_switch(boost::property_tree::ptree *cluster, boost::property_tree::ptree *quorum)
+  quorum_switch(boost::property_tree::ptree *cluster,
+		boost::property_tree::ptree *quorum)
   {
     std::stringstream key;
     std::stringstream addr;

@@ -25,9 +25,8 @@ static const int zmq_threads = 4;
 static const int q_junk       = 0;
 static const int q_raft       = 1;
 static const int q_dispatcher = 2;
-static const int q_control    = 3;
-static const int q_client     = 4;
-static const int num_queues   = 5;
+static const int num_queues   = 3;
+static const int num_quorums  = 5;
 static const int Q_BUFS = 8191;
 
 

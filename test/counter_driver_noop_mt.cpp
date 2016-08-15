@@ -42,6 +42,7 @@
 #include "counter.hpp"
 #include "../core/clock.hpp"
 #include "../core/logging.hpp"
+#include "../core/tuning.hpp"
 #include <libcyclone.hpp>
 #include <rte_launch.h>
 
@@ -114,11 +115,15 @@ int driver(void *arg)
 		  sizeof(struct proposal),
 		  (void **)&resp,
 		  ctr[partition],
+		  rand()%num_quorums,
 		  rpc_flags);
     */
     int rpc_flags = 0;
     // int rpc_flags = RPC_FLAG_RO;
-    sz = make_noop_rpc(handles[partition], ctr[partition], rpc_flags);
+    sz = make_noop_rpc(handles[partition],
+		       ctr[partition],
+		       rand() % num_quorums,
+		       rpc_flags);
     ctr[partition]++;
     tx_block_cnt++;
     /*

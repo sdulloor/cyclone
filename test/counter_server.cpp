@@ -276,7 +276,9 @@ int main(int argc, char *argv[])
   else {
     sleep_time = 0;
   }
-  cyclone_network_init(argv[4], atoi(argv[2]), num_queues + executor_threads);
+  cyclone_network_init(argv[4],
+		       atoi(argv[2]),
+		       num_queues*num_quorums + executor_threads);
   dispatcher_start(argv[4], 
 		   argv[5], 
 		   &rpc_callbacks,

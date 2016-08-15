@@ -20,14 +20,11 @@
 #include "checkpoint.hpp"
 #include "cyclone_context.hpp"
 
-static void *cyclone_handle;
 dpdk_context_t * global_dpdk_context = NULL;
 extern struct rte_ring ** to_cores;
 extern struct rte_ring *from_cores;
-static quorum_switch *router;
 static PMEMobjpool *state;
 static rpc_callbacks_t app_callbacks;
-volatile int sending_checkpoints = 0;
 static void client_reply(rpc_t *req, 
 			 rpc_t *rep,
 			 void *payload,
@@ -309,11 +306,30 @@ void dispatcher_start(const char* config_cluster_path,
   // Load/Setup state
   std::string file_path = pt_quorum.get<std::string>("dispatch.filepath");
   unsigned long heapsize = pt_quorum.get<unsigned long>("dispatch.heapsize");
+  int quorums = pt_quorum.get<int>("quorums");
   char me_str[100];
   sprintf(me_str,"%d", me);
   file_path.append(me_str);
   app_callbacks = *rpc_callbacks;
   bool i_am_active = false;
+
+  // Initialize comm rings
+  
+  to_cores = (struct rte_ring **)malloc(executor_threads*sizeof(struct rte_ring *));
+
+  sprintf(ringname, "FROM_CORES");
+  from_cores =  rte_ring_create(ringname, 
+				65536,
+				rte_socket_id(), 
+				RING_F_SC_DEQ);
+  for(int i=0;i<executor_threads;i++) {
+    sprintf(ringname, "TO_CORE%d", i);
+    to_cores[i] =  rte_ring_create(ringname, 
+				   65536,
+				   rte_socket_id(), 
+				   RING_F_SC_DEQ); 
+  }
+  
   for(int i=0;i<pt_quorum.get<int>("active.replicas");i++) {
     char nodeidxkey[100];
     sprintf(nodeidxkey, "active.entry%d",i);
@@ -370,16 +386,19 @@ void dispatcher_start(const char* config_cluster_path,
     BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered state";
   }
 
-  router = new quorum_switch(&pt_cluster, &pt_quorum);
-  cyclone_handle = cyclone_boot(config_quorum_path,
-				router,
-				me,
-				clients,
-				NULL);
+  for(int i=0;i<quorums;i++) {
+    router = new quorum_switch(&pt_cluster, &pt_quorum);
+    cyclone_boot(config_quorum_path,
+		 router,
+		 i,
+		 me,
+		 clients,
+		 NULL);
+  }
   for(int i=0;i < executor_threads;i++) {
     executor_t *ex = new executor_t();
     ex->tid = i;
-    int e = rte_eal_remote_launch(dpdk_executor, (void *)ex, 2 + i);
+    int e = rte_eal_remote_launch(dpdk_executor, (void *)ex, 1 + num_quorums + i);
     if(e != 0) {
       BOOST_LOG_TRIVIAL(fatal) << "Failed to launch executor on remote lcore";
       exit(-1);

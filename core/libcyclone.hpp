@@ -94,23 +94,26 @@ int make_rpc(void *handle,
 	     int sz,
 	     void **response,
 	     int txid,
+	     int quorum_id,
 	     int rpc_flags);
 // Noop RPC -- do nothing at the other end
 // client txid is essentially ignored
 int make_noop_rpc(void *handle,
 		  int txid,
+		  int quorum_id,
 		  int rpc_flags);
 
 // Get last accepred txid
-int get_last_txid(void *handle);
+int get_last_txid(void *handle, int quorum_id);
 // Get the last response
 int get_response(void *handle,
 		 void **response,
-		 int txid);
+		 int txid,
+		 int quorum_id);
 
-int delete_node(void *handle, int txid, int node);
+int delete_node(void *handle, int txid, int quorum_id, int node);
 
-int add_node(void *handle, int txid, int node);
+int add_node(void *handle, int txid, int quorum_id, int node);
 
 
 // Possible flags 
