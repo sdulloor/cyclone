@@ -107,15 +107,6 @@ const int  MSG_REQUESTVOTE              = 1;
 const int  MSG_REQUESTVOTE_RESPONSE     = 2;
 const int  MSG_APPENDENTRIES            = 3;
 const int  MSG_APPENDENTRIES_RESPONSE   = 4;
-const int  MSG_CLIENT_REQ               = 5;
-const int  MSG_CLIENT_REQ_BATCH         = 6;
-const int  MSG_CLIENT_REQ_TERM          = 7;
-const int  MSG_CLIENT_STATUS            = 8;
-const int  MSG_CLIENT_REQ_CFG           = 9;
-const int  MSG_CLIENT_REQ_SET_IMGBUILD  = 10;
-const int  MSG_CLIENT_REQ_UNSET_IMGBUILD= 11;
-const int  MSG_ASSISTED_APPENDENTRIES   = 12;
-const int  MSG_ASSISTED_QUORUM_OK       = 13;
 
 extern struct rte_ring ** to_cores;
 extern struct rte_ring *from_cores;

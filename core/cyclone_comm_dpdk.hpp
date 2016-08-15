@@ -216,7 +216,6 @@ static void cyclone_prep_mbuf(dpdk_context_t *context,
 
 static void cyclone_prep_eth(dpdk_context_t *context,
 			     int dst,
-			     int dst_q,
 			     struct ether_hdr *eth)
 {
   memset(eth, 0, sizeof(struct ether_hdr));

@@ -104,7 +104,7 @@ typedef struct executor_st {
 		   resp_buffer, 
 		   NULL, 
 		   0,
-		   num_queues + tid);
+		   num_queues*num_quorums + tid);
     }
     else if(client_buffer->code == RPC_REQ_STATUS) {
       cookie.client_id = client_buffer->client_id;
@@ -116,7 +116,7 @@ typedef struct executor_st {
 		     resp_buffer, 
 		     NULL, 
 		     0,
-		     num_queues + tid);
+		     num_queues*num_quorums + tid);
       }
       else if(cookie.client_txid == client_buffer->client_txid) {
 	resp_buffer->code = RPC_REP_COMPLETE;
@@ -124,7 +124,7 @@ typedef struct executor_st {
 		     resp_buffer, 
 		     cookie.ret_value, 
 		     cookie.ret_size,
-		     num_queues + tid);
+		     num_queues*num_quorums + tid);
       }
       else {
 	resp_buffer->code = RPC_REP_OLD;
@@ -132,7 +132,7 @@ typedef struct executor_st {
 		     resp_buffer, 
 		     NULL,
 		     0,
-		     num_queues + tid);
+		     num_queues*num_quorums + tid);
       }
     }
     else if(client_buffer->code == RPC_REQ_NOOP) {
@@ -141,18 +141,18 @@ typedef struct executor_st {
 	if(client_buffer->wal.leader) {
 	  if(client_buffer->wal.rep == REP_SUCCESS) {
 	    resp_buffer->code = RPC_REP_COMPLETE;
-	    client_reply(client_buffer, resp_buffer, NULL, 0, num_queues + tid);
+	    client_reply(client_buffer, resp_buffer, NULL, 0, num_queues*num_quorums + tid);
 	  }
 	  else {
 	    resp_buffer->code = RPC_REP_UNKNOWN;
-	    client_reply(client_buffer, resp_buffer, NULL, 0, num_queues + tid);
+	    client_reply(client_buffer, resp_buffer, NULL, 0, num_queues*num_quorums + tid);
 	  }
 	}
       }
       else {
 	if(client_buffer->wal.leader) {
 	  resp_buffer->code = RPC_REP_COMPLETE;
-	  client_reply(client_buffer, resp_buffer, NULL, 0, num_queues + tid);
+	  client_reply(client_buffer, resp_buffer, NULL, 0, num_queues*num_quorums + tid);
 	}
       }
     }
@@ -167,7 +167,7 @@ typedef struct executor_st {
 		       resp_buffer, 
 		       cookie.ret_value, 
 		       cookie.ret_size,
-		       num_queues + tid);
+		       num_queues*num_quorums + tid);
 	}
       }
       else if(cookie.client_txid == client_buffer->client_txid) {
@@ -177,7 +177,7 @@ typedef struct executor_st {
 		       resp_buffer, 
 		       cookie.ret_value, 
 		       cookie.ret_size,
-		       num_queues + tid);
+		       num_queues*num_quorums + tid);
 	}
       }
       else if(client_buffer->flags & RPC_FLAG_RO) {
@@ -188,7 +188,7 @@ typedef struct executor_st {
 		       resp_buffer, 
 		       cookie.ret_value, 
 		       cookie.ret_size,
-		       num_queues + tid);
+		       num_queues*num_quorums + tid);
 	}
 	if(cookie.ret_size > 0) {
 	  free(cookie.ret_value);
@@ -200,11 +200,11 @@ typedef struct executor_st {
 	  if(client_buffer->wal.leader) {
 	    if(client_buffer->wal.rep == REP_SUCCESS) {
 	      resp_buffer->code = RPC_REP_COMPLETE;
-	      client_reply(client_buffer, resp_buffer, NULL, 0, num_queues + tid);
+	      client_reply(client_buffer, resp_buffer, NULL, 0, num_queues*num_quorums + tid);
 	    }
 	    else {
 	      resp_buffer->code = RPC_REP_UNKNOWN;
-	      client_reply(client_buffer, resp_buffer, NULL, 0, num_queues + tid);
+	      client_reply(client_buffer, resp_buffer, NULL, 0, num_queues*num_quorums + tid);
 	    }
 	  }
 	}
@@ -221,7 +221,7 @@ typedef struct executor_st {
 			 resp_buffer, 
 			 cookie.ret_value, 
 			 cookie.ret_size,
-			 num_queues + tid);
+			 num_queues*num_quorums + tid);
 	  }
 	  if(cookie.ret_size > 0) {
 	    free(cookie.ret_value);

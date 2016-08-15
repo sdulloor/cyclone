@@ -22,18 +22,19 @@ static int __send_requestvote(raft_server_t* raft,
   msg.source      = cyclone_handle->me;
   msg.msg_type    = MSG_REQUESTVOTE;
   msg.rv          = *m;
-  rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[q_raft]);
+  int my_raft_q   = cyclone_handle->my_q(q_raft);
+  rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[my_raft_q]);
   if(mb == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send requestvote";
     exit(-1);
   }
   cyclone_prep_mbuf(global_dpdk_context,
 		    (int)(unsigned long)socket,
-		    q_raft,
+		    my_raft_q,
 		    mb,
 		    &msg,
 		    sizeof(msg_t));
-  cyclone_tx(global_dpdk_context, mb, q_raft);
+  cyclone_tx(global_dpdk_context, mb, my_raft_q);
   return 0;
 }
 
@@ -48,18 +49,19 @@ static void __send_appendentries_response(void *udata,
   resp.msg_type = MSG_APPENDENTRIES_RESPONSE;
   memcpy(&resp.aer, r, sizeof(msg_appendentries_response_t));
   resp.source = cyclone_handle->me;
-  rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[q_raft]);
+  int my_raft_q   = cyclone_handle->my_q(q_raft);
+  rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[my_raft_q]);
   if(m == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send requestvote";
     exit(-1);
   }
   cyclone_prep_mbuf(global_dpdk_context,
 		    (int)(unsigned long)socket,
-		    q_raft,
+		    my_raft_q,
 		    m,
 		    &resp,
 		    sizeof(msg_t));
-  cyclone_tx(global_dpdk_context, m, q_raft);
+  cyclone_tx(global_dpdk_context, m, my_raft_q);
 }
 
 /** Raft callback for sending appendentries message */
@@ -79,17 +81,18 @@ static int __send_appendentries(raft_server_t* raft,
   msg->ae.prev_log_term = m->prev_log_term;
   msg->ae.leader_commit = m->leader_commit;
   msg->ae.n_entries     = 0;
-  rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[q_raft]);
+  int my_raft_q   = cyclone_handle->my_q(q_raft);
+  rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[my_raft_q]);
   if(mb == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send requestvote";
   }
   cyclone_prep_mbuf(global_dpdk_context,
 		    (int)(unsigned long)socket,
-		    q_raft,
+		    my_raft_q,
 		    mb,
 		    msg,
 		    ptr - cyclone_handle->cyclone_buffer_out);
-  cyclone_tx(global_dpdk_context, mb, q_raft);
+  cyclone_tx(global_dpdk_context, mb, my_raft_q);
   return m->n_entries;
 }
 
@@ -108,6 +111,7 @@ static int __send_appendentries_opt(raft_server_t* raft,
   //int pkts_out = 1;
   int i;
   int tx = 0;
+  int my_raft_q   = cyclone_handle->my_q(q_raft);
   for(i=0;i<pkts_out;i++) {
     rte_mbuf *b = (rte_mbuf *)m->entries[i].pkt;
     msg_t *msg = pktadj2msg(b);
@@ -138,11 +142,11 @@ static int __send_appendentries_opt(raft_server_t* raft,
     e->ol_flags = bc->ol_flags;
 
     struct ether_hdr *eth = (struct ether_hdr *)rte_pktmbuf_prepend(e, sizeof(struct ether_hdr));
-    cyclone_prep_eth(global_dpdk_context, (int)(unsigned long)socket, q_raft, eth);
+    cyclone_prep_eth(global_dpdk_context, (int)(unsigned long)socket, eth);
     //rte_mbuf_sanity_check(e, 1);
-    tx += cyclone_buffer_pkt(global_dpdk_context, e, q_raft);
+    tx += cyclone_buffer_pkt(global_dpdk_context, e, my_raft_q);
   }
-  tx += cyclone_flush_buffer(global_dpdk_context, q_raft);
+  tx += cyclone_flush_buffer(global_dpdk_context, my_raft_q);
   return tx;
 }
 
@@ -287,7 +291,7 @@ static void add_head(void *pkt,
   initialize_ipv4_header(m,
 			 ip,
 			 magic_src_ip, 
-			 q_raft,
+			 cyclone_handle->my_q(q_raft),
 			 m->pkt_len - sizeof(struct ipv4_hdr));
   msg_t *hdr = pktadj2msg(m);
   hdr->msg_type         = MSG_APPENDENTRIES;
@@ -461,7 +465,8 @@ int __raft_has_sufficient_logs(raft_server_t *raft,
   if(cyclone_handle->sending_checkpoints)
     return -1;
   completion_entry.id = 1;
-  rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[q_dispatcher]);
+  int my_disp_q   = cyclone_handle->my_q(q_dispatcher);
+  rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[my_disp_q]);
   if(m == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Unable to alloc membuf for addnode completion.";
     exit(-1);
