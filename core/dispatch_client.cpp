@@ -20,7 +20,7 @@ typedef struct rpc_client_st {
   rpc_t *packet_out;
   msg_t *packet_rep;
   rpc_t *packet_in;
-  int server;
+  int *servers;
   int replicas;
   unsigned long channel_seq;
   dpdk_rx_buffer_t *buf;
@@ -30,20 +30,23 @@ typedef struct rpc_client_st {
     return num_queues*quorum_id + q;
   }
   
-  void update_server(const char *context)
+  void update_server(const char *context, int quorum)
   {
     BOOST_LOG_TRIVIAL(info) 
       << "CLIENT DETECTED POSSIBLE FAILED LEADER: "
-      << server
+      << servers[quorum]
+      << " of quorum "
+      << quorum
       << " Reason " 
       << context;
-    server = (server + 1)%replicas;
-    BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW LEADER " << server;
+    servers[quorum] = (servers[quorum] + 1)%replicas;
+    BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW LEADER " << servers[quorum];
   }
 
-  void set_server()
+  void set_server(int quorum)
   {
-    BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING LEADER " << server;
+    BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING LEADER for quorum " 
+			    << quorum << " = " << servers[quorum];
   }
 
 
@@ -81,7 +84,7 @@ typedef struct rpc_client_st {
       BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send requestvote";
     }
     cyclone_prep_mbuf(global_dpdk_context,
-		      router->replica_mc(server),
+		      router->replica_mc(servers[quorum_id]),
 		      quorum_q(quorum_id, q_dispatcher),
 		      mb,
 		      packet_out,
@@ -121,11 +124,11 @@ typedef struct rpc_client_st {
 	break;
       }
       if(resp_sz == -1) {
-	update_server("rx timeout, get txid");
+	update_server("rx timeout, get txid", quorum_id);
 	continue;
       }
       if(packet_in->code == RPC_REP_INVSRV) {
-	update_server("Server not leader");
+	update_server("Server not leader", quorum_id);
 	continue;
       }
       break;
@@ -151,11 +154,11 @@ typedef struct rpc_client_st {
       send_to_server(sizeof(rpc_t) + sizeof(cfg_change_t), quorum_id);
       resp_sz = common_receive_loop(sizeof(rpc_t) + sizeof(cfg_change_t));
       if(resp_sz == -1) {
-	update_server("rx timeout");
+	update_server("rx timeout", quorum_id);
 	continue;
       }
       if(packet_in->code == RPC_REP_INVSRV) {
-	update_server("Server not leader");
+	update_server("Server not leader", quorum_id);
 	continue;
       }
       if(packet_in->code == RPC_REP_UNKNOWN) {
@@ -187,11 +190,11 @@ typedef struct rpc_client_st {
       send_to_server(sizeof(rpc_t) + sizeof(cfg_change_t), quorum_id);
       resp_sz = common_receive_loop(sizeof(rpc_t) + sizeof(cfg_change_t));
       if(resp_sz == -1) {
-	update_server("rx timeout");
+	update_server("rx timeout", quorum_id);
 	continue;
       }
       if(packet_in->code == RPC_REP_INVSRV) {
-	update_server("Server not leader");
+	update_server("Server not leader", quorum_id);
 	continue;
       }
       if(packet_in->code == RPC_REP_UNKNOWN) {
@@ -236,11 +239,11 @@ typedef struct rpc_client_st {
 	break;
       }
       if(resp_sz == -1) {
-	update_server("rx timeout, get response");
+	update_server("rx timeout, get response", quorum_id);
 	continue;
       }
       if(packet_in->code == RPC_REP_INVSRV) {
-	update_server("Server not leader");
+	update_server("Server not leader", quorum_id);
 	continue;
       }
       break;
@@ -273,11 +276,11 @@ typedef struct rpc_client_st {
       send_to_server(sizeof(rpc_t) + sz, quorum_id);
       resp_sz = common_receive_loop(sizeof(rpc_t) + sz);
       if(resp_sz == -1) {
-	update_server("rx timeout, make rpc");
+	update_server("rx timeout, make rpc", quorum_id);
 	continue;
       }
       if(packet_in->code == RPC_REP_INVSRV) {
-	update_server("Server not leader");
+	update_server("Server not leader", quorum_id);
 	continue;
       }
       if(packet_in->code == RPC_REP_UNKNOWN) {
@@ -309,11 +312,11 @@ typedef struct rpc_client_st {
       send_to_server(sizeof(rpc_t), quorum_id);
       resp_sz = common_receive_loop(sizeof(rpc_t));
       if(resp_sz == -1) {
-	update_server("rx timeout, make rpc");
+	update_server("rx timeout, make rpc", quorum_id);
 	continue;
       }
       if(packet_in->code == RPC_REP_INVSRV) {
-	update_server("Server not leader");
+	update_server("Server not leader", quorum_id);
 	continue;
       }
       if(packet_in->code == RPC_REP_UNKNOWN) {
@@ -343,6 +346,7 @@ void* cyclone_client_init(int client_id,
   boost::property_tree::read_ini(config_quorum, pt_quorum);
   std::stringstream key;
   std::stringstream addr;
+  client->servers = new int[num_quorums];
   client->router = new quorum_switch(&pt_cluster, &pt_quorum);
   client->me = client_id;
   client->me_mc = client_mc;
@@ -358,8 +362,10 @@ void* cyclone_client_init(int client_id,
   client->packet_rep = (msg_t *)buf;
   client->replicas = pt_quorum.get<int>("quorum.replicas");
   client->channel_seq = client_id*client_mc*rtc_clock::current_time();
-  client->server = 0;
-  client->set_server();
+  for(int i=0;i<num_quorums;i++) {
+    client->servers[i] = 0;
+    client->set_server(i);
+  }
   return (void *)client;
 }
 
