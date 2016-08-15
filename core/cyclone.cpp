@@ -683,7 +683,7 @@ void* cyclone_boot(const char *config_quorum_path,
   }
   /* Launch cyclone service */
   __sync_synchronize(); // Going to give the thread control over the socket
-  int e = rte_eal_remote_launch(dpdk_raft_monitor, (void *)cyclone_handle->monitor_obj, 1);
+  int e = rte_eal_remote_launch(dpdk_raft_monitor, (void *)cyclone_handle->monitor_obj, 1 + quorum_id);
   if(e != 0) {
     BOOST_LOG_TRIVIAL(fatal) << "Failed to launch raft monitor on remote lcore";
     exit(-1);

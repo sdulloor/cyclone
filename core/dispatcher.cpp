@@ -306,7 +306,6 @@ void dispatcher_start(const char* config_cluster_path,
   // Load/Setup state
   std::string file_path = pt_quorum.get<std::string>("dispatch.filepath");
   unsigned long heapsize = pt_quorum.get<unsigned long>("dispatch.heapsize");
-  int quorums = pt_quorum.get<int>("quorums");
   char me_str[100];
   sprintf(me_str,"%d", me);
   file_path.append(me_str);
@@ -340,7 +339,7 @@ void dispatcher_start(const char* config_cluster_path,
     }
   }
 
-  if(i_am_active) {
+  if(!i_am_active) {
     BOOST_LOG_TRIVIAL(info) << "Starting inactive server";
   }
   if(access(file_path.c_str(), F_OK)) {
@@ -387,7 +386,7 @@ void dispatcher_start(const char* config_cluster_path,
     BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered state";
   }
 
-  for(int i=0;i<quorums;i++) {
+  for(int i=0;i<num_quorums;i++) {
     quorum_switch *router = new quorum_switch(&pt_cluster, &pt_quorum);
     cyclone_boot(config_quorum_path,
 		 router,
