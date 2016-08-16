@@ -57,9 +57,9 @@ int main(int argc, const char *argv[]) {
 				     0,
 				     argv[4],
 				     argv[5]);
-  int ctr = get_last_txid(handle, 0) + 1;
+  int ctr = get_last_txid(handle, 0, 0) + 1;
   for(int i=0;i<num_quorums;i++) {
-    int sz  = add_node(handle, ctr, i, atoi(argv[6]));
+    int sz  = add_node(handle, ctr, i, 0, atoi(argv[6]));
     ctr++;
   }
   BOOST_LOG_TRIVIAL(info) << "Done";

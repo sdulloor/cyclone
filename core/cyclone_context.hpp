@@ -365,7 +365,7 @@ struct cyclone_monitor {
 	  }
 	  adjust_head(m);
 	  rpc_t *rpc = pktadj2rpc(m);
-	  int core = rpc->client_id % executor_threads;
+	  int core = rpc->core_id;
 	  rpc->wal.leader = 1;
 	  if(rpc->code == RPC_REQ_LAST_TXID || 
 	     rpc->code == RPC_REQ_STATUS ||  

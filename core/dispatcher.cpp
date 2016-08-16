@@ -56,6 +56,7 @@ void init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
 {
   cookie->client_id = rpc->client_id;
   cookie->client_txid = rpc->client_txid;
+  cookie->core_id = rpc->core_id;
 }
 
 int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie)
@@ -98,6 +99,7 @@ typedef struct executor_st {
     if(client_buffer->code == RPC_REQ_LAST_TXID) {
       resp_buffer->code = RPC_REP_COMPLETE;
       cookie.client_id = client_buffer->client_id;
+      cookie.core_id   = client_buffer->core_id;
       app_callbacks.cookie_get_callback(&cookie);
       resp_buffer->last_client_txid = cookie.client_txid;
       client_reply(client_buffer, 
@@ -108,6 +110,7 @@ typedef struct executor_st {
     }
     else if(client_buffer->code == RPC_REQ_STATUS) {
       cookie.client_id = client_buffer->client_id;
+      cookie.core_id   = client_buffer->core_id;
       app_callbacks.cookie_get_callback(&cookie);
       resp_buffer->last_client_txid = client_buffer->client_txid;
       if(cookie.client_txid < client_buffer->client_txid) {
@@ -159,6 +162,7 @@ typedef struct executor_st {
     else {
       // Exactly once RPC check
       cookie.client_id = client_buffer->client_id;
+      cookie.core_id   = client_buffer->core_id;
       app_callbacks.cookie_get_callback(&cookie);
       if(cookie.client_txid > client_buffer->client_txid) {
 	if(client_buffer->wal.leader) {

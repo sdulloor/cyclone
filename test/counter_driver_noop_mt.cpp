@@ -79,11 +79,13 @@ int driver(void *arg)
   unsigned long tx_block_cnt   = 0;
   unsigned long tx_block_begin = rtc_clock::current_time();
   unsigned long total_latency  = 0;
+
+  int my_core = dargs->me % executor_threads;
   
   int ctr[partitions];
   for(int i=0;i<partitions;i++) {
     BOOST_LOG_TRIVIAL(info) << "Connecting to quorum " << i;
-    ctr[i] = get_last_txid(handles[i], 0) + 1;
+    ctr[i] = get_last_txid(handles[i], 0, my_core) + 1;
     BOOST_LOG_TRIVIAL(info) << "Done";
   }
 
@@ -116,6 +118,7 @@ int driver(void *arg)
 		  (void **)&resp,
 		  ctr[partition],
 		  rand()%num_quorums,
+		  my_core,
 		  rpc_flags);
     */
     int rpc_flags = 0;
@@ -123,6 +126,7 @@ int driver(void *arg)
     sz = make_noop_rpc(handles[partition],
 		       ctr[partition],
 		       rand() % num_quorums,
+		       my_core,
 		       rpc_flags);
     ctr[partition]++;
     tx_block_cnt++;

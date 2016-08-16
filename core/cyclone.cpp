@@ -352,7 +352,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	rpc->wal.rep = REP_UNKNOWN;
 	// Issue unless nodeadd final step
 	if(e->type != RAFT_LOGTYPE_ADD_NODE) { 
-	  int core = rpc->client_id % executor_threads;
+	  int core = rpc->core_id;
 	  //Increment refcount handoff segment for exec 
 	  rte_mbuf_refcnt_update(m, 1);
 	  void *pair[2];

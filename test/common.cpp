@@ -32,7 +32,7 @@ void init_cstate(PMEMobjpool *pop, PMEMoid *cs)
 // This function must be executed in the context of a tx
 static void mark_done(rpc_cookie_t *cookie)
 {
-  PMEMoid cstate_old = cookies_root->client_state[cookie->client_id].state;
+  PMEMoid cstate_old = cookies_root->client_state[cookie->core_id][cookie->client_id].state;
   pmemobj_tx_free(cstate_old);
   int aligned_size = sizeof(struct client_state_st) + cookie->ret_size;
   aligned_size = ((aligned_size + 63)/64)*64;
@@ -42,9 +42,9 @@ static void mark_done(rpc_cookie_t *cookie)
   cnewp->size = cookie->ret_size;
   memcpy(cnewp + 1, cookie->ret_value, cookie->ret_size);
   clflush(cnewp, sizeof(struct client_state_st) + cookie->ret_size);
-  pmemobj_tx_add_range_direct(&cookies_root->client_state[cookie->client_id].state, 
+  pmemobj_tx_add_range_direct(&cookies_root->client_state[cookie->core_id][cookie->client_id].state, 
 			      sizeof(PMEMoid));
-  cookies_root->client_state[cookie->client_id].state = cstate_new;
+  cookies_root->client_state[cookie->core_id][cookie->client_id].state = cstate_new;
 }
 
 void commit_tx(void *handle, rpc_cookie_t *cookie)
@@ -75,19 +75,9 @@ void init_cookie_system(PMEMobjpool *pool, cookies_t *root)
 void get_cookie(rpc_cookie_t *cookie)
 {
   struct client_state_st *cstate = (struct client_state_st *)
-    pmemobj_direct(cookies_root->client_state[cookie->client_id].state);
+    pmemobj_direct(cookies_root->client_state[cookie->core_id][cookie->client_id].state);
   cookie->client_txid = cstate->committed_txid;
   cookie->ret_size  = cstate->size;
   cookie->ret_value = (void *)(cstate + 1);
 
-}
-
-void get_lock_cookie(rpc_cookie_t *cookie)
-{
-  // NA
-}
-
-void unlock_cookie()
-{
-  // NA
 }

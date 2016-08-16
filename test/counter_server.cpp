@@ -228,8 +228,10 @@ TOID(char) nvheap_setup(TOID(char) recovered,
   if(TOID_IS_NULL(recovered)) {
     store = TX_ALLOC(char, sizeof(heap_root_t));
     heap_root = (heap_root_t *)D_RW(store);
-    for(int i = 0;i < MAX_CLIENTS;i++) {
-      init_cstate(pop, &heap_root->the_cookies.client_state[i].state);
+    for(int c = 0;c < executor_threads;c++) {
+      for(int i = 0;i < MAX_CLIENTS;i++) {
+	init_cstate(pop, &heap_root->the_cookies.client_state[c][i].state);
+      }
     }
     rbtree_map_new(state, &heap_root->the_tree, NULL);
     the_tree = heap_root->the_tree;
@@ -251,11 +253,7 @@ void gc(void *data)
 
 rpc_callbacks_t rpc_callbacks =  {
   callback,
-  NULL,
-  NULL,
   get_cookie,
-  get_lock_cookie,
-  unlock_cookie,
   gc,
   nvheap_setup,
   commit_tx,

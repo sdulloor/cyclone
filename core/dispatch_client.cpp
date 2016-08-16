@@ -92,7 +92,7 @@ typedef struct rpc_client_st {
     cyclone_tx(global_dpdk_context, mb, me_queue);
   }
 
-  int get_last_txid(int quorum_id)
+  int get_last_txid(int quorum_id, int core_id)
   {
     int retcode;
     int resp_sz;
@@ -100,6 +100,7 @@ typedef struct rpc_client_st {
       packet_out->code        = RPC_REQ_LAST_TXID;
       packet_out->flags       = 0;
       packet_out->client_id   = me;
+      packet_out->core_id     = core_id;
       packet_out->client_port = me_queue;
       packet_out->client_txid = (int)packet_out->timestamp;
       packet_out->channel_seq = channel_seq++;
@@ -136,7 +137,7 @@ typedef struct rpc_client_st {
     return packet_in->last_client_txid;
   }
 
-  int delete_node(int txid, int quorum_id, int nodeid)
+  int delete_node(int txid, int quorum_id, int core_id, int nodeid)
   {
     int retcode;
     int resp_sz;
@@ -144,6 +145,7 @@ typedef struct rpc_client_st {
       packet_out->code        = RPC_REQ_NODEDEL;
       packet_out->flags       = 0;
       packet_out->client_id   = me;
+      packet_out->core_id     = core_id;
       packet_out->client_port = me_queue;
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
@@ -172,7 +174,7 @@ typedef struct rpc_client_st {
     return 0;
   }
 
-  int add_node(int txid, int quorum_id, int nodeid)
+  int add_node(int txid, int quorum_id, int core_id, int nodeid)
   {
     int retcode;
     int resp_sz;
@@ -180,6 +182,7 @@ typedef struct rpc_client_st {
       packet_out->code        = RPC_REQ_NODEADD;
       packet_out->flags       = 0;
       packet_out->client_id   = me;
+      packet_out->core_id     = core_id;
       packet_out->client_port = me_queue;
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
@@ -208,13 +211,14 @@ typedef struct rpc_client_st {
     return 0;
   }
 
-  int retrieve_response(void **response, int txid, int quorum_id)
+  int retrieve_response(void **response, int txid, int quorum_id, int core_id)
   {
     int retcode;
     int resp_sz;
     packet_out->client_id   = me;
     packet_out->client_port = me_queue;
     packet_out->client_txid = txid;
+    packet_out->core_id     = core_id;
     packet_out->channel_seq  = channel_seq++;
     packet_out->requestor   = me_mc;
     while(true) {
@@ -258,7 +262,7 @@ typedef struct rpc_client_st {
     return (int)(resp_sz - sizeof(rpc_t));
   }
   
-  int make_rpc(void *payload, int sz, void **response, int txid, int quorum_id, int flags)
+  int make_rpc(void *payload, int sz, void **response, int txid, int quorum_id, int core_id, int flags)
   {
     int retcode;
     int resp_sz;
@@ -267,6 +271,7 @@ typedef struct rpc_client_st {
       packet_out->code        = RPC_REQ_FN;
       packet_out->flags       = flags;
       packet_out->client_id   = me;
+      packet_out->core_id     = core_id;
       packet_out->client_port = me_queue;
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
@@ -295,7 +300,7 @@ typedef struct rpc_client_st {
     return (int)(resp_sz - sizeof(rpc_t));
   }
 
-  int make_noop_rpc(int txid, int quorum_id, int flags)
+  int make_noop_rpc(int txid, int quorum_id, int core_id, int flags)
   {
     int retcode;
     int resp_sz;
@@ -304,6 +309,7 @@ typedef struct rpc_client_st {
       packet_out->code        = RPC_REQ_NOOP;
       packet_out->flags       = flags;
       packet_out->client_id   = me;
+      packet_out->core_id     = core_id;
       packet_out->client_port = me_queue;
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
@@ -375,6 +381,7 @@ int make_rpc(void *handle,
 	     void **response,
 	     int txid,
 	     int quorum_id,
+	     int core_id,
 	     int flags)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
@@ -384,38 +391,39 @@ int make_rpc(void *handle,
 			     << " DISP_MAX_MSGSIZE = " << DISP_MAX_MSGSIZE;
     exit(-1);
   }
-  return client->make_rpc(payload, sz, response, txid, quorum_id, flags);
+  return client->make_rpc(payload, sz, response, txid, quorum_id, core_id, flags);
 }
 
 int make_noop_rpc(void *handle,
 		  int txid,
 		  int quorum_id,
+		  int core_id,
 		  int flags)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->make_noop_rpc(txid, quorum_id, flags);
+  return client->make_noop_rpc(txid, quorum_id, core_id, flags);
 }
 
-int get_last_txid(void *handle, int quorum_id)
+int get_last_txid(void *handle, int quorum_id, int core_id)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->get_last_txid(quorum_id);
+  return client->get_last_txid(quorum_id, core_id);
 }
 
-int get_response(void *handle, void **response, int txid, int quorum_id)
+int get_response(void *handle, void **response, int txid, int quorum_id, int core_id)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->retrieve_response(response, txid, quorum_id);
+  return client->retrieve_response(response, txid, quorum_id, core_id);
 }
 
-int delete_node(void *handle, int txid, int quorum_id, int node)
+int delete_node(void *handle, int txid, int quorum_id, int core_id, int node)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->delete_node(txid, quorum_id, node);
+  return client->delete_node(txid, quorum_id, core_id, node);
 }
 
-int add_node(void *handle, int txid, int quorum_id, int node)
+int add_node(void *handle, int txid, int quorum_id, int core_id, int node)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->add_node(txid, quorum_id, node);
+  return client->add_node(txid, quorum_id, core_id, node);
 }

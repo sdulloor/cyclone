@@ -11,10 +11,11 @@ static const int DISP_MAX_MSGSIZE = 512; // 512 bytes max msg size
 //Note: DISP_MAX_MSGSIZE must be within MSG_MAXSIZE with room for rpc_t header
 
 typedef struct rpc_cookie_st {
-  volatile int client_id;
-  volatile int client_txid;
-  void *volatile ret_value;
-  volatile int ret_size;
+  int client_id;
+  int client_txid;
+  int core_id;
+  void *ret_value;
+  int ret_size;
 } rpc_cookie_t;
 
 ////// RPC Server side interface
@@ -23,22 +24,6 @@ typedef
 void* (*rpc_callback_t)(const unsigned char *data,
 			const int len,
 			rpc_cookie_t * rpc_cookie);
-
-typedef 
-void* (*rpc_leader_callback_t)(const unsigned char *data,
-			       const int len,
-			       unsigned char **follower_data,
-			       int * follower_data_size, 
-			       rpc_cookie_t *rpc_cookie);
-
-typedef 
-void* (*rpc_follower_callback_t)(const unsigned char *data,
-				 const int len,
-				 unsigned char *follower_data,
-				 int follower_data_size, 
-				 rpc_cookie_t * rpc_cookie);
-
-
 
 //Garbage collect return value
 typedef void (*rpc_gc_callback_t)(void *data);
@@ -60,11 +45,7 @@ typedef void (*rpc_tx_abort_callback_t)(void *handle);
 // Callback hell !
 typedef struct rpc_callbacks_st {
   rpc_callback_t rpc_callback;
-  rpc_leader_callback_t rpc_leader_callback;
-  rpc_follower_callback_t rpc_follower_callback;
   rpc_get_cookie_callback_t cookie_get_callback;
-  rpc_get_lock_cookie_callback_t cookie_lock_callback;
-  rpc_unlock_cookie_callback_t cookie_unlock_callback;
   rpc_gc_callback_t gc_callback;
   rpc_nvheap_setup_callback_t nvheap_setup_callback;
   rpc_tx_commit_callback_t tx_commit;
@@ -95,25 +76,28 @@ int make_rpc(void *handle,
 	     void **response,
 	     int txid,
 	     int quorum_id,
+	     int core_id,
 	     int rpc_flags);
 // Noop RPC -- do nothing at the other end
 // client txid is essentially ignored
 int make_noop_rpc(void *handle,
 		  int txid,
 		  int quorum_id,
+		  int core_id,
 		  int rpc_flags);
 
 // Get last accepred txid
-int get_last_txid(void *handle, int quorum_id);
+int get_last_txid(void *handle, int quorum_id, int core_id);
 // Get the last response
 int get_response(void *handle,
 		 void **response,
 		 int txid,
-		 int quorum_id);
+		 int quorum_id,
+		 int core_id);
 
-int delete_node(void *handle, int txid, int quorum_id, int node);
+int delete_node(void *handle, int txid, int quorum_id, int core_id, int node);
 
-int add_node(void *handle, int txid, int quorum_id, int node);
+int add_node(void *handle, int txid, int quorum_id, int core_id, int node);
 
 
 // Possible flags 

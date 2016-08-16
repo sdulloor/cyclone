@@ -41,7 +41,7 @@ const int REP_UNKNOWN = 0;
 const int REP_SUCCESS = 1;
 const int REP_FAILED  = -1;
 
-// Comm between disp cores and raft core
+// Comm between disp core and raft core
 typedef struct wal_entry_st {
   volatile int rep;
   int leader;
@@ -52,8 +52,9 @@ typedef struct rpc_st {
   int code;
   int flags;
   int payload_sz;
-  int client_id;
+  int core_id;
   wal_entry_t wal;
+  int client_id;
   int requestor;
   int client_port;
   union {
@@ -61,7 +62,7 @@ typedef struct rpc_st {
     unsigned long last_client_txid;
   };
   unsigned long channel_seq;
-  unsigned long timestamp;
+  unsigned long timestamp; // For tracing
 } __attribute__((packed)) rpc_t; // Used for both requests and replies
 
 
