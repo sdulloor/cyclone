@@ -371,11 +371,10 @@ struct cyclone_monitor {
 	     rpc->code == RPC_REQ_STATUS ||  
 	     rpc->flags & RPC_FLAG_RO) {
 	    if(cyclone_is_leader(cyclone_handle)) {
-	      if(rte_ring_mp_enqueue(to_cores[core], m) == -ENOBUFS) {
-		BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
-		exit(-1);
-	      }
-	      if(rte_ring_mp_enqueue(to_cores[core], rpc) == -ENOBUFS) {
+	      void *pair[2];
+	      pair[0] = m;
+	      pair[1] = rpc;
+	      if(rte_ring_mp_enqueue_bulk(to_cores[core], pair, 2) == -ENOBUFS) {
 		BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
 		exit(-1);
 	      }
