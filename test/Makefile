@@ -22,8 +22,11 @@ BOOST_THREAD_LIB=-lboost_thread-mt
 common.o:common.cpp
 	$(CXX) $(CXXFLAGS) -c common.cpp -o $@
 
-counter_server:counter_server.cpp common.o
-	$(CXX) $(CXXFLAGS) counter_server.cpp common.o ../nvml/src/examples/libpmemobj/tree_map/librbtree_map.a $(BOOST_THREAD_LIB) $(LIBS) -o $@
+hashmap_tx.o:hashmap_tx.c 
+	$(CC) -O2 -std=gnu99 hashmap_tx.c -c -o $@
+
+counter_server:counter_server.cpp common.o hashmap_tx.o
+	$(CXX) $(CXXFLAGS) counter_server.cpp common.o hashmap_tx.o $(BOOST_THREAD_LIB) $(LIBS) -o $@
 
 counter_coordinator:counter_coordinator.cpp common.o 
 	$(CXX) $(CXXFLAGS) counter_coordinator.cpp common.o $(BOOST_THREAD_LIB) $(LIBS) -o $@
