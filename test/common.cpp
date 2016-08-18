@@ -55,6 +55,9 @@ void commit_tx(void *handle, rpc_cookie_t *cookie)
     pmemobj_tx_commit();
   }
   pmemobj_tx_end();
+  if(cookie->lock != NULL) {
+    spin_unlock(cookie->lock);
+  }
 }
 
 void abort_tx(void *handle)

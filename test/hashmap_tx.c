@@ -105,6 +105,13 @@ create_hashmap(PMEMobjpool *pop, TOID(struct hashmap_tx) hashmap, uint32_t seed)
 	} TX_END
 }
 
+unsigned long *hm_tx_alloc_lock_table(PMEMobjpool *pop, 
+				      TOID(struct hashmap_tx) hashmap)
+{
+  return (unsigned long *)calloc(INIT_BUCKETS_NUM, sizeof(unsigned long));
+}
+
+
 /*
  * hash -- the simplest hashing function,
  * see https://en.wikipedia.org/wiki/Universal_hashing#Hashing_integers
@@ -173,6 +180,17 @@ hm_tx_rebuild(PMEMobjpool *pop, TOID(struct hashmap_tx) hashmap, size_t new_len)
 
 }
 
+int
+hm_tx_bucket(PMEMobjpool *pop, TOID(struct hashmap_tx) hashmap,
+	     uint64_t key)
+{
+  TOID(struct buckets) buckets = D_RO(hashmap)->buckets;
+  TOID(struct entry) var;
+  
+  uint64_t h = hash(&hashmap, &buckets, key);
+  return (int)h;
+}
+
 /*
  * hm_tx_insert -- inserts specified value into the hashmap,
  * returns:
@@ -219,11 +237,12 @@ hm_tx_insert(PMEMobjpool *pop, TOID(struct hashmap_tx) hashmap,
 
 	if (ret)
 		return ret;
-
+	/*
 	if (num > MAX_HASHSET_THRESHOLD ||
 			(num > MIN_HASHSET_THRESHOLD &&
 			D_RO(hashmap)->count > 2 * D_RO(buckets)->nbuckets))
 		hm_tx_rebuild(pop, hashmap, D_RO(buckets)->nbuckets * 2);
+	*/
 
 	return 0;
 }
@@ -269,10 +288,10 @@ hm_tx_remove(PMEMobjpool *pop, TOID(struct hashmap_tx) hashmap, uint64_t key)
 			pmemobj_errormsg());
 		return OID_NULL;
 	} TX_END
-
+	    /*
 	if (D_RO(hashmap)->count < D_RO(buckets)->nbuckets)
 		hm_tx_rebuild(pop, hashmap, D_RO(buckets)->nbuckets / 2);
-
+	    */
 	return D_RO(var)->value;
 }
 

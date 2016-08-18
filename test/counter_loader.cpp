@@ -42,12 +42,13 @@
 #include "counter.hpp"
 #include "../core/clock.hpp"
 #include "../core/logging.hpp"
+#include "../core/tuning.hpp"
 #include <libcyclone.hpp>
 
 
 int main(int argc, const char *argv[]) {
   if(argc != 8) {
-    printf("Usage: %s client_id mc replicas clients partitions server_config_prefix client_config_prefix\n", argv[0]);
+    printf("Usage: %s client_id mc replicas clients partitions cluster_config quorum_config_prefix\n", argv[0]);
     exit(-1);
   }
   int me = atoi(argv[1]);
@@ -58,14 +59,13 @@ int main(int argc, const char *argv[]) {
   void **handles = new void *[partitions];
   char fname_server[50];
   char fname_client[50];
-  cyclone_client_global_init(1);
+  cyclone_network_init(argv[6], mc, 1);
   for(int i=0;i<partitions;i++) {
-    sprintf(fname_server, "%s%d.ini", argv[6], i);
     sprintf(fname_client, "%s%d.ini", argv[7], i);
     handles[i] = cyclone_client_init(me,
 				     mc,
-				     replicas,
-				     fname_server,
+				     0,
+				     argv[6],
 				     fname_client);
   }
   char *buffer = new char[DISP_MAX_MSGSIZE];
@@ -78,11 +78,13 @@ int main(int argc, const char *argv[]) {
   unsigned long tx_block_begin = rtc_clock::current_time();
   unsigned long total_latency  = 0;
   
-  int ctr[partitions];
+  int ctr[partitions][executor_threads];
   for(int i=0;i<partitions;i++) {
-    BOOST_LOG_TRIVIAL(info) << "Connecting to quorum " << i;
-    ctr[i] = get_last_txid(handles[i]) + 1;
-    BOOST_LOG_TRIVIAL(info) << "Done";
+    for(int j=0;j<executor_threads;j++) {
+      BOOST_LOG_TRIVIAL(info) << "Connecting to partition " << i << " cpu " << j;
+      ctr[i][j] = get_last_txid(handles[i], 0, j) + 1;
+      BOOST_LOG_TRIVIAL(info) << "Done";
+    }
   }
 
   unsigned long keys = 10000;
@@ -104,13 +106,17 @@ int main(int argc, const char *argv[]) {
     prop->kv_data.value = 0;
     unsigned long tx_begin_time = rtc_clock::current_time();
     int partition = prop->kv_data.key % partitions;
+    int quorum    = prop->kv_data.key % num_quorums;
+    int core      = prop->kv_data.key % executor_threads;
     sz = make_rpc(handles[partition],
 		  buffer,
 		  sizeof(struct proposal),
 		  (void **)&resp,
-		  ctr[partition],
+		  ctr[partition][core],
+		  quorum,
+		  core,
 		  0);
-    ctr[partition]++;
+    ctr[partition][core]++;
     if(sz != sizeof(struct proposal)) {
       BOOST_LOG_TRIVIAL(fatal) << "Invalid response";
       exit(-1);
@@ -138,13 +144,17 @@ int main(int argc, const char *argv[]) {
     prop->fn = FN_LOOKUP;
     prop->k_data.key = i;
     partition = prop->k_data.key % partitions;
+    quorum    = prop->kv_data.key % num_quorums;
+    core      = prop->kv_data.key % executor_threads;
     sz = make_rpc(handles[partition],
 		  buffer,
 		  sizeof(struct proposal),
 		  (void **)&rr,
-		  ctr[partition],
+		  ctr[partition][core],
+		  quorum,
+		  core,
 		  RPC_FLAG_RO);
-    ctr[partition]++;
+    ctr[partition][core]++;
     if(sz != sizeof(struct proposal)) {
       BOOST_LOG_TRIVIAL(fatal) << "Invalid response";
       exit(-1);

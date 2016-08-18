@@ -25,4 +25,26 @@ extern void abort_tx(void *);
 extern void init_cstate(PMEMobjpool *pop, PMEMoid *cs);
 extern void init_cookie_system(PMEMobjpool *pool, cookies_t *root);
 extern void get_cookie(rpc_cookie_t *cookie);
+
+
+
+static void spin_lock(volatile unsigned long *lockp)
+{
+  // TEST + TEST&SET
+  do {
+    while((*lockp) != 0);
+  } while(!__sync_bool_compare_and_swap(lockp, 0, 1));
+  __sync_synchronize();
+}
+
+static void spin_unlock(volatile unsigned long *lockp)
+{
+  __sync_synchronize();
+  __sync_bool_compare_and_swap(lockp, 1, 0);
+  __sync_synchronize();
+}
+
+
+
+
 #endif

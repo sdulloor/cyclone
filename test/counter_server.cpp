@@ -41,7 +41,7 @@
 #include "../core/tuning.hpp"
 #include<stdio.h>
 extern "C" {
-#include "../nvml/src/examples/libpmemobj/tree_map/rbtree_map.h"
+#include "hashmap_tx.h"
 }
 #include "counter.hpp"
 #include "common.hpp"
@@ -51,17 +51,19 @@ extern "C" {
 TOID_DECLARE(uint64_t, TOID_NUM_BASE);
 
 static unsigned long server_id;
-static TOID(struct rbtree_map) the_tree;
+static TOID(struct hashmap_tx) the_map;
 extern cookies_t* cookies_root;
 static PMEMobjpool *pop;
 extern PMEMobjpool *cookies_pool;
 static unsigned long sleep_time;
 
 typedef struct heap_root_st {
-  TOID(struct rbtree_map) the_tree;
+  TOID(struct hashmap_tx) the_map;
   cookies_t the_cookies;
 }heap_root_t;
 
+
+unsigned long *lock_table = NULL;
 
 TOID(uint64_t) new_store_item(uint64_t val)
 {
@@ -87,6 +89,7 @@ void* callback(const unsigned char *data,
   cookie->ret_size   = sizeof(struct proposal);
   struct proposal *rep  = (struct proposal *)cookie->ret_value;
   memcpy(&rep->cookie, &req->cookie, sizeof(cookie_t));
+  cookie->lock = NULL;
   if(code == FN_SET_SLEEP) {
     begin_tx();
     sleep_time = req->k_data.key;
@@ -95,7 +98,9 @@ void* callback(const unsigned char *data,
   }
   else if(code == FN_INSERT) {
     begin_tx();
-    PMEMoid item = rbtree_map_get(pop, the_tree, req->kv_data.key);
+    cookie->lock = &lock_table[hm_tx_bucket(pop, the_map, req->kv_data.key)];
+    spin_lock(cookie->lock);
+    PMEMoid item = hm_tx_get(pop, the_map, req->kv_data.key);
     rep->code = CODE_OK;
     rep->kv_data.key = req->kv_data.key;
     if(!OID_IS_NULL(item)) {
@@ -110,16 +115,16 @@ void* callback(const unsigned char *data,
       }
     }
     else {
-      rbtree_map_insert(pop, 
-			the_tree, 
-			req->kv_data.key,
-			new_store_item(req->kv_data.value).oid);
+      hm_tx_insert(pop, 
+		   the_map, 
+		   req->kv_data.key,
+		   new_store_item(req->kv_data.value).oid);
       rep->kv_data.value = req->kv_data.value;
     }
   }
   else if(code == FN_DELETE) {
     begin_tx();
-    PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);
+    PMEMoid item = hm_tx_get(pop, the_map, req->k_data.key);
     rep->kv_data.key = req->k_data.key;
     if(OID_IS_NULL(item)) {
 	rep->code = CODE_NOK;
@@ -129,15 +134,19 @@ void* callback(const unsigned char *data,
       rep->code = CODE_OK;
       rep->kv_data.value = value;
       if(is_stable(value)) {
-	item = rbtree_map_remove(pop,
-				 the_tree, 
-				 req->k_data.key);
+	item = hm_tx_remove(pop,
+			    the_map, 
+			    req->k_data.key);
 	pmemobj_tx_free(item);
       }
     }
   }
   else if(code == FN_LOOKUP) {
-    PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);
+    cookie->lock = &lock_table[hm_tx_bucket(pop, the_map, req->kv_data.key)];
+    spin_lock(cookie->lock);
+    PMEMoid item = hm_tx_get(pop, the_map, req->k_data.key);
+    spin_unlock(cookie->lock);
+    cookie->lock = NULL;
     rep->kv_data.key     = req->k_data.key;
     if(OID_IS_NULL(item)) {
       rep->code = CODE_NOK;
@@ -156,7 +165,7 @@ void* callback(const unsigned char *data,
   }
   else if(code == FN_BUMP) {
     begin_tx();
-    PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);
+    PMEMoid item = hm_tx_get(pop, the_map, req->k_data.key);
     rep->kv_data.key     = req->k_data.key;
     if(OID_IS_NULL(item)) {
       rep->code = CODE_NOK;
@@ -173,7 +182,7 @@ void* callback(const unsigned char *data,
   }
   else if(code == FN_PREPARE) {
     begin_tx();
-    PMEMoid item = rbtree_map_get(pop, the_tree, req->kv_data.key);
+    PMEMoid item = hm_tx_get(pop, the_map, req->kv_data.key);
     rep->code = CODE_OK;
     rep->kv_data.key     = req->kv_data.key;
     if(OID_IS_NULL(item)) {
@@ -191,7 +200,7 @@ void* callback(const unsigned char *data,
   }
   else if(code == FN_COMMIT) {
     begin_tx();
-    PMEMoid item = rbtree_map_get(pop, the_tree, req->k_data.key);
+    PMEMoid item = hm_tx_get(pop, the_map, req->k_data.key);
     rep->code = CODE_OK;
     rep->kv_data.key     = req->k_data.key;
     if(!OID_IS_NULL(item)) {
@@ -233,17 +242,29 @@ TOID(char) nvheap_setup(TOID(char) recovered,
 	init_cstate(pop, &heap_root->the_cookies.client_state[c][i].state);
       }
     }
-    rbtree_map_new(state, &heap_root->the_tree, NULL);
-    the_tree = heap_root->the_tree;
+    hm_tx_new(state, &heap_root->the_map, NULL);
+    the_map = heap_root->the_map;
     init_cookie_system(state, &heap_root->the_cookies);
+    lock_table = hm_tx_alloc_lock_table(state, the_map); 
+    if(lock_table == NULL) {
+      BOOST_LOG_TRIVIAL(fatal) << "Unable to allocate lock table";
+      exit(-1);
+    }
     return store;
   }
   else {
     heap_root = (heap_root_t *)D_RW(recovered);
-    the_tree = heap_root->the_tree;
+    the_map = heap_root->the_map;
     init_cookie_system(state, &heap_root->the_cookies);
+    lock_table = hm_tx_alloc_lock_table(state, the_map); 
+    if(lock_table == NULL) {
+      BOOST_LOG_TRIVIAL(fatal) << "Unable to allocate lock table";
+      exit(-1);
+    }
     return recovered;
   }
+  
+
 }
 
 void gc(void *data)

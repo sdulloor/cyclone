@@ -14,6 +14,7 @@ typedef struct rpc_cookie_st {
   int client_id;
   int client_txid;
   int core_id;
+  unsigned long *lock;
   void *ret_value;
   int ret_size;
 } rpc_cookie_t;

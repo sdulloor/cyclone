@@ -60,5 +60,9 @@ int hm_tx_foreach(PMEMobjpool *pop, TOID(struct hashmap_tx) hashmap,
 size_t hm_tx_count(PMEMobjpool *pop, TOID(struct hashmap_tx) hashmap);
 int hm_tx_cmd(PMEMobjpool *pop, TOID(struct hashmap_tx) hashmap,
 		unsigned cmd, uint64_t arg);
+int hm_tx_bucket(PMEMobjpool *pop, TOID(struct hashmap_tx) hashmap,
+		uint64_t key);
+unsigned long *hm_tx_alloc_lock_table(PMEMobjpool *pop, 
+				      TOID(struct hashmap_tx) hashmap);
 
 #endif /* HASHMAP_TX_H */
