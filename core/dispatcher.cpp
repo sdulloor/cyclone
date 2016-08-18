@@ -37,7 +37,6 @@ static void client_reply(rpc_t *req,
     exit(-1);
   }
   rep->client_id   = req->client_id;
-  rep->client_txid = req->client_txid;
   rep->channel_seq = req->channel_seq;
   if(sz > 0) {
     memcpy(rep + 1, payload, sz);
