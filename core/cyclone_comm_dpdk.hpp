@@ -384,6 +384,7 @@ static void dpdk_context_init(dpdk_context_t *context,
   struct rte_eth_txconf *txconf;
   
   BOOST_LOG_TRIVIAL(info) << "MAXIMUM PKTSIZE = " << max_pktsize;
+  pack_ratio = 32; // Forced by burst recv. limitations
   BOOST_LOG_TRIVIAL(info) << "PACK RATIO = " << pack_ratio;
 
   /* init EAL */
