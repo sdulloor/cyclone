@@ -81,7 +81,7 @@ typedef struct rpc_client_st {
   {
     rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[me_queue]);
     if(mb == NULL) {
-      BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send requestvote";
+      BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send to server";
     }
     cyclone_prep_mbuf(global_dpdk_context,
 		      router->replica_mc(servers[quorum_id]),

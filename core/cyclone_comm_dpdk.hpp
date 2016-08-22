@@ -422,17 +422,39 @@ static void dpdk_context_init(dpdk_context_t *context,
     if(max_pktsize > 4096 && max_pktsize < 8192) {
       max_pktsize = 8192;
     }
+
+    if(max_pktsize > 8192 && max_pktsize < 16384) {
+      max_pktsize = 16384;
+    }
     
     
     BOOST_LOG_TRIVIAL(info) << "Init mempool max pktsize = " << max_pktsize;
     bool is_disp_pool = (i < num_queues*num_quorums) && (i % num_queues == q_dispatcher);
     bool is_raft_pool = (i < num_queues*num_quorums) && (i % num_queues == q_raft);
-    context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
-						   !is_disp_pool ? Q_BUFS:Q_BUFS*pack_ratio,
-						   32,
-						   0,
-						   RTE_PKTMBUF_HEADROOM + max_pktsize,
-						   rte_socket_id());
+    if(is_disp_pool) {
+      context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
+						     Q_BUFS*pack_ratio,
+						     32,
+						     0,
+						     RTE_PKTMBUF_HEADROOM + max_pktsize,
+						     rte_socket_id());
+    }
+    else if(is_raft_pool) {
+      context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
+						     Q_BUFS,
+						     32,
+						     0,
+						     RTE_PKTMBUF_HEADROOM + max_pktsize,
+						     rte_socket_id());
+    }
+    else {
+      context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
+						     4096,
+						     32,
+						     0,
+						     RTE_PKTMBUF_HEADROOM + max_pktsize,
+						     rte_socket_id());
+    }
     if (context->mempools[i] == NULL)
       rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
 

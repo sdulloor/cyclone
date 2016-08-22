@@ -12,10 +12,7 @@ static const int RAFT_LOG_TARGET  = 2000;
 // Client side timeouts
 static const int timeout_msec  = 30; // Client - failure detect
 
-//Dispatcher batching
-static const int MIN_BATCH_BUFFERS = 2;
-static const int MAX_BATCH_SIZE    = 5; // Ultimately bounded by MAX_MSGSIZE
-static const int DISP_BATCHING_INTERVAL = 10;
+// Execution resources
 static const int executor_threads = 43;
 
 // ZMQ specific tuning
