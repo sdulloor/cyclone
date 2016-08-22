@@ -316,6 +316,8 @@ void dispatcher_start(const char* config_cluster_path,
   bool i_am_active = false;
   char ringname[50];
 
+  BOOST_LOG_TRIVIAL(info) << "Dispatcher start. sizeof(rpc_t) is :" << sizeof(rpc_t);
+
   // Initialize comm rings
   
   to_cores = (struct rte_ring **)malloc(executor_threads*sizeof(struct rte_ring *));
