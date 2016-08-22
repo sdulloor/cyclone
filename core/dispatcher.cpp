@@ -143,18 +143,18 @@ typedef struct executor_st {
 	if(client_buffer->wal.leader) {
 	  if(client_buffer->wal.rep == REP_SUCCESS) {
 	    resp_buffer->code = RPC_REP_COMPLETE;
-	    client_reply(client_buffer, resp_buffer, NULL, 0, num_queues*num_quorums + tid);
+	    client_reply(client_buffer, resp_buffer, client_buffer + 1, client_buffer->payload_sz, num_queues*num_quorums + tid);
 	  }
 	  else {
 	    resp_buffer->code = RPC_REP_UNKNOWN;
-	    client_reply(client_buffer, resp_buffer, NULL, 0, num_queues*num_quorums + tid);
+	    client_reply(client_buffer, resp_buffer, client_buffer + 1, client_buffer->payload_sz, num_queues*num_quorums + tid);
 	  }
 	}
       }
       else {
 	if(client_buffer->wal.leader) {
 	  resp_buffer->code = RPC_REP_COMPLETE;
-	  client_reply(client_buffer, resp_buffer, NULL, 0, num_queues*num_quorums + tid);
+	  client_reply(client_buffer, resp_buffer, client_buffer + 1, client_buffer->payload_sz, num_queues*num_quorums + tid);
 	}
       }
     }

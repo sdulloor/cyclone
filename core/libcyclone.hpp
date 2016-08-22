@@ -82,6 +82,8 @@ int make_rpc(void *handle,
 // Noop RPC -- do nothing at the other end
 // client txid is essentially ignored
 int make_noop_rpc(void *handle,
+		  void *payload,
+		  int sz,
 		  int txid,
 		  int quorum_id,
 		  int core_id,

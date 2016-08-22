@@ -300,7 +300,7 @@ typedef struct rpc_client_st {
     return (int)(resp_sz - sizeof(rpc_t));
   }
 
-  int make_noop_rpc(int txid, int quorum_id, int core_id, int flags)
+  int make_noop_rpc(void *payload, int sz, int txid, int quorum_id, int core_id, int flags)
   {
     int retcode;
     int resp_sz;
@@ -314,8 +314,9 @@ typedef struct rpc_client_st {
       packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
-      packet_out->payload_sz  = 0;
-      send_to_server(sizeof(rpc_t), quorum_id);
+      packet_out->payload_sz  = sz;
+      memcpy(packet_out + 1, payload, sz);
+      send_to_server(sizeof(rpc_t) + sz, quorum_id);
       resp_sz = common_receive_loop(sizeof(rpc_t));
       if(resp_sz == -1) {
 	update_server("rx timeout, make rpc", quorum_id);
@@ -395,13 +396,15 @@ int make_rpc(void *handle,
 }
 
 int make_noop_rpc(void *handle,
+		  void *payload, 
+		  int sz,
 		  int txid,
 		  int quorum_id,
 		  int core_id,
 		  int flags)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->make_noop_rpc(txid, quorum_id, core_id, flags);
+  return client->make_noop_rpc(payload, sz, txid, quorum_id, core_id, flags);
 }
 
 int get_last_txid(void *handle, int quorum_id, int core_id)

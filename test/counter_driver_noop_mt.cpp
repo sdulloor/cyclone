@@ -124,6 +124,8 @@ int driver(void *arg)
     int rpc_flags = 0;
     // int rpc_flags = RPC_FLAG_RO;
     sz = make_noop_rpc(handles[partition],
+		       buffer,
+		       0,
 		       ctr[partition],
 		       rand() % num_quorums,
 		       my_core,
