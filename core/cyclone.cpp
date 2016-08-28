@@ -584,7 +584,7 @@ void* cyclone_boot(const char *config_quorum_path,
   cyclone_handle->me_quorum       = quorum_id;
   cyclone_handle->raft_handle = raft_new();
   raft_set_multi_inflight(cyclone_handle->raft_handle);
-
+  BOOST_LOG_TRIVIAL(info) << "RAFT start. sizeof(msg_t) is :" << sizeof(msg_t);
   /* Setup raft state */
   if(access(path_raft.c_str(), F_OK)) {
     // TBD: figure out how to make this atomic
