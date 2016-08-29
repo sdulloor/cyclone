@@ -96,6 +96,13 @@ int driver(void *arg)
   }
   BOOST_LOG_TRIVIAL(info) << "KEYS = " << keys;
 
+  unsigned long payload = 0;
+  const char *payload_env = getenv("PAYLOAD");
+  if(payload_env != NULL) {
+    payload = atol(payload_env);
+  }
+  BOOST_LOG_TRIVIAL(info) << "PAYLOAD = " << payload;
+
   total_latency = 0;
   tx_block_cnt  = 0;
   tx_block_begin = rtc_clock::current_time();
@@ -125,7 +132,7 @@ int driver(void *arg)
     // int rpc_flags = RPC_FLAG_RO;
     sz = make_noop_rpc(handles[partition],
 		       buffer,
-		       0,
+		       payload,
 		       ctr[partition],
 		       rand() % num_quorums,
 		       my_core,
