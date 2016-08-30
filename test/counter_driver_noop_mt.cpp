@@ -49,6 +49,7 @@
 int driver(void *arg);
 
 typedef struct driver_args_st {
+  int leader;
   int me; 
   int mc;
   int replicas;
@@ -152,17 +153,19 @@ int driver(void *arg)
       exit(-1);
     }
     */
-    if(tx_block_cnt > 5000) {
-      total_latency = (rtc_clock::current_time() - tx_begin_time);
-      BOOST_LOG_TRIVIAL(info) << "LOAD = "
-			      << ((double)1000000*tx_block_cnt)/total_latency
-			      << " tx/sec "
-			      << "LATENCY = "
-			      << ((double)total_latency)/tx_block_cnt
-			      << " us ";
-      tx_begin_time = rtc_clock::current_time();
-      tx_block_cnt   = 0;
-      total_latency  = 0;
+    if(dargs->leader) {
+      if(tx_block_cnt > 50000) {
+	total_latency = (rtc_clock::current_time() - tx_begin_time);
+	BOOST_LOG_TRIVIAL(info) << "LOAD = "
+				<< ((double)1000000*tx_block_cnt)/total_latency
+				<< " tx/sec "
+				<< "LATENCY = "
+				<< ((double)total_latency)/tx_block_cnt
+				<< " us ";
+	tx_begin_time = rtc_clock::current_time();
+	tx_block_cnt   = 0;
+	total_latency  = 0;
+      }
     }
   }
   return 0;
@@ -184,6 +187,12 @@ int main(int argc, const char *argv[]) {
   for(int me = client_id_start; me < client_id_stop; me++) {
     dargs = (driver_args_t *) malloc(sizeof(driver_args_t));
     dargs_array[me - client_id_start] = dargs;
+    if(me == client_id_start) {
+      dargs->leader = 1;
+    }
+    else {
+      dargs->leader = 0;
+    }
     dargs->me = me;
     dargs->mc = atoi(argv[3]);
     dargs->replicas = atoi(argv[4]);
