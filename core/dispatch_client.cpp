@@ -404,6 +404,12 @@ int make_noop_rpc(void *handle,
 		  int flags)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
+  if(sz > DISP_MAX_MSGSIZE) {
+    BOOST_LOG_TRIVIAL(fatal) << " noop rpc call params too large "
+			     << " param size =  " << sz
+			     << " DISP_MAX_MSGSIZE = " << DISP_MAX_MSGSIZE;
+    exit(-1);
+  }
   return client->make_noop_rpc(payload, sz, txid, quorum_id, core_id, flags);
 }
 
