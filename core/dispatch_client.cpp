@@ -334,7 +334,7 @@ typedef struct rpc_client_st {
     if(packet_in->code == RPC_REP_OLD) {
       return RPC_EOLD;
     }
-    return 0;
+    return (int)(resp_sz - sizeof(rpc_t));
   }
   
 } rpc_client_t;

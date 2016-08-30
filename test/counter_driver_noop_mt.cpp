@@ -139,6 +139,9 @@ int driver(void *arg)
 		       rpc_flags);
     ctr[partition]++;
     tx_block_cnt++;
+    if(sz != payload) {
+      BOOST_LOG_TRIVIAL(fatal) << "Invalid response";
+    }
     /*
     if(sz != sizeof(struct proposal)) {
       BOOST_LOG_TRIVIAL(fatal) << "Invalid response";
