@@ -154,7 +154,7 @@ int driver(void *arg)
     }
     */
     if(dargs->leader) {
-      if(tx_block_cnt > 50000) {
+      if(tx_block_cnt > 5000) {
 	total_latency = (rtc_clock::current_time() - tx_begin_time);
 	BOOST_LOG_TRIVIAL(info) << "LOAD = "
 				<< ((double)1000000*tx_block_cnt)/total_latency
