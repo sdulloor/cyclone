@@ -211,6 +211,7 @@ static int __applylog(raft_server_t* raft,
     pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
     while(true) {
       rpc->wal.rep = REP_SUCCESS;
+      cyclone_handle->completions++;
       __sync_synchronize();
       char *point = (char *)rpc;
       point = point + sizeof(rpc_t);
@@ -222,7 +223,7 @@ static int __applylog(raft_server_t* raft,
     m = m->next;
     seg_no++;
   }
-
+  
   if(ety->type == RAFT_LOGTYPE_REMOVE_NODE) {
     cfg_change_t *cfg = (cfg_change_t *)(chunk + sizeof(rpc_t));
     delta_node_id = cfg->node;
@@ -242,6 +243,12 @@ static int __applylog(raft_server_t* raft,
     cfg_change_t *cfg = (cfg_change_t *)(chunk + sizeof(rpc_t));
     delta_node_id = cfg->node;
     BOOST_LOG_TRIVIAL(info) << "STARTUP node " << delta_node_id;
+  }
+  if(cyclone_handle->completions >= 1000000) {
+    BOOST_LOG_TRIVIAL(info) << "Replication rate = "
+			    <<((double)cyclone_handle->completions)/(rtc_clock::current_time() - cyclone_handle->mark);
+    cyclone_handle->completions = 0;
+    cyclone_handle->mark = rtc_clock::current_time();
   }
   return 0;
 }
@@ -583,6 +590,8 @@ void* cyclone_boot(const char *config_quorum_path,
   cyclone_handle->me              = me;
   cyclone_handle->me_quorum       = quorum_id;
   cyclone_handle->raft_handle = raft_new();
+  cyclone_handle->completions = 0;
+  cyclone_handle->mark = rtc_clock::current_time();
   raft_set_multi_inflight(cyclone_handle->raft_handle);
   BOOST_LOG_TRIVIAL(info) << "RAFT start. sizeof(msg_t) is :" 
 			  << sizeof(msg_t)

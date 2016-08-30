@@ -135,6 +135,9 @@ typedef struct cyclone_st {
   int ae_response_sources[PKT_BURST];
   int ae_response_cnt;
 
+  unsigned long completions;
+  unsigned long mark;
+
   int my_q(int q)
   {
     return num_queues*me_quorum + q;
