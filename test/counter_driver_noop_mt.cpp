@@ -91,10 +91,6 @@ int driver(void *arg)
   }
 
   unsigned long keys = 10000;
-  const char *keys_env = getenv("RBT_KEYS");
-  if(keys_env != NULL) {
-    keys = atol(keys_env);
-  }
   BOOST_LOG_TRIVIAL(info) << "KEYS = " << keys;
 
   unsigned long payload = 0;
@@ -103,6 +99,13 @@ int driver(void *arg)
     payload = atol(payload_env);
   }
   BOOST_LOG_TRIVIAL(info) << "PAYLOAD = " << payload;
+
+  unsigned long cc_tx = 0;
+  const char *cc_tx_env = getenv("CC_TX");
+  if(cc_tx_env != NULL) {
+    cc_tx = atol(cc_tx_env);
+  }
+  BOOST_LOG_TRIVIAL(info) << "CC_TX = " << cc_tx;
 
   total_latency = 0;
   tx_block_cnt  = 0;
@@ -113,46 +116,48 @@ int driver(void *arg)
   while(true) {
     uint64_t key = rand() % keys;
     partition = key % partitions;
-    /*
-    prop->fn = FN_NOOP;
-    int rpc_flags = 0;
-    //prop->fn = FN_NOOP_RO;
-    //int rpc_flags = RPC_FLAG_RO;
-    
-    prop->k_data.key = key;
-    sz = make_rpc(handles[partition],
-		  buffer,
-		  sizeof(struct proposal),
-		  (void **)&resp,
-		  ctr[partition],
-		  rand()%num_quorums,
-		  my_core,
-		  rpc_flags);
-    */
-    int rpc_flags = 0;
-    // int rpc_flags = RPC_FLAG_RO;
-    sz = make_noop_rpc(handles[partition],
-		       buffer,
-		       payload,
-		       ctr[partition],
-		       rand() % num_quorums,
-		       my_core,
-		       rpc_flags);
+    int rpc_flags;
+    if(cc_tx) {
+      prop->fn = FN_NOOP;
+      rpc_flags = 0;
+      //prop->fn = FN_NOOP_RO;
+      //rpc_flags = RPC_FLAG_RO;
+      prop->k_data.key = key;
+      sz = make_rpc(handles[partition],
+		    buffer,
+		    sizeof(struct proposal),
+		    (void **)&resp,
+		    ctr[partition],
+		    rand()%num_quorums,
+		    my_core,
+		    rpc_flags);
+
+      if(sz != sizeof(struct proposal)) {
+	BOOST_LOG_TRIVIAL(fatal) << "Invalid response";
+	exit(-1);
+      }
+      if(resp->code != CODE_OK) {
+	BOOST_LOG_TRIVIAL(fatal) << "Improper response";
+	exit(-1);
+      }
+    }
+    else {
+      rpc_flags = 0;
+      //rpc_flags = RPC_FLAG_RO;
+      sz = make_noop_rpc(handles[partition],
+			 buffer,
+			 payload,
+			 ctr[partition],
+			 rand() % num_quorums,
+			 my_core,
+			 rpc_flags);
+      if(sz != payload) {
+	BOOST_LOG_TRIVIAL(fatal) << "Invalid response";
+      }
+    }
     ctr[partition]++;
     tx_block_cnt++;
-    if(sz != payload) {
-      BOOST_LOG_TRIVIAL(fatal) << "Invalid response";
-    }
-    /*
-    if(sz != sizeof(struct proposal)) {
-      BOOST_LOG_TRIVIAL(fatal) << "Invalid response";
-      exit(-1);
-    }
-    if(resp->code != CODE_OK) {
-      BOOST_LOG_TRIVIAL(fatal) << "Improper response";
-      exit(-1);
-    }
-    */
+    
     if(dargs->leader) {
       if(tx_block_cnt > 5000) {
 	total_latency = (rtc_clock::current_time() - tx_begin_time);

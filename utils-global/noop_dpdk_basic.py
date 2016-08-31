@@ -30,10 +30,10 @@ def launch_cmds_client_gen(f, m, c, quorums, replicas, clients, machines):
             cstop = clients
         if c == 0 and m < replicas + client_machines:
             cmd=''
-            if os.environ.has_key('RBT_KEYS'):
-                cmd=cmd + 'RBT_KEYS=' + os.environ.get('RBT_KEYS') + ' '
-            if os.environ.has_key('RBT_FRAC_READ'):   
-                cmd=cmd + 'RBT_FRAC_READ=' + os.environ.get('RBT_FRAC_READ') + ' '
+            if os.environ.has_key('PAYLOAD'):
+                cmd=cmd + 'PAYLOAD=' + os.environ.get('PAYLOAD') + ' '
+            if os.environ.has_key('CC_TX'):
+                cmd=cmd + 'CC_TX=' + os.environ.get('CC_TX') + ' '    
             cmd=cmd + 'counter_driver_noop_mt '
             cmd=cmd + str(c_start) + ' '
             cmd=cmd + str(c_stop) + ' '
