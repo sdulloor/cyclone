@@ -10,6 +10,18 @@ setup() {
     export PAYLOAD=$p
     python config_generator.py  ../utils-arch-cluster/cluster-dpdk.ini sweep_setup.ini noop_dpdk_basic.py test_output
 
+}
+
+setup_cc() {
+    rm -rf test_output
+    r=$1
+    c=$2
+    p=$3
+    echo "Setting up for replicas=$r clients=$c"
+    cat ../utils-arch-cluster/example.ini  | sed s"/replicas=3/replicas=$r/" | sed s"/clients=180/clients=$c/" > sweep_setup.ini
+    export PAYLOAD=$p
+    export CC_TX=1
+    python config_generator.py  ../utils-arch-cluster/cluster-dpdk.ini sweep_setup.ini noop_dpdk_basic.py test_output
 }   
 
 run() {
@@ -44,12 +56,37 @@ do_test() {
     ./deploy_shutdown.sh test_output /root
 }
 
+do_test_cc() {
+    r=$1
+    c=$2
+    p=$3
+    setup_cc $r $c $p
+    run
+    collect $r $c $p
+    ./deploy_shutdown.sh test_output /root
+}
+
 for replicas in 1 2 3
 do
     for clients in 1 20 50 100 150 180 200 250 300 350 400
     do
 	do_test $replicas $clients 0
+	do_test $replicas $clients 190
 	do_test $replicas $clients 512
     done
 done
+./rollup.sh
+mv results.csv results_replica_cnt.csv
+rm -f server_log_*
+rm -f client_log_*
+
+for replicas in 1 2 3
+do
+    for clients in 1 20 50 100 150 180 200 250 300 350 400
+    do
+	do_test_cc $replicas $clients 0
+    done
+done
+./rollup.sh
+mv results.csv results_cc.csv
 
