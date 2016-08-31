@@ -4,8 +4,10 @@ setup() {
     rm -rf test_output
     r=$1
     c=$2
+    p=$3
     echo "Setting up for replicas=$r clients=$c"
     cat ../utils-arch-cluster/example.ini  | sed s"/replicas=3/replicas=$r/" | sed s"/clients=180/clients=$c/" > sweep_setup.ini
+    export PAYLOAD=$p
     python config_generator.py  ../utils-arch-cluster/cluster-dpdk.ini sweep_setup.ini noop_dpdk_basic.py test_output
 
 }   
@@ -22,34 +24,32 @@ run() {
 collect() {
     r=$1
     c=$2
-    rm -f log_${r}_${c}
+    p=$3
+    rm -f client_log_${r}_${c}_${p}
+    rm -f server_log_${r}_${c}_${p}
     mc0=$((2*$r+2))
     scp arch-h${mc0}:/root/cyclone_$r/client_log0 .
-    mv client_log0 log_${r}_${c}
+    cp /root/cyclone_0/server_log .
+    mv client_log0 client_log_${r}_${c}_${p}
+    mv server_log server_log_${r}_${c}_${p}
 }
 
 do_test() {
     r=$1
     c=$2
-    setup $r $c
+    p=$3
+    setup $r $c $p
     run
-    collect $r $c
+    collect $r $c $p
     ./deploy_shutdown.sh test_output /root
 }
 
 for replicas in 1 2 3
-#for replicas in 3
 do
     for clients in 1 20 50 100 150 180 200 250 300 350 400
-#    for clients in 100
     do
-	do_test $replicas $clients
+	do_test $replicas $clients 0
+	do_test $replicas $clients 512
     done
 done
-
-#for clients in 1 20 50 100 150 180 200 250
-#    do
-#	do_test 5 $clients
-#    done
-
 
