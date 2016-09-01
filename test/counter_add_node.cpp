@@ -51,7 +51,7 @@ int main(int argc, const char *argv[]) {
     printf("Usage: %s client_id mc replicas cluster_config quorum_config node_to_delete\n", argv[0]);
     exit(-1);
   }
-  cyclone_network_init(argv[4], atoi(argv[2]), 1);
+  cyclone_network_init(argv[4], 1, atoi(argv[2]), 1);
   void* handle = cyclone_client_init(atoi(argv[1]),
 				     atoi(argv[2]),
 				     0,

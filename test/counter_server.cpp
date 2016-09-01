@@ -283,8 +283,8 @@ rpc_callbacks_t rpc_callbacks =  {
 
 int main(int argc, char *argv[])
 {
-  if(argc != 6) {
-    printf("Usage1: %s replica_id replica_mc clients cluster_config quorum_config\n", argv[0]);
+  if(argc != 7) {
+    printf("Usage1: %s replica_id replica_mc clients cluster_config quorum_config ports\n", argv[0]);
     exit(-1);
   }
   server_id = atoi(argv[1]);
@@ -296,6 +296,7 @@ int main(int argc, char *argv[])
     sleep_time = 0;
   }
   cyclone_network_init(argv[4],
+		       atoi(argv[6]),
 		       atoi(argv[2]),
 		       num_queues*num_quorums + executor_threads);
   dispatcher_start(argv[4], 

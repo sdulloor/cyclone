@@ -59,7 +59,7 @@ int main(int argc, const char *argv[]) {
   void **handles = new void *[partitions];
   char fname_server[50];
   char fname_client[50];
-  cyclone_network_init(argv[6], mc, 1);
+  cyclone_network_init(argv[6], 1, mc, 1);
   for(int i=0;i<partitions;i++) {
     sprintf(fname_client, "%s%d.ini", argv[7], i);
     handles[i] = cyclone_client_init(me,

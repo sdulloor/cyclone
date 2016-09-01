@@ -105,12 +105,12 @@ static void init_fdir_conf()
 
 
 typedef struct {
-  struct ether_addr *mc_addresses;
+  struct ether_addr **mc_addresses;
   struct rte_mempool **mempools;
   struct rte_mempool **extra_pools;
   struct rte_eth_dev_tx_buffer **buffers;
   int me;
-  int port_id;
+  int ports;
 } dpdk_context_t;
 
 typedef struct {
@@ -186,6 +186,7 @@ static void initialize_ipv4_header(rte_mbuf *m,
 }
 
 static void cyclone_prep_mbuf(dpdk_context_t *context,
+			      int port,
 			      int dst,
 			      int dst_q,
 			      rte_mbuf *m,
@@ -195,8 +196,38 @@ static void cyclone_prep_mbuf(dpdk_context_t *context,
   struct ether_hdr *eth;
   eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
   memset(eth, 0, sizeof(struct ether_hdr));
-  ether_addr_copy(&context->mc_addresses[dst], &eth->d_addr);
-  ether_addr_copy(&context->mc_addresses[context->me], &eth->s_addr);
+  ether_addr_copy(&context->mc_addresses[dst][port], &eth->d_addr);
+  ether_addr_copy(&context->mc_addresses[context->me][port], &eth->s_addr);
+  eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
+  struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
+  initialize_ipv4_header(m,
+			 ip,
+			 magic_src_ip, 
+			 dst_q,
+			 size);
+  rte_memcpy(ip + 1, data, size);
+  
+  ///////////////////////
+  m->pkt_len = 
+    sizeof(struct ether_hdr) + 
+    sizeof(struct ipv4_hdr)  + 
+    size;
+  m->data_len = m->pkt_len;
+}
+
+static void cyclone_prep_mbuf_client(dpdk_context_t *context,
+				     int port,
+				     int dst,
+				     int dst_q,
+				     rte_mbuf *m,
+				     void *data,
+				     int size)
+{
+  struct ether_hdr *eth;
+  eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
+  memset(eth, 0, sizeof(struct ether_hdr));
+  ether_addr_copy(&context->mc_addresses[dst][0], &eth->d_addr);
+  ether_addr_copy(&context->mc_addresses[context->me][port], &eth->s_addr);
   eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
   struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
   initialize_ipv4_header(m,
@@ -215,20 +246,21 @@ static void cyclone_prep_mbuf(dpdk_context_t *context,
 }
 
 static void cyclone_prep_eth(dpdk_context_t *context,
+			     int port,
 			     int dst,
 			     struct ether_hdr *eth)
 {
   memset(eth, 0, sizeof(struct ether_hdr));
-  ether_addr_copy(&context->mc_addresses[dst], &eth->d_addr);
-  ether_addr_copy(&context->mc_addresses[context->me], &eth->s_addr);
+  ether_addr_copy(&context->mc_addresses[dst][port], &eth->d_addr);
+  ether_addr_copy(&context->mc_addresses[context->me][port], &eth->s_addr);
   eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
 }
 
 // Best effort
-static int cyclone_tx(dpdk_context_t *context, rte_mbuf *m, int q)
+static int cyclone_tx(dpdk_context_t *context, int port, rte_mbuf *m, int q)
 {
-  int sent = rte_eth_tx_buffer(context->port_id, q, context->buffers[q], m);
-  sent += rte_eth_tx_buffer_flush(context->port_id, q, context->buffers[q]);
+  int sent = rte_eth_tx_buffer(port, q, context->buffers[q], m);
+  sent += rte_eth_tx_buffer_flush(port, q, context->buffers[q]);
   if(sent)
     return 0;
   else
@@ -236,18 +268,19 @@ static int cyclone_tx(dpdk_context_t *context, rte_mbuf *m, int q)
 }
 
 
-static int cyclone_buffer_pkt(dpdk_context_t *context, rte_mbuf *m, int q)
+static int cyclone_buffer_pkt(dpdk_context_t *context, int port, rte_mbuf *m, int q)
 {
-  return rte_eth_tx_buffer(context->port_id, q, context->buffers[q], m);
+  return rte_eth_tx_buffer(port, q, context->buffers[q], m);
 }
 
-static int cyclone_flush_buffer(dpdk_context_t *context, int q)
+static int cyclone_flush_buffer(dpdk_context_t *context, int port, int q)
 {
-  return rte_eth_tx_buffer_flush(context->port_id, q, context->buffers[q]);
+  return rte_eth_tx_buffer_flush(port, q, context->buffers[q]);
 }
 
 // Best effort
 static int cyclone_rx_buffered(dpdk_context_t *context,
+			       int port,
 			       int q,
 			       dpdk_rx_buffer_t *buf,
 			       unsigned char *data,
@@ -257,7 +290,7 @@ static int cyclone_rx_buffered(dpdk_context_t *context,
   rte_mbuf *m;
   if(buf->buffered == buf->consumed) {
     buf->consumed = 0;
-    buf->buffered = rte_eth_rx_burst(context->port_id, 
+    buf->buffered = rte_eth_rx_burst(port, 
 				     q,
 				     &buf->burst[0], 
 				     PKT_BURST);
@@ -304,6 +337,7 @@ static int cyclone_rx_buffered(dpdk_context_t *context,
 
 // Block till data available or timeout
 static int cyclone_rx_timeout(dpdk_context_t *context,
+			      int port,
 			      int q,
 			      dpdk_rx_buffer_t *buf,
 			      unsigned char *data,
@@ -313,7 +347,7 @@ static int cyclone_rx_timeout(dpdk_context_t *context,
   int rc;
   unsigned long mark = rtc_clock::current_time();
   while (true) {
-    rc = cyclone_rx_buffered(context, q, buf, data, size);
+    rc = cyclone_rx_buffered(context, port, q, buf, data, size);
     if(rc >= 0) {
       break;
     }
@@ -346,7 +380,7 @@ static void init_filter_clean()
   filter_clean.queue = 0; // To be set
 }
 
-static void install_eth_filters(int queues)
+static void install_eth_filters(int port, int queues)
 {
   struct rte_eth_ntuple_filter filter;
   init_filter_clean();
@@ -357,14 +391,14 @@ static void install_eth_filters(int queues)
     memcpy(&filter, &filter_clean, sizeof(rte_eth_ntuple_filter));
     filter.dst_ip = i;
     filter.queue  = i;
-    int ret = rte_eth_dev_filter_ctrl(0,
+    int ret = rte_eth_dev_filter_ctrl(port,
 				      RTE_ETH_FILTER_NTUPLE,
 				      RTE_ETH_FILTER_ADD,
 				      &filter);
     
     if (ret != 0)
       rte_exit(EXIT_FAILURE, "rte_eth_dev_filter_ctrl:err=%d, port=%u\n",
-	       ret, (unsigned) 0);
+	       ret, (unsigned) port);
     else
       BOOST_LOG_TRIVIAL(info) << "Added filter for rxq " << i;
     
@@ -396,18 +430,14 @@ static void dpdk_context_init(dpdk_context_t *context,
     rte_exit(EXIT_FAILURE, "No Ethernet ports - bye\n");
   }
   
-  init_port_conf();
-  //init_fdir_conf();
-  //port_conf.fdir_conf = fdir_conf;
-  rte_eth_dev_configure(0, queues, queues, &port_conf);
-  context->port_id = 0;
-
+  for(int i=0; i<context->ports; i++) {
+    init_port_conf();
+    rte_eth_dev_configure(i, queues, queues, &port_conf);
+  }
   context->mempools = (rte_mempool **)malloc(queues*sizeof(rte_mempool *));
   context->buffers   = (rte_eth_dev_tx_buffer **)malloc
     (queues*sizeof(rte_eth_dev_tx_buffer *));
   context->extra_pools = (rte_mempool **)malloc(num_quorums*sizeof(rte_mempool *));
-  // Assume port 0, core 1 ....
-
   for(int i=0;i<queues;i++) {
     char pool_name[500];
     sprintf(pool_name, "mbuf_pool%d", i);
@@ -477,16 +507,17 @@ static void dpdk_context_init(dpdk_context_t *context,
     rte_eth_dev_info_get(0, &dev_info);
     txconf = &dev_info.default_txconf;
     txconf->txq_flags = 0;
-    ret = rte_eth_tx_queue_setup(0, 
-				 i, 
-				 nb_txd,
-				 rte_eth_dev_socket_id(0),
-				 txconf);
 
-    if (ret < 0)
-      rte_exit(EXIT_FAILURE, "rte_eth_tx_queue_setup:err=%d, port=%u\n",
-	       ret, (unsigned) 0);
-    
+    for(int j=0;j<context->ports;j++) {
+      ret = rte_eth_tx_queue_setup(j, 
+				   i, 
+				   nb_txd,
+				   rte_eth_dev_socket_id(j),
+				   txconf);
+      if (ret < 0)
+	rte_exit(EXIT_FAILURE, "rte_eth_tx_queue_setup:err=%d, port=%u\n",
+		 ret, (unsigned) j);
+    }
 
     
     context->buffers[i] = (rte_eth_dev_tx_buffer *)
@@ -502,30 +533,33 @@ static void dpdk_context_init(dpdk_context_t *context,
     rte_eth_tx_buffer_init(context->buffers[i], PKT_BURST);
 
     // rx queue
-    ret = rte_eth_rx_queue_setup(0, 
-				 i, 
-				 nb_rxd,
-				 rte_eth_dev_socket_id(0),
-				 NULL,
-				 context->mempools[i]);
-    if (ret < 0)
-      rte_exit(EXIT_FAILURE, "rte_eth_rx_queue_setup:err=%d, port=%u\n",
-	       ret, 0);
-
+    for(int j=0;j<context->ports;j++) {
+      ret = rte_eth_rx_queue_setup(j, 
+				   i, 
+				   nb_rxd,
+				   rte_eth_dev_socket_id(j),
+				   NULL,
+				   context->mempools[i]);
+      if (ret < 0)
+	rte_exit(EXIT_FAILURE, "rte_eth_rx_queue_setup:err=%d, port=%u\n",
+		 ret, j);
+    }
     BOOST_LOG_TRIVIAL(info) << "CYCLONE_COMM:DPDK setup queue " << i;
   }
 
   /* Start device */
-  ret = rte_eth_dev_start(0);
-  if (ret < 0)
-    rte_exit(EXIT_FAILURE, "rte_eth_dev_start:err=%d, port=%u\n",
-	     ret, (unsigned) 0);
-  // NOTE:DO NOT ENABLE PROMISCOUS MODE
-  // OW need to check eth addr on all incoming packets
-  //rte_eth_promiscuous_enable(0);
-  install_eth_filters(queues);
-  //rte_eth_dev_set_mtu(0, 2500);
-  rte_eth_macaddr_get(0, &context->mc_addresses[context->me]);
+  for(int j=0;j<context->ports;j++) {
+    ret = rte_eth_dev_start(j);
+    if (ret < 0)
+      rte_exit(EXIT_FAILURE, "rte_eth_dev_start:err=%d, port=%u\n",
+	       ret, (unsigned) 0);
+    // NOTE:DO NOT ENABLE PROMISCOUS MODE
+    // OW need to check eth addr on all incoming packets
+    //rte_eth_promiscuous_enable(0);
+    install_eth_filters(j, queues);
+    //rte_eth_dev_set_mtu(0, 2500);
+    rte_eth_macaddr_get(j, &context->mc_addresses[context->me][j]);
+  }
 }
 
 #endif

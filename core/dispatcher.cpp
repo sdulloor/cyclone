@@ -29,6 +29,7 @@ static void client_reply(rpc_t *req,
 			 rpc_t *rep,
 			 void *payload,
 			 int sz,
+			 int port,
 			 int q)
 {
   rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[q]);
@@ -41,14 +42,15 @@ static void client_reply(rpc_t *req,
   if(sz > 0) {
     memcpy(rep + 1, payload, sz);
   }
-  cyclone_prep_mbuf(global_dpdk_context,
-		    req->requestor,
-		    req->client_port,
-		    m,
-		    rep,
-		    sizeof(rpc_t) + sz);
+  cyclone_prep_mbuf_client(global_dpdk_context,
+			   port,
+			   req->requestor,
+			   req->client_port,
+			   m,
+			   rep,
+			   sizeof(rpc_t) + sz);
 		    
-  cyclone_tx(global_dpdk_context, m, q);
+  cyclone_tx(global_dpdk_context, port, m, q);
 }
 
 void init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
@@ -91,6 +93,7 @@ typedef struct executor_st {
   rpc_t* client_buffer, *resp_buffer;
   int sz;
   unsigned long tid;
+  int port_id;
   rpc_cookie_t cookie;
 
   void exec()
@@ -105,6 +108,7 @@ typedef struct executor_st {
 		   resp_buffer, 
 		   NULL, 
 		   0,
+		   port_id,
 		   num_queues*num_quorums + tid);
     }
     else if(client_buffer->code == RPC_REQ_STATUS) {
@@ -118,6 +122,7 @@ typedef struct executor_st {
 		     resp_buffer, 
 		     NULL, 
 		     0,
+		     port_id,
 		     num_queues*num_quorums + tid);
       }
       else if(cookie.client_txid == client_buffer->client_txid) {
@@ -126,6 +131,7 @@ typedef struct executor_st {
 		     resp_buffer, 
 		     cookie.ret_value, 
 		     cookie.ret_size,
+		     port_id,
 		     num_queues*num_quorums + tid);
       }
       else {
@@ -134,6 +140,7 @@ typedef struct executor_st {
 		     resp_buffer, 
 		     NULL,
 		     0,
+		     port_id,
 		     num_queues*num_quorums + tid);
       }
     }
@@ -143,18 +150,33 @@ typedef struct executor_st {
 	if(client_buffer->wal.leader) {
 	  if(client_buffer->wal.rep == REP_SUCCESS) {
 	    resp_buffer->code = RPC_REP_COMPLETE;
-	    client_reply(client_buffer, resp_buffer, client_buffer + 1, client_buffer->payload_sz, num_queues*num_quorums + tid);
+	    client_reply(client_buffer,
+			 resp_buffer,
+			 client_buffer + 1,
+			 client_buffer->payload_sz,
+			 port_id,
+			 num_queues*num_quorums + tid);
 	  }
 	  else {
 	    resp_buffer->code = RPC_REP_UNKNOWN;
-	    client_reply(client_buffer, resp_buffer, client_buffer + 1, client_buffer->payload_sz, num_queues*num_quorums + tid);
+	    client_reply(client_buffer,
+			 resp_buffer,
+			 client_buffer + 1,
+			 client_buffer->payload_sz,
+			 port_id,
+			 num_queues*num_quorums + tid);
 	  }
 	}
       }
       else {
 	if(client_buffer->wal.leader) {
 	  resp_buffer->code = RPC_REP_COMPLETE;
-	  client_reply(client_buffer, resp_buffer, client_buffer + 1, client_buffer->payload_sz, num_queues*num_quorums + tid);
+	  client_reply(client_buffer,
+		       resp_buffer,
+		       client_buffer + 1,
+		       client_buffer->payload_sz,
+		       port_id,
+		       num_queues*num_quorums + tid);
 	}
       }
     }
@@ -170,6 +192,7 @@ typedef struct executor_st {
 		       resp_buffer, 
 		       cookie.ret_value, 
 		       cookie.ret_size,
+		       port_id,
 		       num_queues*num_quorums + tid);
 	}
       }
@@ -180,6 +203,7 @@ typedef struct executor_st {
 		       resp_buffer, 
 		       cookie.ret_value, 
 		       cookie.ret_size,
+		       port_id,
 		       num_queues*num_quorums + tid);
 	}
       }
@@ -191,6 +215,7 @@ typedef struct executor_st {
 		       resp_buffer, 
 		       cookie.ret_value, 
 		       cookie.ret_size,
+		       port_id,
 		       num_queues*num_quorums + tid);
 	}
 	if(cookie.ret_size > 0) {
@@ -203,11 +228,21 @@ typedef struct executor_st {
 	  if(client_buffer->wal.leader) {
 	    if(client_buffer->wal.rep == REP_SUCCESS) {
 	      resp_buffer->code = RPC_REP_COMPLETE;
-	      client_reply(client_buffer, resp_buffer, NULL, 0, num_queues*num_quorums + tid);
+	      client_reply(client_buffer,
+			   resp_buffer,
+			   NULL,
+			   0,
+			   port_id,
+			   num_queues*num_quorums + tid);
 	    }
 	    else {
 	      resp_buffer->code = RPC_REP_UNKNOWN;
-	      client_reply(client_buffer, resp_buffer, NULL, 0, num_queues*num_quorums + tid);
+	      client_reply(client_buffer,
+			   resp_buffer,
+			   NULL,
+			   0,
+			   port_id,
+			   num_queues*num_quorums + tid);
 	    }
 	  }
 	}
@@ -224,6 +259,7 @@ typedef struct executor_st {
 			 resp_buffer, 
 			 cookie.ret_value, 
 			 cookie.ret_size,
+			 port_id,
 			 num_queues*num_quorums + tid);
 	  }
 	  if(cookie.ret_size > 0) {
@@ -257,7 +293,10 @@ int dpdk_executor(void *arg)
 }
 
 
-void cyclone_network_init(const char *config_cluster_path, int me_mc, int queues)
+void cyclone_network_init(const char *config_cluster_path,
+			  int ports,
+			  int me_mc,
+			  int queues)
 {
   boost::property_tree::ptree pt_cluster;
   boost::property_tree::read_ini(config_cluster_path, pt_cluster);
@@ -265,23 +304,28 @@ void cyclone_network_init(const char *config_cluster_path, int me_mc, int queues
   global_dpdk_context = (dpdk_context_t *)malloc(sizeof(dpdk_context_t));
   global_dpdk_context->me = me_mc;
   int cluster_machines = pt_cluster.get<int>("machines.count");
-  global_dpdk_context->mc_addresses = (struct ether_addr *)
-    malloc(cluster_machines*sizeof(struct ether_addr));
+  global_dpdk_context->ports = ports;
+  global_dpdk_context->mc_addresses = (struct ether_addr **)
+    malloc(cluster_machines*sizeof(struct ether_addr *));
   for(int i=0;i<cluster_machines;i++) {
-    sprintf(key, "machines.addr%d", i);
-    std::string s = pt_cluster.get<std::string>(key);
-    unsigned int bytes[6];
-    sscanf(s.c_str(),
-	   "%02X:%02X:%02X:%02X:%02X:%02X",
-	   &bytes[0], &bytes[1], &bytes[2], &bytes[3], &bytes[4], &bytes[5]);
-    global_dpdk_context->mc_addresses[i].addr_bytes[0] = bytes[0];
-    global_dpdk_context->mc_addresses[i].addr_bytes[1] = bytes[1];
-    global_dpdk_context->mc_addresses[i].addr_bytes[2] = bytes[2];
-    global_dpdk_context->mc_addresses[i].addr_bytes[3] = bytes[3];
-    global_dpdk_context->mc_addresses[i].addr_bytes[4] = bytes[4];
-    global_dpdk_context->mc_addresses[i].addr_bytes[5] = bytes[5];
-    BOOST_LOG_TRIVIAL(info) << "CYCLONE::COMM::DPDK Cluster machine "
-                            << s.c_str();
+    global_dpdk_context->mc_addresses[i] = (struct ether_addr *)
+      malloc(ports*sizeof(struct either_addr));
+    for(int j=0;j<ports;j++) {
+      sprintf(key, "machines.addr%d_%d", i, j);
+      std::string s = pt_cluster.get<std::string>(key);
+      unsigned int bytes[6];
+      sscanf(s.c_str(),
+	     "%02X:%02X:%02X:%02X:%02X:%02X",
+	     &bytes[0], &bytes[1], &bytes[2], &bytes[3], &bytes[4], &bytes[5]);
+      global_dpdk_context->mc_addresses[i][j].addr_bytes[0] = bytes[0];
+      global_dpdk_context->mc_addresses[i][j].addr_bytes[1] = bytes[1];
+      global_dpdk_context->mc_addresses[i][j].addr_bytes[2] = bytes[2];
+      global_dpdk_context->mc_addresses[i][j].addr_bytes[3] = bytes[3];
+      global_dpdk_context->mc_addresses[i][j].addr_bytes[4] = bytes[4];
+      global_dpdk_context->mc_addresses[i][j].addr_bytes[5] = bytes[5];
+      BOOST_LOG_TRIVIAL(info) << "CYCLONE::COMM::DPDK Cluster machine "
+			      << s.c_str();
+    }
   }
   dpdk_context_init(global_dpdk_context,
 		    sizeof(struct ether_hdr) +
@@ -403,6 +447,7 @@ void dispatcher_start(const char* config_cluster_path,
   for(int i=0;i < executor_threads;i++) {
     executor_t *ex = new executor_t();
     ex->tid = i;
+    ex->port_id = i % global_dpdk_context->ports; 
     int e = rte_eal_remote_launch(dpdk_executor, (void *)ex, 1 + num_quorums + i);
     if(e != 0) {
       BOOST_LOG_TRIVIAL(fatal) << "Failed to launch executor on remote lcore";

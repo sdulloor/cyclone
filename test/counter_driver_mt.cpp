@@ -195,7 +195,7 @@ int main(int argc, const char *argv[]) {
   
   int client_id_start = atoi(argv[1]);
   int client_id_stop  = atoi(argv[2]);
-  cyclone_network_init(argv[7], atoi(argv[3]), client_id_stop - client_id_start);
+  cyclone_network_init(argv[7], 1, atoi(argv[3]), client_id_stop - client_id_start);
   driver_args_t ** dargs_array = 
     (driver_args_t **)malloc((client_id_stop - client_id_start)*sizeof(driver_args_t *));
   for(int me = client_id_start; me < client_id_stop; me++) {

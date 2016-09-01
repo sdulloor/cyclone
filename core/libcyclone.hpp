@@ -54,7 +54,10 @@ typedef struct rpc_callbacks_st {
 } rpc_callbacks_t;
 
 // Init network stack
-void cyclone_network_init(const char *config_cluster_path, int me_mc, int queues);
+void cyclone_network_init(const char *config_cluster_path,
+			  int ports,
+			  int me_mc,
+			  int queues);
 
 // Start the dispatcher loop -- note: does not return
 void dispatcher_start(const char* config_cluster_path,

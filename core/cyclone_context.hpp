@@ -120,6 +120,7 @@ typedef struct cyclone_st {
   int replicas;
   int me;
   int me_quorum;
+  int me_port;
   boost::thread *checkpoint_thread;
   int RAFT_LOGENTRIES;
   PMEMobjpool *pop_raft_state;
@@ -155,7 +156,7 @@ typedef struct cyclone_st {
 		      m, 
 		      msg, 
 		      sizeof(msg_t));
-    cyclone_tx(global_dpdk_context, m, my_q(q_raft));
+    cyclone_tx(global_dpdk_context, me_port, m, my_q(q_raft));
   }
   
   void send_ae_responses()
@@ -335,7 +336,7 @@ struct cyclone_monitor {
     int accepted;
     while(!terminate) {
       // Handle any outstanding requests
-      available = rte_eth_rx_burst(global_dpdk_context->port_id,
+      available = rte_eth_rx_burst(cyclone_handle->me_port,
 				   cyclone_handle->my_q(q_raft),
 				   &pkt_array[0],
 				   PKT_BURST);
@@ -353,7 +354,7 @@ struct cyclone_monitor {
       accepted  = 0;
       memset(chain_size, 0, 2*PKT_BURST);
       while(accepted <= PKT_BURST) {
-	available = rte_eth_rx_burst(global_dpdk_context->port_id,
+	available = rte_eth_rx_burst(cyclone_handle->me_port,
 				     cyclone_handle->my_q(q_dispatcher),
 				     &pkt_array[0],
 				     PKT_BURST);

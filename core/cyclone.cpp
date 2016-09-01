@@ -29,12 +29,13 @@ static int __send_requestvote(raft_server_t* raft,
     exit(-1);
   }
   cyclone_prep_mbuf(global_dpdk_context,
+		    cyclone_handle->me_port,
 		    (int)(unsigned long)socket,
 		    my_raft_q,
 		    mb,
 		    &msg,
 		    sizeof(msg_t));
-  cyclone_tx(global_dpdk_context, mb, my_raft_q);
+  cyclone_tx(global_dpdk_context, cyclone_handle->me_port, mb, my_raft_q);
   return 0;
 }
 
@@ -56,12 +57,13 @@ static void __send_appendentries_response(void *udata,
     exit(-1);
   }
   cyclone_prep_mbuf(global_dpdk_context,
+		    cyclone_handle->me_port,
 		    (int)(unsigned long)socket,
 		    my_raft_q,
 		    m,
 		    &resp,
 		    sizeof(msg_t));
-  cyclone_tx(global_dpdk_context, m, my_raft_q);
+  cyclone_tx(global_dpdk_context, cyclone_handle->me_port, m, my_raft_q);
 }
 
 /** Raft callback for sending appendentries message */
@@ -87,12 +89,13 @@ static int __send_appendentries(raft_server_t* raft,
     BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send requestvote";
   }
   cyclone_prep_mbuf(global_dpdk_context,
+		    cyclone_handle->me_port,
 		    (int)(unsigned long)socket,
 		    my_raft_q,
 		    mb,
 		    msg,
 		    ptr - cyclone_handle->cyclone_buffer_out);
-  cyclone_tx(global_dpdk_context, mb, my_raft_q);
+  cyclone_tx(global_dpdk_context, cyclone_handle->me_port, mb, my_raft_q);
   return m->n_entries;
 }
 
@@ -589,6 +592,7 @@ void* cyclone_boot(const char *config_quorum_path,
   cyclone_handle->replicas        = cyclone_handle->pt.get<int>("quorum.replicas");
   cyclone_handle->me              = me;
   cyclone_handle->me_quorum       = quorum_id;
+  cyclone_handle->me_port         = quorum_id % global_dpdk_context->ports;
   cyclone_handle->raft_handle = raft_new();
   cyclone_handle->completions = 0;
   cyclone_handle->mark = rtc_clock::current_time();
