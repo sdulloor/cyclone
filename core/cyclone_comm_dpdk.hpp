@@ -451,6 +451,7 @@ static void dpdk_context_init(dpdk_context_t *context,
   BOOST_LOG_TRIVIAL(info) << "MAXIMUM PKTSIZE = " << max_pktsize;
   pack_ratio = 32; // Forced by burst recv. limitations
   BOOST_LOG_TRIVIAL(info) << "PACK RATIO = " << pack_ratio;
+  BOOST_LOG_TRIVIAL(info) << "PORTS = " << context->ports;
 
   /* init EAL */
   ret = rte_eal_init(1, fake_argv);
