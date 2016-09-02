@@ -415,7 +415,7 @@ static void install_eth_filters(int port, int queues)
 {
   struct rte_eth_ntuple_filter filter;
   init_filter_clean();
-  if(rte_eth_dev_filter_supported(0, RTE_ETH_FILTER_NTUPLE) != 0) {
+  if(rte_eth_dev_filter_supported(port, RTE_ETH_FILTER_NTUPLE) != 0) {
     rte_exit(EXIT_FAILURE, "rte_eth_dev does not support ntuple filter");
   }
   for(int i=0;i < queues;i++) {
@@ -536,7 +536,7 @@ static void dpdk_context_init(dpdk_context_t *context,
 
     //tx queue
     for(int j=0;j<context->ports;j++) {
-      rte_eth_dev_info_get(0, &dev_info);
+      rte_eth_dev_info_get(j, &dev_info);
       txconf = &dev_info.default_txconf;
       txconf->txq_flags = 0;
       ret = rte_eth_tx_queue_setup(j, 
@@ -582,7 +582,7 @@ static void dpdk_context_init(dpdk_context_t *context,
     ret = rte_eth_dev_start(j);
     if (ret < 0)
       rte_exit(EXIT_FAILURE, "rte_eth_dev_start:err=%d, port=%u\n",
-	       ret, (unsigned) 0);
+	       ret, (unsigned) j);
     // NOTE:DO NOT ENABLE PROMISCOUS MODE
     // OW need to check eth addr on all incoming packets
     //rte_eth_promiscuous_enable(0);
