@@ -535,11 +535,10 @@ static void dpdk_context_init(dpdk_context_t *context,
     }
 
     //tx queue
-    rte_eth_dev_info_get(0, &dev_info);
-    txconf = &dev_info.default_txconf;
-    txconf->txq_flags = 0;
-
     for(int j=0;j<context->ports;j++) {
+      rte_eth_dev_info_get(0, &dev_info);
+      txconf = &dev_info.default_txconf;
+      txconf->txq_flags = 0;
       ret = rte_eth_tx_queue_setup(j, 
 				   i, 
 				   nb_txd,
