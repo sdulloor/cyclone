@@ -24,6 +24,7 @@ typedef struct rpc_client_st {
   int replicas;
   unsigned long channel_seq;
   dpdk_rx_buffer_t *buf;
+  int server_ports;
 
   int quorum_q(int quorum_id, int q)
   {
@@ -59,6 +60,7 @@ typedef struct rpc_client_st {
     unsigned long response_map = 0;
     while(true) {
       resp_sz = cyclone_rx_timeout(global_dpdk_context,
+				   0,
 				   me_queue,
 				   buf,
 				   (unsigned char *)packet_in,
@@ -83,13 +85,14 @@ typedef struct rpc_client_st {
     if(mb == NULL) {
       BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send to server";
     }
-    cyclone_prep_mbuf(global_dpdk_context,
-		      router->replica_mc(servers[quorum_id]),
-		      quorum_q(quorum_id, q_dispatcher),
-		      mb,
-		      packet_out,
-		      sz);
-    cyclone_tx(global_dpdk_context, mb, me_queue);
+    cyclone_prep_mbuf_client2server(global_dpdk_context,
+				    quorum_id % server_ports,
+				    router->replica_mc(servers[quorum_id]),
+				    quorum_q(quorum_id, q_dispatcher),
+				    mb,
+				    packet_out,
+				    sz);
+    cyclone_tx(global_dpdk_context, 0, mb, me_queue);
   }
 
   int get_last_txid(int quorum_id, int core_id)
@@ -109,6 +112,7 @@ typedef struct rpc_client_st {
       send_to_server(sizeof(rpc_t), quorum_id);
       while(true) {
 	resp_sz = cyclone_rx_timeout(global_dpdk_context,
+				     0, 
 				     me_queue,
 				     buf,
 				     (unsigned char *)packet_in,
@@ -227,6 +231,7 @@ typedef struct rpc_client_st {
       send_to_server(sizeof(rpc_t), quorum_id);
       while(true) {
 	resp_sz = cyclone_rx_timeout(global_dpdk_context,
+				     0,
 				     me_queue,
 				     buf,
 				     (unsigned char *)packet_in,
@@ -344,6 +349,7 @@ void* cyclone_client_init(int client_id,
 			  int client_mc,
 			  int client_queue,
 			  const char *config_cluster,
+			  int server_ports,
 			  const char *config_quorum)
 {
   rpc_client_t * client = new rpc_client_t();
@@ -361,6 +367,7 @@ void* cyclone_client_init(int client_id,
   client->buf = (dpdk_rx_buffer_t *)malloc(sizeof(dpdk_rx_buffer_t));
   client->buf->buffered = 0;
   client->buf->consumed = 0;
+  client->server_ports = server_ports;
   void *buf = new char[MSG_MAXSIZE];
   client->packet_out = (rpc_t *)buf;
   buf = new char[MSG_MAXSIZE];

@@ -145,11 +145,11 @@ static int __send_appendentries_opt(raft_server_t* raft,
     e->ol_flags = bc->ol_flags;
 
     struct ether_hdr *eth = (struct ether_hdr *)rte_pktmbuf_prepend(e, sizeof(struct ether_hdr));
-    cyclone_prep_eth(global_dpdk_context, (int)(unsigned long)socket, eth);
+    cyclone_prep_eth(global_dpdk_context, cyclone_handle->me_port, (int)(unsigned long)socket, eth);
     //rte_mbuf_sanity_check(e, 1);
-    tx += cyclone_buffer_pkt(global_dpdk_context, e, my_raft_q);
+    tx += cyclone_buffer_pkt(global_dpdk_context, cyclone_handle->me_port, e, my_raft_q);
   }
-  tx += cyclone_flush_buffer(global_dpdk_context, my_raft_q);
+  tx += cyclone_flush_buffer(global_dpdk_context, cyclone_handle->me_port, my_raft_q);
   return tx;
 }
 

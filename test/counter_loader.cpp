@@ -47,8 +47,8 @@
 
 
 int main(int argc, const char *argv[]) {
-  if(argc != 8) {
-    printf("Usage: %s client_id mc replicas clients partitions cluster_config quorum_config_prefix\n", argv[0]);
+  if(argc != 9) {
+    printf("Usage: %s client_id mc replicas clients partitions cluster_config quorum_config_prefix server_ports\n", argv[0]);
     exit(-1);
   }
   int me = atoi(argv[1]);
@@ -66,6 +66,7 @@ int main(int argc, const char *argv[]) {
 				     mc,
 				     0,
 				     argv[6],
+				     atoi(argv[8]),
 				     fname_client);
   }
   char *buffer = new char[DISP_MAX_MSGSIZE];

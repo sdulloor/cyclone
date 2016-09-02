@@ -42,14 +42,14 @@ static void client_reply(rpc_t *req,
   if(sz > 0) {
     memcpy(rep + 1, payload, sz);
   }
-  cyclone_prep_mbuf_client(global_dpdk_context,
-			   port,
-			   req->requestor,
-			   req->client_port,
-			   m,
-			   rep,
-			   sizeof(rpc_t) + sz);
-		    
+  cyclone_prep_mbuf_server2client(global_dpdk_context,
+				  port,
+				  req->requestor,
+				  req->client_port,
+				  m,
+				  rep,
+				  sizeof(rpc_t) + sz);
+  
   cyclone_tx(global_dpdk_context, port, m, q);
 }
 
@@ -309,7 +309,7 @@ void cyclone_network_init(const char *config_cluster_path,
     malloc(cluster_machines*sizeof(struct ether_addr *));
   for(int i=0;i<cluster_machines;i++) {
     global_dpdk_context->mc_addresses[i] = (struct ether_addr *)
-      malloc(ports*sizeof(struct either_addr));
+      malloc(ports*sizeof(struct ether_addr));
     for(int j=0;j<ports;j++) {
       sprintf(key, "machines.addr%d_%d", i, j);
       std::string s = pt_cluster.get<std::string>(key);

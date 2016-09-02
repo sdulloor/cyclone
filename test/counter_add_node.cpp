@@ -47,8 +47,8 @@
 
 
 int main(int argc, const char *argv[]) {
-  if(argc != 7) {
-    printf("Usage: %s client_id mc replicas cluster_config quorum_config node_to_delete\n", argv[0]);
+  if(argc != 8) {
+    printf("Usage: %s client_id mc replicas cluster_config quorum_config node_to_delete server_ports\n", argv[0]);
     exit(-1);
   }
   cyclone_network_init(argv[4], 1, atoi(argv[2]), 1);
@@ -56,6 +56,7 @@ int main(int argc, const char *argv[]) {
 				     atoi(argv[2]),
 				     0,
 				     argv[4],
+				     atoi(argv[7]),
 				     argv[5]);
   int ctr = get_last_txid(handle, 0, 0) + 1;
   for(int i=0;i<num_quorums;i++) {

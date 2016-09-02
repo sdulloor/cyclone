@@ -72,6 +72,7 @@ void* cyclone_client_init(int client_id,
 			  int client_mc,
 			  int client_queue,
 			  const char *config_cluster_path,
+			  int server_ports,
 			  const char *config_quorum_path);
 // Make an rpc call -- returns size of response
 int make_rpc(void *handle,

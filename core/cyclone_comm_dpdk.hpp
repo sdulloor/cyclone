@@ -215,19 +215,50 @@ static void cyclone_prep_mbuf(dpdk_context_t *context,
   m->data_len = m->pkt_len;
 }
 
-static void cyclone_prep_mbuf_client(dpdk_context_t *context,
-				     int port,
-				     int dst,
-				     int dst_q,
-				     rte_mbuf *m,
-				     void *data,
-				     int size)
+static void cyclone_prep_mbuf_server2client(dpdk_context_t *context,
+					    int port,
+					    int dst,
+					    int dst_q,
+					    rte_mbuf *m,
+					    void *data,
+					    int size)
 {
   struct ether_hdr *eth;
   eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
   memset(eth, 0, sizeof(struct ether_hdr));
   ether_addr_copy(&context->mc_addresses[dst][0], &eth->d_addr);
   ether_addr_copy(&context->mc_addresses[context->me][port], &eth->s_addr);
+  eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
+  struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
+  initialize_ipv4_header(m,
+			 ip,
+			 magic_src_ip, 
+			 dst_q,
+			 size);
+  rte_memcpy(ip + 1, data, size);
+  
+  ///////////////////////
+  m->pkt_len = 
+    sizeof(struct ether_hdr) + 
+    sizeof(struct ipv4_hdr)  + 
+    size;
+  m->data_len = m->pkt_len;
+}
+
+
+static void cyclone_prep_mbuf_client2server(dpdk_context_t *context,
+					    int port,
+					    int dst,
+					    int dst_q,
+					    rte_mbuf *m,
+					    void *data,
+					    int size)
+{
+  struct ether_hdr *eth;
+  eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
+  memset(eth, 0, sizeof(struct ether_hdr));
+  ether_addr_copy(&context->mc_addresses[dst][port], &eth->d_addr);
+  ether_addr_copy(&context->mc_addresses[context->me][0], &eth->s_addr);
   eth->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
   struct ipv4_hdr *ip = (struct ipv4_hdr *)(eth + 1);
   initialize_ipv4_header(m,

@@ -188,8 +188,8 @@ int driver(void *arg)
 }
 
 int main(int argc, const char *argv[]) {
-  if(argc != 9) {
-    printf("Usage: %s client_id_start client_id_stop mc replicas clients partitions cluster_config quorum_config\n", argv[0]);
+  if(argc != 10) {
+    printf("Usage: %s client_id_start client_id_stop mc replicas clients partitions cluster_config quorum_config server_ports\n", argv[0]);
     exit(-1);
   }
   
@@ -216,6 +216,7 @@ int main(int argc, const char *argv[]) {
 					      dargs->mc,
 					      me - client_id_start,
 					      fname_server,
+					      atoi(argv[9]),
 					      fname_client);
     }
   }

@@ -151,6 +151,7 @@ typedef struct cyclone_st {
       BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send mesg";
     }
     cyclone_prep_mbuf(global_dpdk_context, 
+		      me_port,
 		      router->replica_mc(dst_replica), 
 		      my_q(q_raft), 
 		      m, 
