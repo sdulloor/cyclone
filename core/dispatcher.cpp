@@ -307,10 +307,11 @@ void cyclone_network_init(const char *config_cluster_path,
   global_dpdk_context->ports = ports;
   global_dpdk_context->mc_addresses = (struct ether_addr **)
     malloc(cluster_machines*sizeof(struct ether_addr *));
+  int config_ports = pt_cluster.get<int>("machines.ports");
   for(int i=0;i<cluster_machines;i++) {
     global_dpdk_context->mc_addresses[i] = (struct ether_addr *)
-      malloc(ports*sizeof(struct ether_addr));
-    for(int j=0;j<ports;j++) {
+      malloc(config_ports*sizeof(struct ether_addr));
+    for(int j=0;j<config_ports;j++) {
       sprintf(key, "machines.addr%d_%d", i, j);
       std::string s = pt_cluster.get<std::string>(key);
       unsigned int bytes[6];
