@@ -512,7 +512,7 @@ static void dpdk_context_init(dpdk_context_t *context,
     }
     else {
       context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
-						     4096,
+						     Q_BUFS,
 						     32,
 						     0,
 						     RTE_PKTMBUF_HEADROOM + max_pktsize,
