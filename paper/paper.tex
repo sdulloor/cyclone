@@ -226,82 +226,88 @@ call is successfully replicated before it attempts execution on any of the
 replicas.
 
 \subsection{Network Stack}
-Replication protocols are expensive to operate - fact that has been underlined in
-multiple pieces of research [FARM, in a box]. It would therefore appear that
+Replication protocols are expensive to operate - fact that has been underlined
+in multiple pieces of research [FARM, in a box]. It would therefore appear that
 replication would become the bottleneck in Cyclone. We observed however that
 previous work did not implement replication around a high performance network
 stack possibly explaining why they chose both high performance hardware (40
-GigE+ NICS, custom FPGA designs) as well as specific high performance but
-restrictive software APIs (one sided RDMA with metadata co-location, application
-compiled down to the FPGA). As a counterpoint, we designed Cyclone around DPDK
+GigE+ NICS, custom FPGA designs) as well as specific software APIs (one sided
+RDMA with metadata co-location, application compiled down to the FPGA) that
+bypass the network stack. As a counterpoint, we designed Cyclone around DPDK
 [dpdk] a high performance user-space network stack. DPDK provides convenient
 access to packets arriving at an ethernet NIC by moving them into packet buffers
 with the contained cache lines also directly placed into the last level cache of
 the CPU during DMA.
 
-Cyclone separates the available cores on the machine into cores dedicated to
-work related to the consensus protocol and cores decidated to running
-application code. The division is configurable but Fig [] shows the division for
-our testbed. Each RAFT core runs an \emph{independent} instance of the RAFT
-protocol (Section~\ref{sec:ind}). RAFT cores pass work to the application cores
-through lock-free double ended queues. A RAFT core dispatches an incoming RPC
-call for execution simultaneously with sending it out for replication. As
-explained in Section~\ref{sec:decouple} this is beneficial for reducing latency
-to completion. 
+Cyclone separates the available cores on a machine into cores dedicated to work
+related to the consensus protocol and cores decidated to running application
+code. The division is configurable. Each RAFT core runs an \emph{independent}
+instance of the RAFT protocol (Section~\ref{sec:ind}). RAFT cores pass work to
+the application cores through lock-free double ended queues. A RAFT core
+dispatches an incoming RPC call for execution simultaneously with sending it out
+for replication. As explained in Section~\ref{sec:decouple} this is beneficial
+for reducing latency to completion. 
 
 Each RAFT core has a dedicated NIC queue pair. The input queue receives RPC
 calls from clients as well as RAFT protocol related traffic. The output queue
 only carries RAFT protocol related traffic. Each application core has a
 dedicated \emph{output} queue on the NIC. When completed, the response to the
 RPC call is sent from the application core via its dedicated output queue. This
-division of NIC queues eliminates any need for synchronization between RAFT and
-application cores when accessing the NIC.
+division of NIC queues eliminates any need for synchronization between RAFT
+cores and application cores when accessing the NIC.
+
+In the event that the machine has multiple NICs Cyclone binds each RAFT or
+application core to a specific NIC and picks the necessary queues from that
+NIC. Spreading the network demands from the cores across the NICs in this manner
+allows Cyclone to scale with multiple NICs when available.
 
 \subsection{Zero Copy Replication}
 Consensus protcols such as RAFT usually have a simple common case path. Once a
 quorum leader is elected, the leader's primary job is to transmit new entries
-appended to the log to its followers. The primary job of the followers is to
-receive these entries and send acknowledgments to the leader. An entry is
-considered committed when the leader receives an acknowledgment for an entry
-from a majority of the quorum. Followers receive intimation of committed entries
-as piggybacked information on subsequent replication messages.
+appended to the log to its followers. The primary job of a follower is to
+receive these entries, append them to its log and send acknowledgments to the
+leader. An entry is considered committed when the leader receives an
+acknowledgment for an entry from a majority of the quorum. Followers receive
+intimation of committed entries as piggybacked information on subsequent
+replication messages.
 
 Our aim when designing Cyclone was to be relatively insensitive to the size of
 the RPC call - i.e. the size of the RAFT log entry being replicated. Since
 Cyclone is targeted towards general purpose applications we intended to support
 a range of RPC call sizes without a degradation in performance caused by copying
 the RPC call contents for transmission to each follower replica. Hence, we built
-a zero copy mechanism for common case of a leader replica sending the same log
-entry to a set of follower replicas. To achieve our zero copy goal we explot the
-fact that DPDKs packet buffers allow prepending a data without physically moving
-the data in the packet buffer. Fig [] shows how the layout of a packet buffer
-changes at the leader during replication. The received packets contains only the
-RPC call from the client. We prepend a RAFT related header (containing the
-previous log index, previous log term, leader's term and leader's commit
-point) to packet buffer itself. To this RAFT header we then prepend an IPv4
-header. Although we use the raw packet interface from DPDK and do not use IP
-based routing, we set IP addresses in a dummy header to use 5-tuple steering in
-order to place the packet in the right queue at the receiving NIC. This
-composite packet buffer is then sent to every replica. In order to properly
-route the packet through switches, we allocate a small buffer containing an
-ethernet header for each follower replica and \emph{chain} it in front of the
-prepared packet - ensuring we do not need to change the contents for every
-replica.
+a zero copy mechanism for the common case of a leader replica sending the same
+log entry to a set of follower replicas. To achieve our zero copy goal, we
+exploit the fact that DPDKs packet buffers allow prepending data without
+physically moving the data in the packet buffer. Fig [figures/packets.bmp] shows
+how the layout of a packet buffer changes at the leader during replication. The
+received packets contains only the RPC call from the client. We prepend a RAFT
+related header (containing the previous log index, previous log term, leader's
+term and leader's commit point) to packet buffer itself. To this RAFT header we
+then prepend an IPv4 header. Although we use the raw packet interface from DPDK
+and do not use IP based routing, we set IP addresses in a dummy header to use
+5-tuple steering in order to place the packet in the right queue at the
+receiving NIC. This composite packet buffer is then sent to every replica. In
+order to properly route the packet through switches, we allocate a small buffer
+containing an ethernet header for each follower replica and \emph{chain} it in
+front of the prepared packet - ensuring we do not need to change the contents
+for every replica.
 
 \subsection{Batching}
 Although the common case path in RAFT is straightforward, it still adds many
 hundreds of cycles for each log entry to be processed. This adds up to a few
-microseconds, a significant amount in the face of sub 10 us latency between
-nodes with DPDK. We amortize this overhead when operating under load by batching
-multiple RPC calls together and treating the batch as a single RAFT log entry.
-DPDK by itself can efficiently batch incoming packets under load - allowing the
-user to easily receive a burst (currently limited to 32) packets rather than a
-single one for a polling call. DPDK further allows chaining packet buffers
-together and treating the chain as a single packet. This is convenient for our
-zero copy approach and we chain packet mbufs together to form a single packet
-as shown in Fig []. Since the entire chain is sent as a single packet when being
-replicated, the length of a chain is limited by the size of the coalesced
-packet, that must fit into an ethernet jumbo frame of approximately 9K bytes.
+microseconds, a significant amount in the face of sub 10 us network latency
+between nodes with DPDK. We amortize this overhead when operating under load by
+batching multiple RPC calls together and treating the batch as a single RAFT log
+entry.  DPDK by itself can efficiently batch incoming packets under load -
+allowing the user to easily receive a burst (currently limited to 32) of packets
+rather than a single one for a polling call. DPDK further allows chaining packet
+buffers together and treating the chain as a single packet. This is convenient
+for our zero copy approach and we chain packet mbufs together to form a single
+packet as shown in Fig [figures/chain.bmp]. Since the entire chain is sent as a
+single packet when being replicated, the length of a chain is limited by the
+size of the coalesced packet, that must fit into an ethernet jumbo frame of
+approximately 9K bytes.
 
 \subsection{Multiple RAFT Instances}
 \label{sec:ind}
@@ -353,10 +359,9 @@ last executed RPC call. In order to assist clients (particularly stateless
 clients), Cyclone allows the client to query the last seen sequence number and
 result for that RPC call from the quorum of servers.
 
-
 \section{Putting it together - A Durable Replicated Hash Table}
 \label{sec:example}
-We now demonstrate how Cyclone can be used in practise by putting together an
+We now demonstrate how Cyclone can be used in practice by putting together an
 example of a linearizable hash table - a useful and common data structure
 [memcached]. The baseline is a durable hash table written in NVML that runs on a
 single machine in client-server mode. The server side maintains the durable
@@ -369,17 +374,65 @@ arguments to the RPC call in an RPC call handler we wrote (a few tens of lines
 of code) and wrote a simple client driver program (a few tens of additional
 lines of code).
 
-In order to use the hash table with Cyclone, we simply need to to declare the RPC
-call handler as the point of entry to Cyclone at the server end - shown in
-Figure []. The client end issues RPC calls via Cyclone's client side library as
-shown in Figure []. Crucially neither side involves fault awareness or fault
-recovery code - a key goal for Cyclone.
+In order to use the hash table with Cyclone, we simply need to to declare the
+RPC call handler as the point of entry to Cyclone at the server end - shown in
+Figure~\ref{fig:server_api}. The client end issues RPC calls via Cyclone's
+client side library as shown in Figure~\ref{fig:client_api}. Crucially neither
+side involves fault awareness or fault recovery code - a key goal for Cyclone.
 
 There are two challenges in scaling the performance and improving the utility of
 the linearizable and durable hash table. The first is to ensure linearizability
 while scaling performance by adding RAFT cores and application cores. The second
 is to support distributed transactions - that manipulate a set of key-value
 pairs atomically in the face of failure.
+
+\begin{figure}
+{ \scriptsize
+\begin{verbatim}
+int exec_rpc_call(void * input, int input_size, void *output)
+{ 
+  ...
+}
+
+struct rpc_callbacks_t callbacks = {
+.exec_call = exec_rpc_call,
+...
+};
+
+main()
+{
+  ...
+  cyclone_start(callbacks, ...);
+  ...
+}
+\end{verbatim}
+}
+\caption{Server side API}
+\label{fig:server_api}
+\end{figure}
+
+\begin{figure}
+{ \scriptsize
+\begin{verbatim}
+int make_rpc_call(..., void *data, int size, int rpc_number);
+int get_last_rpc_number(...);
+main()
+{
+  ...
+  int rpc_number = get_last_rpc_number(...);
+  while(true) {
+    ...
+    make_rpc_call(..., data, size, rpc_number++);  
+ 
+  }
+  ...
+}
+\end{verbatim}
+}
+\caption{Client side API}
+\label{fig:client_api}
+\end{figure}
+
 
 \subsection{Scaling}
 Scaling the performance of the hash table by using multiple RAFT cores and
