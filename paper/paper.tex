@@ -264,12 +264,23 @@ allows Cyclone to scale with multiple NICs when available.
 \subsection{Zero Copy Replication}
 Consensus protcols such as RAFT usually have a simple common case path. Once a
 quorum leader is elected, the leader's primary job is to transmit new entries
-appended to the log to its followers. The primary job of a follower is to
-receive these entries, append them to its log and send acknowledgments to the
-leader. An entry is considered committed when the leader receives an
-acknowledgment for an entry from a majority of the quorum. Followers receive
-intimation of committed entries as piggybacked information on subsequent
+appended to its persistent log to its followers. The primary job of a follower
+is to receive these entries, append them to its persistent log and send
+acknowledgments to the leader. An entry is considered committed when the leader
+receives an acknowledgment for an entry from a majority of the quorum. Followers
+receive intimation of committed entries as piggybacked information on subsequent
 replication messages.
+
+In order to avoid copying the incoming RPC call to a persistent memory range,
+Cyclone uses persistent memory on the system itself to allocate space for packet
+buffers. However although a packet is accessible at the core the most up to date
+data for the memory region occupied by the packet is in the CPU cache and not
+necessarily in memory. To ensure that packet data has truly been made
+persistent, Cyclone issues a series of cacheline flushes. This ensures that the
+packet data is persistent. Cyclone maintains its log as a circular sequence of
+pointers to packet buffers and therefore the append operation is completed by
+adding a pointer to the received packet and flushing the cacheline containing
+the pointer.
 
 Our aim when designing Cyclone was to be relatively insensitive to the size of
 the RPC call - i.e. the size of the RAFT log entry being replicated. Since
