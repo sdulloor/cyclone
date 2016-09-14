@@ -577,6 +577,13 @@ client queries this data structure to determine the fate of the transaction.
 \end{figure}
 
 \begin{figure}
+  Source: results_quorum_cc.csv.X-axis throughput (Mops/sec). Y-axis latency.
+  Fix replicas = 3. Fix payload = 0. One line for each of ports = 1,2,3,4.
+  \caption{Crash consistency scaling}
+  \label{fig:perf_cc}
+\end{figure}
+
+\begin{figure}
   Source: results_app.csv. X-axis is throughput
   (Mops/sec). Y-axis is Latency. One line for each of read_fraction = 0, 50, 100
   \caption{Hash Table Performance}
