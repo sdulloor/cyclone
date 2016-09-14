@@ -531,9 +531,59 @@ replicated. We store the result of the transaction in a special data structure
 updated through an additional RPC call made at the end of the transaction. The
 client queries this data structure to determine the fate of the transaction.
 
-\subsection{Checkpoints}
-
 \section{Evaluation}
+\begin{figure}
+  Source: results_raw.csv. X-axis throughput (Mops/sec). Y-axis latency. Fix
+  ports = 4. Fix payload = 0. One line per number of replicas (1,2,3).
+  \caption{Replicaton Performance - Varying replica count}
+  \label{fig:perf_rep}
+\end{figure}
+
+\begin{figure}
+  Source: results_raw.csv. X-axis throughput (Mops/sec). Y-axis latency. Fix
+  replicas = 3. Fix payload = 0. One line per number of ports.
+  \caption{Replicaton Performance - Varying ethernet ports}
+  \label{fig:perf_ports}
+\end{figure}
+
+\begin{figure}
+  Source: results_raw.csv. Fix replicas = 3. Set of 4 graphs. One graph for each
+  port count (1,2,3,4). X-axis throughput (Gbps). Y-axis latency. One line per
+  payload size.
+  \caption{Replicaton Performance - Varying payload size}
+  \label{fig:perf_payload}
+\end{figure}
+
+\begin{figure}
+  Source: results_clwb.csv. Bar graph with 3 groups of bars - one group for
+  payload = 0, one group for payload = 190, one for 512. Each group has 3 bars -
+  one for window =1, one for window = 10, one for window = 10000 (infty)
+  \caption{Replicaton Performance - CLFLUSH window}
+  \label{fig:perf_clflush}
+\end{figure}
+
+\begin{figure}
+  Source: results_quorum.csv. X-axis throughput (Mops/sec). Y-axis latency. Fix
+  replicas = 3. Fix payload = 0. One line for each of ports = 1,2,3,4.
+  \caption{Replicaton Performance - quorum count}
+  \label{fig:perf_quorums}
+\end{figure}
+
+\begin{figure}
+  Source: results_cc.csv.Fix replicas = 3. X-axis is throughput
+  (Mops/sec). Y-axis is Latency. One line for each of ports = 1,2,3,4.
+  \caption{Crash consistency overheads}
+  \label{fig:perf_cc}
+\end{figure}
+
+\begin{figure}
+  Source: results_app.csv. X-axis is throughput
+  (Mops/sec). Y-axis is Latency. One line for each of read_fraction = 0, 50, 100
+  \caption{Hash Table Performance}
+  \label{fig:perf_app}
+\end{figure}
+
+
 
 \section{Related Work}
 
