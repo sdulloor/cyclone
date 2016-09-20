@@ -1,5 +1,5 @@
 \documentclass[letterpaper,twocolumn,10pt]{article}
-\usepackage{usenix,epsfig,endnotes}
+\usepackage{usenix,epsfig,endnotes,graphicx}
 \begin{document}
 
 %don't want date printed
@@ -245,6 +245,12 @@ packet as shown in Fig [figures/chain.bmp]. Since the entire chain is sent as a
 single packet when being replicated, the length of a chain is limited by the
 size of the coalesced packet, that must fit into an ethernet jumbo frame of
 approximately 9KB.
+
+\begin{figure}
+\includegraphics[width=0.7\textwidth,height=6cm]{figures/chain.pdf}
+\caption{Zero Copy Batching}
+\label{fig:zc_batch}
+\end{figure}
 
 \subsection{RPC Call Execution}
 \label{sec:exec}
