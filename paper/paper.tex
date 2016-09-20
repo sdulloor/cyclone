@@ -194,7 +194,7 @@ application core to a specific NIC and picks the necessary queues from that
 NIC. Spreading the network demands from the cores across the NICs in this manner
 allows Cyclone to scale with multiple NICs when available.
 
-\subsection{Zero Copy Replication}
+\subsection{Zero Copy Batching}
 Consensus protcols such as RAFT usually have a simple common case path. Once a
 quorum leader is elected, the leader's primary job is to transmit new entries
 appended to its persistent log to its followers. The primary job of a follower
@@ -224,13 +224,15 @@ the client. We prepend a RAFT related header (containing the previous log index,
 previous log term, leader's term and leader's commit point) to packet buffer
 itself. To this RAFT header we then prepend an IPv4 header. We set IP addresses
 in the header to use 5-tuple steering in order to place the packet in the right
-queue at the receiving NIC. This composite packet buffer is then sent to every
-replica. In order to properly route the packet through switches, we allocate a
-small buffer containing an ethernet header for each follower replica and
-\emph{chain} it in front of the prepared packet - ensuring we do not need to
-change the contents of the packet itself for every replica.
+queue at the receiving NIC. We do not use different ip addresses for different
+replicas, rather the ip addresses are only set in conjunction with NIC
+programming to enable steering of the received packets to the correct NIC queue.
+This composite packet buffer is then sent \emph{unchanged} to every replica. In
+order to properly route the packet through switches, we allocate a small buffer
+containing an ethernet header for each follower replica and \emph{chain} it in
+front of the prepared packet - ensuring we do not need to change the contents of
+the packet itself for every replica.
 
-\subsection{Batching}
 Although the common case path in RAFT is straightforward, it still adds many
 hundreds of cycles for each log entry to be processed. This adds up to a few
 microseconds, a significant amount in the face of sub 10 us network latency
@@ -251,6 +253,9 @@ approximately 9KB.
 \caption{Zero Copy Batching}
 \label{fig:zc_batch}
 \end{figure}
+
+This set of transformations to incoming request packets from clients at the
+leader replica is summarized in Figure~\ref{fig:zc_batch}. 
 
 \subsection{RPC Call Execution}
 \label{sec:exec}
