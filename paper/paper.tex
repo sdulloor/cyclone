@@ -432,63 +432,25 @@ optional:
 \end{figure}
 
 \section{Evaluation}
-\begin{figure}
-  Source: results\_raw.csv. X-axis throughput (Mops/sec). Y-axis latency. Fix
-  ports = 4. Fix payload = 0. One line per number of replicas (1,2,3).
-  \caption{Replicaton Performance - Varying replica count}
-  \label{fig:perf_rep}
-\end{figure}
 
-\begin{figure}
-  Source: results\_raw.csv. X-axis throughput (Mops/sec). Y-axis latency. Fix
-  replicas = 3. Fix payload = 0. One line per number of ports.
-  \caption{Replicaton Performance - Varying ethernet ports}
-  \label{fig:perf_ports}
-\end{figure}
-
-\begin{figure}
-  Source: results\_raw.csv. Fix replicas = 3. Set of 4 graphs. One graph for each
-  port count (1,2,3,4). X-axis throughput (Gbps). Y-axis latency. One line per
-  payload size.
-  \caption{Replicaton Performance - Varying payload size}
-  \label{fig:perf_payload}
-\end{figure}
-
-\begin{figure}
-  Source: results\_clwb.csv. Bar graph with 3 groups of bars - one group for
-  payload = 0, one group for payload = 190, one for 512. Each group has 3 bars -
-  one for window =1, one for window = 10, one for window = 10000 (infty)
-  \caption{Replicaton Performance - CLFLUSH window}
-  \label{fig:perf_clflush}
-\end{figure}
-
-\begin{figure}
-  Source: results\_quorum.csv. X-axis throughput (Mops/sec). Y-axis latency. Fix
-  replicas = 3. Fix payload = 0. One line for each of ports = 1,2,3,4.
-  \caption{Replicaton Performance - quorum count}
-  \label{fig:perf_quorums}
-\end{figure}
-
-\begin{figure}
-  Source: results\_cc.csv.Fix replicas = 3. X-axis is throughput
-  (Mops/sec). Y-axis is Latency. One line for each of ports = 1,2,3,4.
-  \caption{Crash consistency overheads}
-  \label{fig:perf_cc_overheads}
-\end{figure}
-
-\begin{figure}
-  Source: results\_quorum\_cc.csv.X-axis throughput (Mops/sec). Y-axis latency.
-  Fix replicas = 3. Fix payload = 0. One line for each of ports = 1,2,3,4.
-  \caption{Crash consistency scaling}
-  \label{fig:perf_cc}
-\end{figure}
-
-\begin{figure}
-  Source: results\_app.csv. X-axis is throughput
-  (Mops/sec). Y-axis is Latency. One line for each of read\_fraction = 0, 50, 100
-  \caption{Hash Table Performance}
-  \label{fig:perf_app}
-\end{figure}
+\begin{figure*}
+\begin{tabular}{cc}
+\begin{minipage}{0.5\textwidth}
+  \includegraphics[width=\textwidth,height=6cm]{results/replication_mops_0.pdf}
+\end{minipage}&
+\begin{minipage}{0.5\textwidth}
+  \includegraphics[width=\textwidth,height=6cm]{results/replication_gbps_0.pdf}
+\end{minipage}\\
+\begin{minipage}{0.5\textwidth}
+  \includegraphics[width=\textwidth,height=6cm]{results/replication_mops_512.pdf}
+\end{minipage}&
+\begin{minipage}{0.5\textwidth}
+  \includegraphics[width=\textwidth,height=6cm]{results/replication_gbps_512.pdf}
+\end{minipage}
+\end{tabular}
+\caption{Pure Replication}
+\label{fig:pure_rep}
+\end{figure*}
 
 \section{Conclusion}
 
