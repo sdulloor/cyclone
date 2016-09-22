@@ -1,5 +1,5 @@
 \documentclass[letterpaper,twocolumn,10pt]{article}
-\usepackage{usenix,epsfig,endnotes,graphicx}
+\usepackage{usenix,epsfig,endnotes,graphicx,url}
 \begin{document}
 
 %don't want date printed
@@ -48,11 +48,12 @@ library that we have used in this paper is Intel's non volatile memory library
 (NVML). A missing piece however is a component to make such durable data
 structures available using replication across a commodity network such as
 ethernet. Existing solutions that offer good performance are biased towards pure
-transactions across RDMA with a dependence on external services and application
-specific code for fault recovery [FARM, etc]. This is a problem for programmers
-using NVML to construct durable and available datastructures where one cannot
-apriori guarantee the availability of RDMA in the target environment especially
-when running on externally hosted environments such as the cloud.
+transactions across RDMA with a dependence on external services (such as
+zookeeper~\cite{zookeeper}) and application specific code for fault recovery~\cite{farm,
+  htm}. This is a problem for programmers using NVML to construct durable and
+available datastructures where one cannot apriori guarantee the availability of
+RDMA in the target environment especially when running on externally hosted
+environments such as the cloud.
 
 Cyclone is a prototype replication middleware that aims to demonstrate that one
 can add fault tolerance transparently to a specific class of client server
@@ -66,14 +67,15 @@ second contribution we make is to show that one can achieve reasonably good
 replication performance using commodity ethernet via innovations in the
 networking stack and by scaling replication with the application. This result
 should be a useful design point for developers looking to deploy applications on
-non-volatile heaps in commodity environments such as public clouds.
+non-volatile heaps in commodity environments such as public clouds as well as
+library builders that aim to support them.
 
 \section{Single Node Programming Model}
 Cyclone starts with the assumption that the programmer has already built a
 concurrent durable application on a non-volatile heap. A number of libraries and
-filesystems make this possible today [DAX, NVML, others ?]. As a starting point,
-we support applications built on top of Intel's Non Volatile Memory Library
-(NVML) [nvml.io]. We describe NVML's programming model in this section to
+filesystems make this possible today~\cite{nvml, dax}. As a starting point, we
+support applications built on top of Intel's Non Volatile Memory Library
+(NVML~\cite{nvml}). We describe NVML's programming model in this section to
 provide adequate background for the rest of this paper. The primary feature of
 interest is the ability to write code that is crash consistent. In other words
 code that makes changes to the non-volatile heap is enclosed in a crash
@@ -117,7 +119,7 @@ void insert_after(TOID(ll_node) prev,
 It is easy to turn the linked list example in NVML into a concurrent linked list
 by simply adding a lock to it. Such a lock can be maintined in volatile DRAM if
 so desired for performance. More sophisticated fine-grained or optimistic
-concurrency control mechanisms for NVM are also possible [mnemosyne].
+concurrency control mechanisms for NVM are also possible~\cite{mnemosyne}.
 
 \section{Replication}
 Cyclone is designed to add fault tolerance to NVML client server applications
@@ -131,7 +133,7 @@ of replicas maintains a log of RPC calls. Cyclone treats the RPC call itself as
 a variable sized opaque blob of data, leaving the application free to choose how
 it wishes to marshall call related details and argument. All machines agree on
 the committed sequence of RPC calls in the log. We achieve this by running an
-instance of the RAFT [raft] consensus protocol to keep the log of RPC calls on
+instance of the RAFT~\cite{raft} consensus protocol to keep the log of RPC calls on
 different machines in synchronization. Specially flagged `read-only` RPC calls
 are executed on the leader replica and are not replicated.
 
@@ -184,10 +186,10 @@ call is successfully replicated before it attempts execution on any of the
 replicas.
 
 \subsection{Network Stack}
-Cyclone is designed around DPDK [dpdk] a high performance network stack. DPDK
+Cyclone is designed around DPDK~\cite{dpdk} a high performance network stack. DPDK
 provides convenient access to packets arriving at an ethernet NIC by moving them
 into packet buffers with the contained cache lines also directly placed into the
-last level cache of the CPU during DMA [ddio].
+last level cache of the CPU during DMA~\cite{ddio}.
 
 Cyclone separates the available CPU cores on a machine, in a configurable way,
 into cores dedicated to work related to the consensus protocol and cores
@@ -232,21 +234,20 @@ adding a pointer to the received packet and flushing the cacheline containing
 the pointer.
 
 We exploit the fact that DPDKs packet buffers allow prepending data to a packet
-without physically moving the data in the packet buffer. Fig
-[figures/packets.bmp] shows how the layout of a packet buffer changes at the
-leader during replication. The received packets contains only the RPC call from
-the client. We prepend a RAFT related header (containing the previous log index,
-previous log term, leader's term and leader's commit point) to packet buffer
-itself. To this RAFT header we then prepend an IPv4 header. We set IP addresses
-in the header to use 5-tuple steering in order to place the packet in the right
-queue at the receiving NIC. We do not use different ip addresses for different
-replicas, rather the ip addresses are only set in conjunction with NIC
-programming to enable steering of the received packets to the correct NIC queue.
-This composite packet buffer is then sent \emph{unchanged} to every replica. In
-order to properly route the packet through switches, we allocate a small buffer
-containing an ethernet header for each follower replica and \emph{chain} it in
-front of the prepared packet - ensuring we do not need to change the contents of
-the packet itself for every replica.
+without physically moving the data in the packet buffer. The received packets
+contains only the RPC call from the client. We prepend a RAFT related header
+(containing the previous log index, previous log term, leader's term and
+leader's commit point) to packet buffer itself. To this RAFT header we then
+prepend an IPv4 header. We set IP addresses in the header to use 5-tuple
+steering in order to place the packet in the right queue at the receiving
+NIC. We do not use different ip addresses for different replicas, rather the ip
+addresses are only set in conjunction with NIC programming to enable steering of
+the received packets to the correct NIC queue.  This composite packet buffer is
+then sent \emph{unchanged} to every replica. In order to properly route the
+packet through switches, we allocate a small buffer containing an ethernet
+header for each follower replica and \emph{chain} it in front of the prepared
+packet - ensuring we do not need to change the contents of the packet itself for
+every replica.
 
 Although the common case path in RAFT is straightforward, it still adds many
 hundreds of cycles for each log entry to be processed. This adds up to a few
@@ -258,10 +259,9 @@ allowing the user to easily receive a burst (currently limited to 32) of packets
 rather than a single one for a polling call. DPDK further allows chaining packet
 buffers together and treating the chain as a single packet. This is convenient
 for our zero copy approach and we chain packet mbufs together to form a single
-packet as shown in Fig [figures/chain.bmp]. Since the entire chain is sent as a
-single packet when being replicated, the length of a chain is limited by the
-size of the coalesced packet, that must fit into an ethernet jumbo frame of
-approximately 9KB.
+packet. Since the entire chain is sent as a single packet when being replicated,
+the length of a chain is limited by the size of the coalesced packet, that must
+fit into an ethernet jumbo frame of approximately 9KB.
 
 \begin{figure}
 \includegraphics[width=0.7\textwidth,height=6cm]{figures/chain.pdf}
@@ -377,13 +377,13 @@ server specifying the transaction and the server executes it on the client's
 behalf. Execution of the transaction has four distinct phases: acquire locks,
 verify values, apply updates and finally release locks.
 
-We guard against faults by executing the RPC call on a quorum of
-machines via Cyclone. Since execution of the RPC call leaves \emph{externally
-  visible side effects} by virtue of the RPC calls it makes we require output
-commit [] - the property that the execution is guaranteed to complete once it
-starts. This is simply achieved by a flag in the RPC call that turns off
-decoupled execution (Section~\ref{sec:decouple}). The flag causes execution to
-start only after the RPC call has been successfully replicated.
+We guard against faults by executing the RPC call on a quorum of machines via
+Cyclone. Since execution of the RPC call leaves \emph{externally visible side
+  effects} by virtue of the RPC calls it makes we require output
+commit~\cite{output_commit}. This is achieved if the execution is guaranteed to
+complete once it starts. This is simply achieved by a flag in the RPC call that
+turns off decoupled execution (Section~\ref{sec:decouple}). The flag causes
+execution to start only after the RPC call has been successfully replicated.
 
 Next, we need to ensure that although every machine in the quorum makes all
 necessary RPC calls, the call itself is executed only once. This is achieved by
@@ -408,7 +408,7 @@ We note that this design is not intended for performance, under the assumption
 that distributed transactions will be infrequent compared to single key
 operations.  On the other hand, it is worth comparing the lack of any need for
 explicit fault recovery in Cyclone with fault recovery in systems systems that
-explicity require such cleanup [FARM, also refer to pages].  We believe that
+explicity require such cleanup (~\cite{farm}, pp 59--63).  We believe that
 such designs, which make availability easy for NVM applications are key to
 increasing the adoption rate of NVM by data center operators.
 
@@ -487,24 +487,26 @@ network stack delays. These results should serve to illustrate that simple
 commodity ethernet can indeed provide reasonable replication performance with a
 carefully designed software stack that can exploit it.
 
-\begin{figure*}
+\begin{figure}
 \begin{tabular}{cc}
-\begin{minipage}{0.5\textwidth}
-  \includegraphics[width=\textwidth,height=6cm]{results/replication_mops_0.pdf}
+\begin{minipage}{0.25\textwidth}
+  \includegraphics[width=\textwidth,height=3cm]{results/replication_mops_0.pdf}
 \end{minipage}&
-\begin{minipage}{0.5\textwidth}
-  \includegraphics[width=\textwidth,height=6cm]{results/replication_gbps_0.pdf}
+\begin{minipage}{0.25\textwidth}
+  \hspace{-0.2in}
+  \includegraphics[width=\textwidth,height=3cm]{results/replication_gbps_0.pdf}
 \end{minipage}\\
-\begin{minipage}{0.5\textwidth}
-  \includegraphics[width=\textwidth,height=6cm]{results/replication_mops_512.pdf}
+\begin{minipage}{0.25\textwidth}
+  \includegraphics[width=\textwidth,height=3cm]{results/replication_mops_512.pdf}
 \end{minipage}&
-\begin{minipage}{0.5\textwidth}
-  \includegraphics[width=\textwidth,height=6cm]{results/replication_gbps_512.pdf}
+\begin{minipage}{0.25\textwidth}
+  \hspace{-0.2in}
+  \includegraphics[width=\textwidth,height=3cm]{results/replication_gbps_512.pdf}
 \end{minipage}
 \end{tabular}
 \caption{Pure Replication}
 \label{fig:pure_rep}
-\end{figure*}
+\end{figure}
 
 Next, we consider the effect of adding NVMLs crash consistent
 transactions. Figure~\ref{fig:cc_rep} shows the effect of adding a crash
@@ -530,27 +532,35 @@ improvement of performance for applications running on directly attached
 persistent memory with close to DRAM performance.
 
 \begin{figure}
-  \includegraphics[width=0.5\textwidth,height=6cm]{results/cc_mops.pdf}
+\begin{tabular}{cc}
+\begin{minipage}{0.25\textwidth}
+  \includegraphics[width=\textwidth,height=3cm]{results/cc_mops.pdf}
   \caption{Crash Consistency + Replication}
   \label{fig:cc_rep}
-\end{figure}
-
-\begin{figure}
-  \includegraphics[width=0.5\textwidth,height=6cm]{results/app_mops.pdf}
+\end{minipage} &
+\begin{minipage}{0.25\textwidth}
+  \includegraphics[width=\textwidth,height=3cm]{results/app_mops.pdf}
   \caption{Crash Consistent Replicated Hash Table}
   \label{fig:app_rep}
+\end{minipage}
+\end{tabular}
 \end{figure}
 
 \section{Conclusion}
 Cyclone allows developers to add availability to applications built on top of
 libraries such as NVML and achieve good performance on commodity networking
 hardware. A key question is whether the ideas in Cyclone extend to more than
-just key-value maps - perhaps to application such as filesystems. We believe
-that the requirement for scaling across multiple replication quorums is
-can be satisfied by applications where the scalable commutativity rule [scalable
-commutativity] applies to common case primitives. Although our intitial release
-of Cyclone will be targeted towards key value style applications, our future
-research is targeted towards investigating this hypothesis.
+just key-value maps - perhaps to application such as filesystems ? We believe
+that the requirement for scaling across multiple replication quorums can be
+satisfied by applications where the scalable commutativity
+rule~\cite{scalable_commutativity} applies to common case primitives. Although
+our intitial release of Cyclone will be targeted towards key value style
+applications, our future research is targeted towards investigating this
+hypothesis.
+\newcommand\myurl[2]{\url{#1}}
+\bibliographystyle{acm}
+\bibliography{paper}
+
 \end{document}
 
 
