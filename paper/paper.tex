@@ -24,19 +24,20 @@
 %\thispagestyle{empty}
 
 \subsection*{Abstract}
-The introduction of non-volatile directly attached memory in datacenter - in
+The introduction of non-volatile directly attached memory in datacenters - in
 the form of NVDIMMs and new memory technologies allows efficient data structures
 to be built on non-volatile heaps that provide good performance coupled with
 durability. However high availability remains a problem for these primarily
-single machine solutions. While transactional interfaces built over RDMA
-capable networking hardware offer a viable alternative, they are often
-unavailable in datacenters. Cyclone solves this problem by providing transparent
-replication middleware that to be used with Intel's Non Volatile Memory Library 
-(NVML) to construct durable data-structures that map keys to values.
-Cyclone is designed around an optimized userspace networking stack to reduce
-latency and can scale its consensus protocol across cores and network ports to
-provide good throughput under load. We show that Cyclone can replicate as many
-as 8 million updates a second using just 4 commodity 10 GigE ports on a machine.
+single machine solutions. While transactional interfaces built over RDMA capable
+networking hardware offer a viable alternative, such hardware is often
+unavailable in datacenters. Cyclone offers a solution to this problem by
+providing transparent replication middleware that can be used with Intel's Non
+Volatile Memory Library (NVML) to construct durable data-structures that map
+keys to values.  Cyclone is designed around an optimized userspace networking
+stack to reduce latency and can scale its consensus protocol across cores and
+network ports to provide good throughput under load. We show that Cyclone can
+replicate as many as 8 million updates a second using just 4 commodity 10 GigE
+ports on a machine.
 
 \section{Introduction}
 Memory technology in datacenters is due to undergo a paradigm shift with the
@@ -44,7 +45,7 @@ increased use of directly addressable non-volatile memory both in the form of
 battery backed non-volatile DIMMs~\cite{farm} as well as newer memory types
 such as 3D XPoint~\cite{pmfs, bpfs}. In anticipation, libraries that allow
 programmers to build durable data structures on non-volatile heaps have become
-available~\cite{mnemosyne, nvheaps, cdds}  - an example of a such a
+available~\cite{mnemosyne, nvheaps, cdds}  - an example of such a
 library that we have used in this paper is Intel's non volatile memory library
 (NVML)~\cite{nvml}. A missing piece however is a component to make such durable 
 data structures highly available using replication across a commodity network
@@ -57,7 +58,7 @@ data structures where one cannot apriori guarantee the availability of
 RDMA (for e.g., when running on externally hosted environments or public
 clouds).
 
-Cyclone is a prototype replication middleware that aims to demonstrate that one
+Cyclone is prototype replication middleware that aims to demonstrate that one
 can add fault tolerance transparently to a specific class of client server
 applications written on top of libraries such as NVML. We specifically target
 key-value maps in this paper and in that context make two key
@@ -72,7 +73,7 @@ design point for developers looking to deploy applications on non-volatile heaps
 in commodity ethernet-based environments such as public clouds.
 
 \section{Single Node Programming Model}
-Cyclone assumes a concurrent durable application on non-volatile heap as the
+Cyclone assumes a concurrent durable application on a non-volatile heap as the
 starting point. A number of libraries and filesystems make this possible
 today~\cite{nvml, dax, pmfs, mnemosyne, nvheaps, cdds}. Cyclone currently
 supports applications built on top of Intel's Non Volatile Memory Library
@@ -221,7 +222,7 @@ replication messages. The common case path at the leader lends itself to zero
 copy since the same set of log entries is sent to all replicas.
 
 In order to avoid an additional copy of the incoming RPC call contents from DRAM
-to persistent memory, Cyclone allocates space for packet buffers on non-volatile
+to persistent memory, Cyclone allocates space for packet buffers on the non-volatile
 heap. However, since packet data is cached, Cyclone ensures durability
 (or persistence) of this data by explicitly flushing the dirty
 cachelines~\cite{pmfs}. Cyclone maintains its log as a circular sequence of
@@ -233,10 +234,10 @@ We exploit the fact that DPDK allows prepending data to a packet
 without physically moving the data in a packet buffer. The received packet
 contains only the RPC call from the client. We prepend a RAFT related header
 (containing the previous log index, previous log term, leader's term and
-leader's commit point~\cite{raft}) to packet buffer itself. To this RAFT header 
+leader's commit point~\cite{raft}) to the packet buffer itself. To this RAFT header 
 we then prepend an IPv4 header. We assign pre-determined values to the
 IP address fields in order to exploit 5-tuple steering at the receiving NIC for 
-the placement of the incoming packet in the right queue.
+the placement of the incoming packet in the correct queue.
 This composite packet buffer is then sent \emph{unchanged} to every replica.
 To properly route the packet through switches, we allocate a small buffer
 containing an ethernet header for each follower replica and \emph{chain} the
@@ -298,16 +299,17 @@ seen sequence number and result for that RPC call from the quorum of servers.
 \label{sec:example}
 We now demonstrate how Cyclone can be used in practice by putting together an
 example of a linearizable hash table - a useful and common data structure.
-[memcached]. The baseline is a durable hash table written in NVML that runs on a
+The baseline is a durable hash table written in NVML that runs on a
 single machine in client-server mode. The server side maintains the durable
 open-addressed hash table and services client RPC calls to insert and delete
-key-value pairs and lookup keys. Such a hash table is simple to derive from a
-volatile hash table and readily available in NVML [nvml.io] as an example [src
-  code link]. To use that (non client-server) example with Cyclone we added a
-simple RPC call format, manually marshalled and demarshalled the few
-arguments to the RPC call in an RPC call handler we wrote - a few tens of lines
-of code. Finally, we added a simple client driver program (a few tens of
-additional lines of code).
+key-value pairs and lookup keys.
+
+A durable hash table is simple to derive from a volatile hash table and readily
+available in NVML as an example~\cite{nvml_hash}. To use that (non client-server)
+example with Cyclone we added a simple RPC call format, manually marshalled and
+demarshalled the few arguments to the RPC call in an RPC call handler we wrote -
+a few tens of lines of code. Finally, we added a simple client driver program (a
+few tens of additional lines of code).
 
 In order to use the hash table with Cyclone, we simply need to to declare the
 RPC call handler as the point of entry to Cyclone at the server end.  The client
@@ -366,15 +368,17 @@ support for distributed transactions to our hash table.
 
 We support distributed transactions in our hash table by allowing the user to
 specify a group of insert/delete/lookup operations that must occur
-atomically. We use the existing bucket locks to implement a simple two phase
+atomically. We use the existing bucket locks to support a simple two phase
 locking protocol to implement the transction. A client makes an RPC call to the
 server specifying the transaction and the server executes it on the client's
 behalf. Execution of the transaction has four distinct phases: acquire locks,
 verify values, apply updates and finally release locks.
 
-We guard against faults by executing the RPC call on a quorum of machines via
-Cyclone. Since execution of the RPC call leaves \emph{externally visible side
-  effects} by virtue of the RPC calls it makes we require output
+We guard against faults by executing the the entire transaction on a quorum of
+machines via Cyclone. All machines in the quorum execute the transaction, making
+calls to other quorums to execute steps in the two phase locking protocol. Since
+execution of the RPC call leaves \emph{externally visible side effects} by
+virtue of the RPC calls it makes we require output
 commit~\cite{output_commit}. This is achieved if the execution is guaranteed to
 complete once it starts. This is simply achieved by a flag in the RPC call that
 turns off decoupled execution (Section~\ref{sec:decouple}). The flag causes
@@ -446,33 +450,33 @@ We evaluate Cyclone against its design goals by using it for up to 3-way
 replication in a cluster of twelve 48 core Xeon servers. Three servers run
 Cyclone's server side code, while the remaining machines run multithreaded
 clients to load the system for our studies. The server side machines are each
-equipped with four commodity 82599 10 Gbit ethernet controllers, while each
-client machine has one 82599 ethernet controller. All the machines are connected
-through the same commodity 10Gbit switch. We use 8 cores on the server machines
+equipped with four commodity 82599-based 10 Gbit ethernet ports, while each
+client machine has one 82599-based ethernet port. All the machines are connected
+through the same commodity 10 Gbit switch. We use 8 cores on the server machines
 for running 8 instance of RAFT, leaving 39 cores to run application code. The
 last remaining core is reserved for management code. We use NVML with the non
 volatile pool held in DRAM, which proxies for the performance we would expect
 from NVDIMMs. We evaluate Cyclone in three stages.
 
-First, we evaluate pure replication performance by replicating RPC calls. There
-is crash consistent transaction that remembers the RPC call sequence number -
-every RPC call is accepted and once replicated a response is sent to the
-client. Figure~\ref{fig:pure_rep} shows the results. We consider two cases, one
-where the clients send an RPC call with no payload and one where they add a 512
-byte dummy payload. For the no payload case the bottleneck is the message
-handling rate. We note that Cyclone can handle small message replication rates
-as high as \emph{8 million messages a second}. In the case of RPC calls with 512
-byte payloads, the bottleneck is the available network bandwidth. We plot
-transmit throughput derived from the message rate as the rate at which data is
-sent to replicas from all the 8 quorum leaders and back to the clients.
-It is interesting to note that with 3 replicas Cyclone achieves \emph{more than
-  40 Gbps} of bandwidth. The reason for this is that the quorum leaders can end
-up residing on different machines. Although replication traffic is still limited
-by the receive bandwidth the responses to the clients, originating from
-different machines have access to independent 4x10GigE NICs, allowing total
-transmit throughput to exceed 40 Gbps. Although not discussed in this paper,
-Cyclone's control plane is designed to exploit this by trying to spread quorum
-leaders across machines.
+First, we evaluate pure replication performance by replicating RPC
+calls. Cyclone simply replicates the contents of the RPC call without executing
+it and returns a response to the client when replication is complete.
+Figure~\ref{fig:pure_rep} shows the results. We consider two cases, one where
+the clients send an RPC call with no payload and one where they add a 512 byte
+dummy payload. For the no payload case the bottleneck is the message handling
+rate. We note that Cyclone can handle small message replication rates as high as
+\emph{8 million messages a second}. In the case of RPC calls with 512 byte
+payloads, the bottleneck is the available network bandwidth. To show this, we
+also plot transmit throughput derived from the message by adding the rate at
+which data is sent to replicas from all the 8 quorum leaders to the rate at
+which responses are sent back to the clients.  It is interesting to note that
+with 3 replicas Cyclone achieves \emph{more than 40 Gbps} of bandwidth. The
+reason for this is that the quorum leaders can end up residing on different
+machines. Although replication traffic is still limited by the receive bandwidth
+the responses to the clients, originating from different machines have access to
+independent 4x10GigE ports, allowing total transmit throughput to exceed 40
+Gbps. Although not discussed in this paper, Cyclone's control plane is designed
+to exploit this by trying to spread quorum leaders across machines.
 
 Also worth noting is that thanks to DPDK's low latency access to the NICs, three
 way replication costs as little as 25 us of latency in the unloaded case. This
@@ -508,11 +512,11 @@ carefully designed software stack that can exploit it.
 Next, we consider the effect of adding NVMLs crash consistent
 transactions. Figure~\ref{fig:cc_rep} shows the effect of adding a crash
 consistent transaction where the application still does nothing but Cyclone
-remembers the last sequence number and RPC call result (the application simply
-returns the received payload). Throughput is now bottlenecked by NVML allocator
-performance at just under a million messages a second. The final result is
-adding the hash table in the picture with the clients updating the values of
-keys already present in the hash table - a stable workload for easy
+durably remembers the last sequence number and RPC call result (the application
+simply returns the received payload). Throughput is now bottlenecked by NVML
+allocator performance at just under a million messages a second. The final
+result is adding the hash table in the picture with the clients updating the
+values of keys already present in the hash table - a stable workload for easy
 comparison. As Figure~\ref{fig:app_rep} shows performance stays at the just
 under 1M calls a second mark for pure updates. For comparison we also show a
 pure read only case where the clients only query the value of a key - there is
@@ -520,12 +524,12 @@ no replication \emph{nor} any crash consistent transaction applied. It is
 interesting to note that the pure read only case is bottlenecked at the same
 point as the pure replication case of 8 million operations a second.
 
-These results lead us to conclude that Cyclone's provides adequate performance
-headroom for replication to NVML applications. In fact our current focus in the
-light of these results is towards improving application performance on top of
-NVML. NVML is a general purpose library written for a variety of substrates
-including traditional SSD based storage and there is adequate room for
-improvement of performance for applications running on directly attached
+These results lead us to conclude that Cyclone provides adequate performance
+headroom for transparent replication in NVML applications. In fact our current
+focus in the light of these results is towards improving application performance
+on top of NVML. NVML is a general purpose library written for a variety of
+substrates including traditional SSD based storage and there is adequate room
+for improvement of performance for applications running on directly attached
 persistent memory with close to DRAM performance.
 
 \begin{figure}
@@ -548,14 +552,12 @@ persistent memory with close to DRAM performance.
 \section{Conclusion}
 Cyclone allows developers to add availability to applications built on top of
 libraries such as NVML and achieve good performance on commodity networking
-hardware. A key question is whether the ideas in Cyclone extend to more than
-just key-value maps - perhaps to application such as filesystems ? We believe
-that the requirement for scaling across multiple replication quorums can be
-satisfied by applications where the scalable commutativity
-rule~\cite{scalable_commutativity} applies to common case primitives. Although
-our intitial release of Cyclone will be targeted towards key value style
-applications, our future research is targeted towards investigating this
-hypothesis.
+hardware. A key question is whether Cyclone can be used for other applications
+such as filesystems ? We believe that the requirement for scaling across
+multiple replication quorums can be satisfied by applications where the scalable
+commutativity rule~\cite{scalable_commutativity} applies to common case
+primitives. Although our intitial release of Cyclone will be for
+key value style applications, our future research is based on this hypothesis.
 \newcommand\myurl[2]{\url{#1}}
 \bibliographystyle{acm}
 \bibliography{paper}
