@@ -111,6 +111,7 @@ void insert_after(TOID(ll_node) prev,
 
 \end{verbatim}
   }
+\vspace{-0.2in}
 \caption{A Persistent Linked List}
 \label{fig:example}
 \end{figure}
@@ -258,16 +259,15 @@ together and treating the chain as a single packet. We chain these packet
 buffers together to form a single packet. Since the entire chain is sent as a
 single packet when being replicated, the length of a chain is limited by the
 size of the coalesced packet, that must fit into an ethernet jumbo frame of
-approximately 9KB.
+approximately 9KB. Figure~\ref{fig:zc_batch} summarizes this set of
+transformations to incoming request packets from clients at the leader replica. 
 
 \begin{figure}
-\includegraphics[width=0.7\textwidth,height=6cm]{figures/chain.pdf}
+\includegraphics[width=0.9\columnwidth]{figures/chain}
+\vspace{-0.15in}
 \caption{Zero Copy Batching}
 \label{fig:zc_batch}
 \end{figure}
-
-This set of transformations to incoming request packets from clients at the
-leader replica is summarized in Figure~\ref{fig:zc_batch}. 
 
 \subsection{RPC Call Execution}
 \label{sec:exec}
@@ -441,6 +441,7 @@ release:
      Transaction completed by someone else
 \end{verbatim}
 }
+\vspace{-0.22in}
 \caption{Distributed Transactions}
 \label{fig:dist_tx}
 \end{figure}
@@ -505,8 +506,32 @@ carefully designed software stack that can exploit it.
   \includegraphics[width=\textwidth,height=3cm]{results/replication_gbps_512.pdf}
 \end{minipage}
 \end{tabular}
-\caption{Pure Replication}
+\caption{Evaluation of pure replication performance}
 \label{fig:pure_rep}
+\end{figure}
+
+\begin{figure}[htb]
+%\vspace{-0.2in}
+\centering
+\begin{tabular}{c}
+\includegraphics[height=3cm,width=0.8\columnwidth]{results/cc_mops.pdf}
+\end{tabular}
+\vspace{-0.22in}
+\caption{Evaluation of replication performance with crash consistency}
+\label{fig:cc_rep}
+\vspace{-0.08in}
+\end{figure}
+
+\begin{figure}[htb]
+%\vspace{-0.2in}
+\centering
+\begin{tabular}{c}
+\includegraphics[height=3cm,width=0.8\columnwidth]{results/app_mops.pdf}
+\end{tabular}
+\vspace{-0.22in}
+\caption{Evaluation of in-memory hash table performance with 3-way crash consistent replication}
+\label{fig:app_rep}
+\vspace{-0.08in}
 \end{figure}
 
 Next, Figure~\ref{fig:cc_rep} shows the effect of adding a crash consistent
@@ -534,23 +559,6 @@ headroom for transparent replication in NVML-based key value maps.
 %substrates including traditional SSD based storage and there is adequate room
 %for improvement of performance for applications running on directly attached
 %persistent memory with close to DRAM performance.
-
-\begin{figure}
-\begin{tabular}{cc}
-\begin{minipage}{0.25\textwidth}
-  \hspace{-0.17in}
-  \includegraphics[width=\textwidth,height=3cm]{results/cc_mops.pdf}
-  \caption{Crash Consistency}
-  \label{fig:cc_rep}
-\end{minipage} &
-  \hspace{-0.37in}
-\begin{minipage}{0.25\textwidth}
-  \includegraphics[width=\textwidth,height=3cm]{results/app_mops.pdf}
-  \caption{Hash Table}
-  \label{fig:app_rep}
-\end{minipage}
-\end{tabular}
-\end{figure}
 
 \section{Conclusion}
 Cyclone allows developers to add availability to key value maps built on top of
