@@ -34,31 +34,30 @@ unavailable in datacenters. Cyclone offers a solution to this problem by
 providing transparent replication middleware that can be used with Intel's Non
 Volatile Memory Library (NVML) to construct durable data-structures that map
 keys to values.  Cyclone is designed around an optimized userspace networking
-stack to reduce latency and can scale its consensus protocol across cores and
-network ports to provide good throughput under load. We show that Cyclone can
-replicate as many as 7 million updates a second using just 4 commodity 10 GigE
-ports on a machine.
+stack to reduce latency. Further, it can scale its consensus protocol across
+cores and network ports to provide good throughput under load. We show that
+Cyclone can replicate as many as 7 million updates a second using just 8 cores
+(for the consensus protocol) and 4 commodity 10 GigE ports on each replica.
 
 \section{Introduction}
 Memory technology in datacenters is due to undergo a paradigm shift with the
 increased use of directly addressable non-volatile memory both in the form of
-battery backed non-volatile DIMMs~\cite{farm} as well as newer memory types
-such as 3D XPoint~\cite{pmfs, bpfs}. In anticipation, libraries that allow
+battery backed non-volatile DIMMs~\cite{farm} as well as newer memory types such
+as 3D XPoint~\cite{pmfs, bpfs}. In anticipation, libraries that allow
 programmers to build durable data structures on non-volatile heaps have become
-available~\cite{mnemosyne, nvheaps, cdds}  - an example of such a
-library that we have used in this paper is Intel's non volatile memory library
-(NVML)~\cite{nvml}. A missing piece however is a component to make such durable 
+available~\cite{mnemosyne, nvheaps, cdds} - an example of such a library that we
+have used in this paper is Intel's non volatile memory library
+(NVML)~\cite{nvml}. A missing piece however is a component to make such durable
 data structures highly available using replication across a commodity network
-such as ethernet. Existing solutions that offer good performance are biased
-towards pure transactions across RDMA with a dependence on external services
-(such as zookeeper~\cite{zookeeper}) and application specific code for
-fault recovery~\cite{farm, htm}.
-This is a problem for programmers using NVML to construct durable and available 
-data structures where one cannot apriori guarantee the availability of
-RDMA (for e.g., when running on externally hosted environments or public
+such as ethernet. Existing solutions that offer good performance are dependent
+on high performance RDMA networking hardware, with a dependence on external
+services (such as zookeeper~\cite{zookeeper}) and application specific code for
+fault recovery~\cite{farm, htm}.  This is a problem for programmers using NVML
+where one cannot apriori guarantee the availability of such RDMA networking
+hardware (for e.g., when running on externally hosted environments or public
 clouds).
 
-Cyclone is prototype replication middleware that aims to demonstrate that one
+Cyclone is prototype replication middleware aiming to demonstrate that one
 can add fault tolerance transparently to a specific class of client server
 applications written on top of libraries such as NVML. We specifically target
 key-value maps in this paper and in that context make two key
@@ -125,35 +124,38 @@ possible~\cite{mnemosyne, cdds, nvheaps}.
 \section{Replication}
 Cyclone is designed to add fault tolerance to NVML client server applications
 via replication -- a quorum of machines maintains \emph{equivalent} state.
-Server state is queried and manipulated via RPC calls from clients.
-Cyclone replicates the RPC call itself across replicas rather than replicating
-every access (to the server state) made during execution of the RPC call.
+Server state is queried and manipulated via RPC calls from clients.  Cyclone
+treats the RPC call itself as a variable sized opaque blob of data, leaving the
+application free to choose how it wishes to marshall call related details and
+arguments.
 
+Cyclone replicates the RPC call across replicas rather than replicating
+every access (to the server state) made during execution of the RPC call.
 Cyclone provides strongly consistent replication - every machine in the quorum
-of replicas maintains a log of RPC calls. Cyclone treats the RPC call itself as
-a variable sized opaque blob of data, leaving the application free to choose how
-it wishes to marshall call related details and arguments. All machines agree on
-the committed sequence of RPC calls in the log. We achieve this by running an
-instance of the RAFT~\cite{raft} consensus protocol to keep the log of RPC calls
-on different machines in synchronization. Specially flagged `read-only` RPC
-calls are executed only on the leader replica and are not replicated.
+of replicas maintains a log of RPC calls.  All machines agree on the committed
+sequence of RPC calls in the log. We achieve this by running an instance of the
+RAFT~\cite{raft} consensus protocol to keep the log of RPC calls on different
+machines in synchronization. Specially flagged `read-only` RPC calls are
+executed only on the leader replica and are not replicated.
 
 \subsection{Decoupled Replication}
 \label{sec:decouple}
 The standard replicated state machine approach requires that commands (entries
 in the log) be committed before they can be applied to the state machine --
-i.e. in our case before the RPC call can be executed. In contrast, Cyclone
-decouples execution of an RPC call on any replica from its replication.
-The fact that RPC calls that modify state must themselves be executed
-in a crash consistent transaction allows us to overlap execution with
-replication. Normally, this would be a problem as replication might fail for a
-number of reasons but primarily due to change of leadership and subsequent
-rollback of previously appended (but not committed) log entries. To solve this
-problem, Cyclone delays the actual commit of the failure atomic transaction
-until after the replication is complete. In the event that replication fails,
-the transaction is aborted and any changes to the non volatile heap are rolled
-back. Figure~\ref{fig:async_rep} shows a pseudocode description of how the
-runtime handles \emph{decoupled replication}.
+i.e. in our case before the RPC call can be executed. This is because
+replication of an accepted log entry can fail for a
+number of reasons such as change of leadership and subsequent
+rollback of previously appended (but not committed) log entries.
+
+In contrast to other systems, Cyclone decouples execution of an RPC call on any
+replica from its replication by executing the RPC call as soon as it is received
+on any replica. We exploit the fact that RPC calls that modify state must
+themselves be executed in a crash consistent transaction. Cyclone delays the
+actual commit of the crash consistent transaction until after the replication is
+complete. In the event that replication fails, the transaction is aborted and
+any changes to the non volatile heap are rolled back. Figure~\ref{fig:async_rep}
+shows a pseudocode description of how the runtime handles \emph{decoupled
+  replication}.
 
 \begin{figure}
 { \scriptsize
@@ -172,18 +174,16 @@ TX_BEGIN {
 \label{fig:async_rep}
 \end{figure}
 
-Decoupled replication provides good performance and we believe it would be
-the common case for RPC calls replicated via Cyclone. However the program might 
-on occasion require successful replication to be a precondition to exection.
-A case where we find this necessary is
-\textit{output commit}~\cite{output_commit} - where the RPC call has
-external side effects (e.g., communication with other machines in the cluster)
-and therefore crash consistency is insufficient to roll back the execution of
-the RPC call in the event that replication fails. We therefore provide users the
-ability to declare at the client side that an RPC call should execute
-in a coupled manner at the server side. Cyclone would then ensure that the RPC
-call is successfully replicated before it attempts execution on any of the
-replicas.
+Decoupled replication provides good performance and we believe it would be the
+common case for RPC calls replicated via Cyclone. However the program might on
+occasion require successful replication to be a precondition to exection. A case
+where we find this necessary is \textit{output commit}~\cite{output_commit} -
+where the RPC call has external side effects (e.g., communication with other
+machines in the cluster) and therefore crash consistency is insufficient to roll
+back the execution of the RPC call in the event that replication fails. We
+therefore provide users the ability to declare that an RPC call should execute
+in a coupled manner. Cyclone would then ensure that the RPC call is successfully
+replicated before it attempts execution on any of the replicas.
 
 \subsection{Network Stack}
 Cyclone is designed around DPDK~\cite{dpdk} -- a high performance network stack
@@ -194,9 +194,10 @@ placing those buffers into the last level cache of the CPU during DMA~\cite{ddio
 Cyclone separates the available CPU cores on a machine, in a configurable way,
 into cores dedicated to work related to the (RAFT) consensus protocol and cores
 decidated to running application code. Each RAFT core runs an \emph{independent}
-instance of the RAFT protocol. RAFT cores pass work to the application cores
-through lock-free double ended queues. A RAFT core dispatches an incoming RPC
-call for execution simultaneously with sending it out for replication.
+instance of the RAFT protocol - in conjunction with a similar instance on every
+other replica. RAFT cores pass work to the application cores through lock-free
+double ended queues. A RAFT core dispatches an incoming RPC call for execution
+simultaneously with sending it out for replication.
 
 Each RAFT core has a dedicated NIC queue pair. The input queue receives RPC
 calls from clients as well as RAFT protocol related traffic. The output queue
@@ -206,9 +207,9 @@ RPC call is sent from the application core via its dedicated output queue. This
 division of NIC queues eliminates the need for synchronization between RAFT
 cores and application cores when accessing the NIC.
 
-In the event that the machine has multiple NICs, Cyclone spreads the network
-demands and scales by binding each RAFT or application core to a specific NIC
-and picking the necessary queues from that NIC.
+Cyclone can exploit multiple NICs on a machine by binding each RAFT or
+application core to a specific NIC and picking the necessary queues from that
+NIC.
 
 \subsection{Zero Copy Batching}
 Consensus protcols such as RAFT usually have a simple common case path. Once a
@@ -218,13 +219,14 @@ is to receive these entries, append them to its persistent log and send
 acknowledgments to the leader. An entry is considered committed when the leader
 receives an acknowledgment for an entry from a majority of the quorum. Followers
 receive intimation of committed entries as piggybacked information on subsequent
-replication messages. The common case path at the leader lends itself to zero
-copy since the same set of log entries is sent to all replicas.
+replication messages. The common case replication path at the leader lends
+itself to \emph{zero copy} transmission to the replicas, since the same set of
+log entries is sent to all replicas.
 
-In order to avoid an additional copy of the incoming RPC call contents from DRAM
-to persistent memory, Cyclone allocates space for packet buffers on the non-volatile
-heap. However, since packet data is cached, Cyclone ensures durability
-(or persistence) of this data by explicitly flushing the dirty
+In the receive path, we avoid an additional copy of the incoming RPC call
+contents from DRAM to persistent memory by allocating space for packet buffers
+on the non-volatile heap. However, since packet data is cached, Cyclone must
+ensure durability (or persistence) of this data by explicitly flushing the dirty
 cachelines~\cite{pmfs}. Cyclone maintains its log as a circular sequence of
 pointers to packet buffers and therefore the append operation is completed by
 adding a pointer to the received packet and flushing the cacheline containing
@@ -242,22 +244,21 @@ This composite packet buffer is then sent \emph{unchanged} to every replica.
 To properly route the packet through switches, for each follower replica we
 allocate a small buffer containing an ethernet header with appropriate addresses
 and \emph{chain} the buffer in front of the prepared packet - thereby ensuring
-that we do not need to change the contents of the packet itself.
+that we do not need to copy the contents of the packet itself.
 
 Although the common case path in RAFT is straightforward, it still requires
-hundreds of cycles (or a few microseconds) to process each log entry, which is
-a significant amount in the face of sub 10 us network latency between nodes with
-DPDK. We amortize this overhead when operating under load by
-batching multiple RPC calls together and treating the batch as a single RAFT log
-entry.  DPDK by itself can efficiently batch incoming packets under load,
-therefore allowing the user to easily receive a burst of packets
-(currently limited to 32) rather than a single packet for a polling call.
-DPDK further allows chaining packet
-buffers together and treating the chain as a single packet. This is convenient
-for our zero copy approach and we chain packet mbufs together to form a single
-packet. Since the entire chain is sent as a single packet when being replicated,
-the length of a chain is limited by the size of the coalesced packet, that must
-fit into an ethernet jumbo frame of approximately 9KB.
+hundreds of cycles (or a few microseconds) to process each log entry, which is a
+significant amount in the face of sub 10 us network latency between nodes with
+DPDK. We amortize this overhead when operating under load by batching multiple
+RPC calls together and treating the batch as a single RAFT log entry.  DPDK by
+itself can efficiently batch incoming packets under load, therefore allowing the
+user to easily receive a burst of packets (currently limited to 32) rather than
+a single packet for a polling call.  DPDK further allows chaining packet buffers
+together and treating the chain as a single packet. We chain these packet
+buffers together to form a single packet. Since the entire chain is sent as a
+single packet when being replicated, the length of a chain is limited by the
+size of the coalesced packet, that must fit into an ethernet jumbo frame of
+approximately 9KB.
 
 \begin{figure}
 \includegraphics[width=0.7\textwidth,height=6cm]{figures/chain.pdf}
@@ -276,25 +277,25 @@ steering and at most once semantics.
 
 An RPC call via Cyclone must traverse a specific RAFT core (and associated
 consensus protocol instance) and specific application core. These details are
-provided by the user when making the RPC call to the client side library
-provided by Cyclone. The user therefore is aware of the number of execution
-cores and RAFT instances and given complete control of \emph{RPC call steering}.
-For most applications we envisage a simple modulo hashing scheme should suffice
-for load balancing.
+provided by the user when making the RPC call to the Cyclone client side
+library. The user therefore is aware of the number of execution cores and RAFT
+instances and given complete control of \emph{RPC call steering}. For most
+applications we envisage a simple modulo hashing scheme should suffice for load
+balancing, something that we plan to later automate in Cyclone.
 
 Cyclone provides at most once semantics. It supports a large but fixed (at
 startup time) number of clients. Each RPC call from a client bears the client
 number and a sequence number. \emph{Each execution core independently enforces
   that accepted RPC calls from the same client bear increasing sequence
   numbers}. This is done by storing the last executed sequence number for every
-client in a per-core durable datastructure as part of the crash consistent
+client in a per-core durable data structure as part of the crash consistent
 transaction wrapping the execution of the RPC call. Even in the presence of
 fail-overs, this durable memory of sequence numbers seen from a client ensures
 at most once semantics. In addition to guarding against repeated execution of
 the same call, Cyclone also remembers the \emph{result} of the last executed RPC
-call from every client. This is done to assist clients (particularly stateless
-clients). Cyclone allows the client to query the last seen sequence number and
-result for that RPC call from the quorum of servers.
+call from every client. This is done to assist clients - particularly stateless
+clients. Cyclone allows the client to query the last seen sequence number and
+result for that RPC call from any application core on the quorum of servers.
 
 \section{A Durable Replicated Hash Table}
 \label{sec:example}
@@ -306,11 +307,11 @@ open-addressed hash table and services client RPC calls to insert and delete
 key-value pairs and lookup keys.
 
 A durable hash table is simple to derive from a volatile hash table and readily
-available in NVML as an example~\cite{nvml_hash}. To use that (non client-server)
-example with Cyclone we added a simple RPC call format, manually marshalled and
-demarshalled the few arguments to the RPC call in an RPC call handler we wrote -
-a few tens of lines of code. Finally, we added a simple client driver program (a
-few tens of additional lines of code).
+available in NVML as an example~\cite{nvml_hash}. To use that (non
+client-server) example with Cyclone we added a simple RPC call format, manually
+marshalled and demarshalled the few arguments to the RPC call in an RPC call
+handler - a few tens of lines of code. Finally, we added a simple client driver
+program (a few tens of additional lines of code).
 
 In order to use the hash table with Cyclone, we simply need to to declare the
 RPC call handler as the point of entry to Cyclone at the server end.  The client
@@ -333,14 +334,15 @@ application cores can end up completing in different orders on different replica
 
 Our solution to this problem in Cyclone is to observe that replicas of the hash
 table require \emph{per-key determinism} and not determinism across \emph{all}
-operations. We therefore steer operations to the same key to the same RAFT core
-and the same application core, by hashing the key to determine the RAFT core and
-execution core. The actual configuration of the hash table therefore can be
-different across different replicas - for example due to the insertion of two
-keys mapping to the same hash bucket completing in different orders across
-different replicas. However, since the results of insert, delete and lookup
-operations for a key depend only on previous operations to the same key the
-replicas provide identical results for committed operations.
+operations. We therefore steer operations to a particular key to the same RAFT
+core and the same application core (using a hash on the key).  The actual
+configuration of the hash table therefore can be different across different
+replicas - for example due to the insertion of two keys mapping to the same hash
+bucket completing in different orders across different replicas. However, since
+the results of insert, delete and lookup operations for a key depend only on
+previous operations to the same key the replicas provide identical results for
+committed operations. \emph{In other words, we exploit the fact that operations to
+different keys in a map are commutative.}
 
 The RPC call steering mechanism described above leaves the programmer free to
 use any synchronization mechanism they wish between concurrent accesses from the
@@ -357,14 +359,14 @@ respect to other atomic transactions and simple updates or reads by virtue of
 standard concurrency control techniques. A common technique is strict two phase
 locking: acquire all locks, update the locked objects and finally release all
 the locks. We believe that NVM application programmers - particularly those
-having experience with concurrent code should not find it hard to deal with
+with experience in concurrency should not find it hard to deal with
 distributed concurrency. The hard part for most programmers is likely to be the
 second aspect: fault tolerance. A distributed transaction spans many machines
 and has a large footprint to clean up in the event of failure. Failure handling
 is made more complex when considering cascading failures - further failures
 while recovering from a failure. Cyclone was designed to allow primitives such
 as distributed transctions to be added without the programmer needing to worry
-about faults or write fault recovery code. As an exercise we show how to add
+about faults or writing fault recovery code. As an exercise we show how to add
 support for distributed transactions to our hash table.
 
 We support distributed transactions in our hash table by allowing the user to
@@ -379,11 +381,10 @@ We guard against faults by executing the the entire transaction on a quorum of
 machines via Cyclone. All machines in the quorum execute the transaction, making
 calls to other quorums to execute steps in the two phase locking protocol. Since
 execution of the RPC call leaves \emph{externally visible side effects} by
-virtue of the RPC calls it makes we require output
+virtue of the further RPC calls it makes, we require output
 commit~\cite{output_commit}. This is achieved if the execution is guaranteed to
-complete once it starts. This is simply achieved by a flag in the RPC call that
-turns off decoupled execution (Section~\ref{sec:decouple}). The flag causes
-execution to start only after the RPC call has been successfully replicated.
+complete once it starts. Hence, for distributed transactions, we turn off
+decoupled execution (Section~\ref{sec:decouple}).
 
 Next, we need to ensure that although every machine in the quorum makes all
 necessary RPC calls, the call itself is executed only once. This is achieved by
@@ -396,21 +397,22 @@ not receive a response to the RPC call - they will instead receive an error that
 tells them that they are too far behind.
 
 To ensure that the transaction is still guaranteed to complete, we use a
-\emph{different} client identifier for each phase. Thus, until the transaction
-completes and a new one is started the response for any RPC call continues to be
-available. Figure~\ref{fig:dist_tx} shows in pseudocode the server side details
-of a transaction. One initiated, the distributed transaction is guaranteed to
-complete given quorum availabilty. However, if the client requires intimation of
-completion, the final transaction state can be written to a distinguished
-partition as part of the transaction itself.
+\emph{different} client identifier for each \emph{phase}. Thus, until the
+transaction completes and a new one is started the response for any RPC call
+continues to be available. Figure~\ref{fig:dist_tx} shows in pseudocode the
+server side details of a transaction. Once initiated, the distributed transaction
+is guaranteed to complete given availability of a quorum.
+%However, if the client
+%requires intimation of completion, the final transaction state can be written to
+%a distinguished partition as part of the transaction itself.
 
-We note that this design is not intended for performance, under the assumption
-that distributed transactions will be infrequent compared to single key
-operations.  On the other hand, it is worth comparing the lack of any need for
-explicit fault recovery in Cyclone with fault recovery in systems systems that
-explicity require such cleanup (~\cite{farm}, pp 59--63).  We believe that
-such designs, which make availability easy for NVM applications are key to
-increasing the adoption rate of NVM by datacenter operators.
+Distributed transactions built around at most once semantics are not intended
+for performance. On the other hand, at most once semantics allows users of
+Cyclone to avoid writing explicit fault recovery code as compared to fault
+recovery in systems that explicity require such cleanup (~\cite{farm}, pp
+59--63). Under the assumption that distributed transactions will be infrequent
+compared to single key operations, such simplicity is key to increasing the
+adoption of NVM among datacenter operators concerned about availability. 
 
 \begin{figure}
 { \scriptsize
@@ -437,9 +439,6 @@ release:
    Update object
    If machine reponds RPC sequence too old
      Transaction completed by someone else
-
-optional:
- write transaction result to <quorum_tx_result>
 \end{verbatim}
 }
 \caption{Distributed Transactions}
@@ -450,39 +449,38 @@ optional:
 We evaluate Cyclone against its design goals by using it for up to 3-way
 replication in a cluster of twelve 48 core Xeon servers. Three servers run
 Cyclone's server side code, while the remaining machines run multithreaded
-clients. The server side machines are each
-equipped with four commodity 82599-based 10 Gbit ethernet ports, while each
-client machine has one 82599-based 10 Gbit ethernet port. All the machines are
-connected through the same 10 Gbit switch. We use 8 cores on the
-server machines for running 8 instance of RAFT, leaving 39 cores to run
-application code. The last remaining core is reserved for management code. We
-use NVML with the non volatile pool held in DRAM, which proxies for the
-performance we would expect from NVDIMMs. We evaluate Cyclone in three stages.
+clients. The server side machines are each equipped with four commodity
+82599-based 10 Gbit ethernet ports, while each client machine has one
+82599-based 10 Gbit ethernet port. All the machines are connected to the same 10
+Gbit switch. We use 8 cores on the server machines for running 8 instances of
+RAFT and 39 cores to run application code. The last remaining core is reserved
+for management code. We use NVML with the non volatile pool held in DRAM, which
+proxies for the performance we would expect from NVDIMMs. We evaluate Cyclone in
+three stages.
 
-First, we evaluate pure replication performance by replicating RPC
-calls. Cyclone simply replicates the contents of the RPC call without executing
-it and returns a response to the client when replication is complete.
-Figure~\ref{fig:pure_rep} shows the results. We consider two cases, one where
-the clients send an RPC call with no payload and one where they add a 512 byte
-dummy payload. For the no payload case the bottleneck is the message handling
-rate. We note that Cyclone can handle small message replication rates as high as
-\emph{7 million messages a second}. In the case of RPC calls with 512 byte
-payloads, the bottleneck is the available network bandwidth. To show this, we
-also plot transmit throughput derived from the message by adding the rate at
-which data is sent to replicas from all the 8 quorum leaders to the rate at
-which responses are sent back to the clients.  It is interesting to note that
-with 3 replicas Cyclone achieves \emph{more than 40 Gbps} of bandwidth. The
-reason for this is that the quorum leaders can end up residing on different
-machines. Although replication traffic is still limited by the receive bandwidth
-at follower replicas, the responses to the clients, originating from different
-machines have access to independent 4x10GigE ports, allowing total transmit
-throughput to exceed 40 Gbps. Although not discussed in this paper, Cyclone's
-control plane is designed to exploit this by trying to spread quorum leaders
-across machines.
+First, we evaluate pure replication by having Cyclone simply replicate the
+contents of the RPC call without executing it and return a response to the
+client when replication is complete.  Figure~\ref{fig:pure_rep} shows the
+results. We consider two cases, one where the clients send an RPC call with no
+payload and one where they add a 512 byte dummy payload. For the no payload case
+the bottleneck is the message handling rate. We note that Cyclone can handle
+small message replication rates as high as \emph{7 million messages a
+  second}. In the case of RPC calls with 512 byte payloads, the bottleneck is
+the available network bandwidth. To show this, we also plot aggregate transmit
+throughput derived from these results by adding the rate at which data is sent
+to replicas from all the 8 quorum leaders to the rate at which responses are
+sent back to the clients.  With 3 replicas Cyclone shows \emph{slightly more
+  than 40 Gbps} of aggregate transmit bandwidth. The reason for this is that the
+quorum leaders can end up residing on different machines. Although replication
+traffic is still limited by the receive bandwidth at follower replicas, the
+responses to the clients, originating from different machines have access to
+independent 4x10GigE ports, allowing total transmit throughput to exceed 40
+Gbps. Although not discussed in this paper, Cyclone's control plane is designed
+to exploit this by trying to spread quorum leaders across machines.
 
 Also worth noting is that thanks to DPDK's low latency access to the NICs, three
 way replication costs as little as 25 us of latency in the unloaded case. This
-latency is measured at the client and therefore is four commodity 10 GigE
+latency is measured at the client and is therefore four commodity 10 GigE
 network hops through the switch, with each hop taking under 7 us including
 network stack delays. These results should serve to illustrate that simple
 commodity ethernet can indeed provide reasonable replication performance with a
@@ -555,10 +553,10 @@ on top of NVML rather than improving the performane of replication in Cyclone.
 Cyclone allows developers to add availability to applications built on top of
 libraries such as NVML and achieve good performance on commodity networking
 hardware. A key question is whether Cyclone can be used for other applications
-such as filesystems ? We believe that the requirement for scaling across
+such as filesystems ? \emph{We believe that the requirement for scaling across
 multiple replication quorums can be satisfied by applications where the scalable
 commutativity rule~\cite{scalable_commutativity} applies to common case
-primitives. Although our intitial release of Cyclone will be for
+primitives.} Although our intitial release of Cyclone will be for
 key value style applications, our future research is based on this hypothesis.
 \newcommand\myurl[2]{\url{#1}}
 \bibliographystyle{acm}
