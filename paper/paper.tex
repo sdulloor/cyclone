@@ -509,24 +509,27 @@ carefully designed software stack that can exploit it.
 \label{fig:pure_rep}
 \end{figure}
 
-Next, Figure~\ref{fig:cc_rep} shows the effect of adding a crash
-consistent transaction where the application still does nothing but Cyclone
-durably remembers the last sequence number and RPC call result (the application
-simply returns the received payload). Throughput is now bottlenecked by NVML
-allocator performance at just under a million messages a second. The final
-result is adding the hash table in the picture with the clients updating the
-values of keys already present in the hash table - a stable workload for easy
-comparison. As Figure~\ref{fig:app_rep} shows performance stays at the just
-under 1M calls a second mark for pure updates. We also show a
-pure read only case where the clients only query the value of a key - there is
-no replication \emph{nor} any crash consistent transaction applied. It is
-interesting to note that the pure read only case is bottlenecked almost at the same
-point as the pure replication case of 7 million operations a second.
+Next, Figure~\ref{fig:cc_rep} shows the effect of adding a crash consistent
+transaction where the application still does nothing but Cyclone durably
+remembers the last sequence number and RPC call result (the application simply
+returns the received payload). Throughput is now bottlenecked by NVML allocator
+performance at just under a million messages a second. The final result is
+adding the hash table in the picture with the clients updating the values of
+keys already present in the hash table - a stable workload for easy
+comparison. As Figure~\ref{fig:app_rep} shows, performance stays at just under
+1M calls a second for pure updates. We also show a pure read only case where the
+clients only query the value of a key - there is no replication \emph{nor} any
+crash consistent transaction applied. It is interesting to note that the pure
+read only case is bottlenecked almost at the same point as the pure replication
+case of 7 million operations a second, demonstrating the efficiency of Cyclone's
+replication under load.
 
-These results lead us to conclude that Cyclone provides adequate performance
-headroom for transparent replication in NVML applications. In fact our current
-focus in the light of these results is towards improving application performance
-on top of NVML rather than improving the performane of replication in Cyclone.
+Contrary to common wisdom that replication over commodity networks is expensive,
+these results lead us to conclude that Cyclone provides adequate performance
+headroom for transparent replication in NVML-based key value maps.
+%In fact our current focus in the light of
+%these results is towards improving application performance on top of NVML rather
+%than improving the performane of replication in Cyclone.
 %NVML is a general purpose library written for a variety of
 %substrates including traditional SSD based storage and there is adequate room
 %for improvement of performance for applications running on directly attached
@@ -550,14 +553,15 @@ on top of NVML rather than improving the performane of replication in Cyclone.
 \end{figure}
 
 \section{Conclusion}
-Cyclone allows developers to add availability to applications built on top of
+Cyclone allows developers to add availability to key value maps built on top of
 libraries such as NVML and achieve good performance on commodity networking
 hardware. A key question is whether Cyclone can be used for other applications
-such as filesystems ? \emph{We believe that the requirement for scaling across
-multiple replication quorums can be satisfied by applications where the scalable
-commutativity rule~\cite{scalable_commutativity} applies to common case
-primitives.} Although our intitial release of Cyclone will be for
-key value style applications, our future research is based on this hypothesis.
+such as filesystems? \emph{We believe that the requirement for scaling across
+  multiple replication quorums can be satisfied by applications where the
+  scalable commutativity rule~\cite{scalable_commutativity} applies to common
+  case primitives.} Although our intitial release of Cyclone will be for key
+value style applications, our on-going research is based on the scalable
+commutativity hypothesis.
 \newcommand\myurl[2]{\url{#1}}
 \bibliographystyle{acm}
 \bibliography{paper}
