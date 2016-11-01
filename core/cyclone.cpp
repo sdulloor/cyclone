@@ -253,6 +253,10 @@ static int __applylog(raft_server_t* raft,
     cyclone_handle->completions = 0;
     cyclone_handle->mark = rtc_clock::current_time();
   }
+  
+  // Till I figure out the distributed checkpoint
+  raft_checkpoint(cyclone_handle->raft_handle, ety_idx);
+  
   return 0;
 }
 

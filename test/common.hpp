@@ -20,8 +20,8 @@ typedef struct cookies_st {
 const int CSTATE_TYPE_NUM = TOID_NUM_BASE - 1;
 
 extern void begin_tx();
-extern void commit_tx(void *, rpc_cookie_t *);
-extern void abort_tx(void *);
+extern void commit_tx(rpc_cookie_t *);
+extern void abort_tx();
 extern void init_cstate(PMEMobjpool *pop, PMEMoid *cs);
 extern void init_cookie_system(PMEMobjpool *pool, cookies_t *root);
 extern void get_cookie(rpc_cookie_t *cookie);

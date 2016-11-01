@@ -47,7 +47,7 @@ static void mark_done(rpc_cookie_t *cookie)
   cookies_root->client_state[cookie->core_id][cookie->client_id].state = cstate_new;
 }
 
-void commit_tx(void *handle, rpc_cookie_t *cookie)
+void commit_tx(rpc_cookie_t *cookie)
 {
   // Idempotent state changes
   if(pmemobj_tx_stage() == TX_STAGE_WORK) {
@@ -55,12 +55,9 @@ void commit_tx(void *handle, rpc_cookie_t *cookie)
     pmemobj_tx_commit();
   }
   pmemobj_tx_end();
-  if(cookie->lock != NULL) {
-    spin_unlock(cookie->lock);
-  }
 }
 
-void abort_tx(void *handle)
+void abort_tx()
 {
   // Idempotent state changes
   if(pmemobj_tx_stage() == TX_STAGE_WORK) {

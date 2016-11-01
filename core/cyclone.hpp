@@ -37,10 +37,6 @@ typedef struct cfg_change_st {
   int node; // Node to be added/deleted
 } cfg_change_t;
 
-const int REP_UNKNOWN = 0;
-const int REP_SUCCESS = 1;
-const int REP_FAILED  = -1;
-
 // Comm between disp core and raft core
 typedef struct wal_entry_st {
   volatile int rep;

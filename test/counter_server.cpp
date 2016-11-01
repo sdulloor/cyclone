@@ -89,7 +89,7 @@ void* callback(const unsigned char *data,
   cookie->ret_size   = sizeof(struct proposal);
   struct proposal *rep  = (struct proposal *)cookie->ret_value;
   memcpy(&rep->cookie, &req->cookie, sizeof(cookie_t));
-  cookie->lock = NULL;
+  unsigned long *lock = NULL;
   if(code == FN_SET_SLEEP) {
     begin_tx();
     sleep_time = req->k_data.key;
@@ -98,8 +98,8 @@ void* callback(const unsigned char *data,
   }
   else if(code == FN_INSERT) {
     begin_tx();
-    cookie->lock = &lock_table[hm_tx_bucket(pop, the_map, req->kv_data.key)];
-    spin_lock(cookie->lock);
+    lock = &lock_table[hm_tx_bucket(pop, the_map, req->kv_data.key)];
+    spin_lock(lock);
     PMEMoid item = hm_tx_get(pop, the_map, req->kv_data.key);
     rep->code = CODE_OK;
     rep->kv_data.key = req->kv_data.key;
@@ -120,6 +120,16 @@ void* callback(const unsigned char *data,
 		   req->kv_data.key,
 		   new_store_item(req->kv_data.value).oid);
       rep->kv_data.value = req->kv_data.value;
+    }
+    while(*cookie->replication == REP_UNKNOWN);
+    if(*cookie->replication == REP_SUCCESS) {
+      commit_tx(cookie);
+    }
+    else {
+      abort_tx();
+    }
+    if(lock != NULL) {
+      spin_unlock(lock);
     }
   }
   else if(code == FN_DELETE) {
@@ -142,11 +152,11 @@ void* callback(const unsigned char *data,
     }
   }
   else if(code == FN_LOOKUP) {
-    cookie->lock = &lock_table[hm_tx_bucket(pop, the_map, req->kv_data.key)];
-    spin_lock(cookie->lock);
+    lock = &lock_table[hm_tx_bucket(pop, the_map, req->kv_data.key)];
+    spin_lock(lock);
     PMEMoid item = hm_tx_get(pop, the_map, req->k_data.key);
-    spin_unlock(cookie->lock);
-    cookie->lock = NULL;
+    spin_unlock(lock);
+    lock = NULL;
     rep->kv_data.key     = req->k_data.key;
     if(OID_IS_NULL(item)) {
       rep->code = CODE_NOK;
@@ -178,6 +188,16 @@ void* callback(const unsigned char *data,
 	pmemobj_tx_add_range(item, 0, sizeof(uint64_t));
 	(*ptr) = (*ptr) + 2;
       }
+    }
+    while(*cookie->replication == REP_UNKNOWN);
+    if(*cookie->replication == REP_SUCCESS) {
+      commit_tx(cookie);
+    }
+    else {
+      abort_tx();
+    }
+    if(lock != NULL) {
+      spin_unlock(lock);
     }
   }
   else if(code == FN_PREPARE) {
@@ -276,9 +296,7 @@ rpc_callbacks_t rpc_callbacks =  {
   callback,
   get_cookie,
   gc,
-  nvheap_setup,
-  commit_tx,
-  abort_tx
+  nvheap_setup
 };
 
 int main(int argc, char *argv[])

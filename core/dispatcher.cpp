@@ -58,24 +58,20 @@ void init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
   cookie->client_id = rpc->client_id;
   cookie->client_txid = rpc->client_txid;
   cookie->core_id = rpc->core_id;
+  cookie->replication = &(rpc->wal.rep);
 }
 
 int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie)
 {
   TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-  void *tx_handle;
   init_rpc_cookie_info(cookie, rpc);
-  tx_handle = app_callbacks.rpc_callback((const unsigned char *)(rpc + 1),
-					 len - sizeof(rpc_t),
-					 cookie);
-  while(rpc->wal.rep == REP_UNKNOWN);
-   
+  app_callbacks.rpc_callback((const unsigned char *)(rpc + 1),
+			     len - sizeof(rpc_t),
+			     cookie);
   if(rpc->wal.rep == REP_SUCCESS) {
-    app_callbacks.tx_commit(tx_handle, cookie);
     return 0;
   }
   else {
-    app_callbacks.tx_abort(tx_handle);
     return -1;
   } 
 }

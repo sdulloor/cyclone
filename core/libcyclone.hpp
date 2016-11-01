@@ -9,12 +9,15 @@ TOID_DECLARE(char, 0);
 static const int MAX_CLIENTS      = 10000; // Should be enough ?
 static const int DISP_MAX_MSGSIZE = 4096; 
 //Note: DISP_MAX_MSGSIZE must be within MSG_MAXSIZE with room for rpc_t header
+const int REP_UNKNOWN = 0;
+const int REP_SUCCESS = 1;
+const int REP_FAILED  = -1;
 
 typedef struct rpc_cookie_st {
   int client_id;
   int client_txid;
   int core_id;
-  unsigned long *lock;
+  volatile int *replication;
   void *ret_value;
   int ret_size;
 } rpc_cookie_t;
@@ -29,12 +32,7 @@ void* (*rpc_callback_t)(const unsigned char *data,
 //Garbage collect return value
 typedef void (*rpc_gc_callback_t)(void *data);
 
-// Get most recent global cookie data (dont keep lock)
-typedef void (*rpc_get_lock_cookie_callback_t)(rpc_cookie_t *cookie);
-// Get most recent client specific cookie data (keep lock)
 typedef void (*rpc_get_cookie_callback_t)(rpc_cookie_t *cookie);
-// Unlock cookie lock
-typedef void (*rpc_unlock_cookie_callback_t)();
 
 //NVheap setup return heap root -- passes in recovered heap root
 typedef TOID(char) (*rpc_nvheap_setup_callback_t)(TOID(char) recovered,
@@ -49,8 +47,6 @@ typedef struct rpc_callbacks_st {
   rpc_get_cookie_callback_t cookie_get_callback;
   rpc_gc_callback_t gc_callback;
   rpc_nvheap_setup_callback_t nvheap_setup_callback;
-  rpc_tx_commit_callback_t tx_commit;
-  rpc_tx_abort_callback_t tx_abort;
 } rpc_callbacks_t;
 
 // Init network stack
