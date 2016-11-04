@@ -409,6 +409,20 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
   return 0;
 }
 
+static int __raft_logentry_offer(raft_server_t* raft,
+				 void *udata,
+				 raft_entry_t *ety,
+				 raft_entry_t *prev,
+				 int ety_idx)
+{
+  return __raft_logentry_offer_batch(raft,
+				     udata,
+				     ety,
+				     prev,
+				     ety_idx, 
+				     1);
+}
+
 static void free_mbuf_chain(rte_mbuf *m)
 {
   rte_mbuf * tmp;
@@ -434,6 +448,18 @@ static int __raft_logentry_poll_batch(raft_server_t* raft,
     entry++;
   }
   return result;
+}
+
+static int __raft_logentry_poll(raft_server_t* raft,
+				void *udata,
+				raft_entry_t *entry,
+				int ety_idx)
+{
+  if(ety_idx == -1) {
+    rte_pktmbuf_free((rte_mbuf *)entry->data.buf);
+    return 0;
+  }
+  return __raft_logentry_poll_batch(raft, udata, entry, ety_idx, 1);
 }
 
 /** Raft callback for deleting the most recent entry from the log.
@@ -544,9 +570,9 @@ raft_cbs_t raft_funcs = {
   __applylog,
   __persist_vote,
   __persist_term,
-  NULL,
+  __raft_logentry_offer,
   __raft_logentry_offer_batch,
-  NULL,
+  __raft_logentry_poll,
   __raft_logentry_poll_batch,
   __raft_logentry_pop,
   __raft_has_sufficient_logs,
