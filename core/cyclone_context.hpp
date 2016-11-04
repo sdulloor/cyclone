@@ -246,7 +246,7 @@ typedef struct cyclone_st {
 				raft_get_node(raft_handle, msg->source), 
 				&msg->ae, 
 				&ae_responses[ae_response_cnt].aer);
-    if(free_buf) {
+    if(free_buf || e == -1) {
       rte_pktmbuf_free(m);
     }
     ae_responses[ae_response_cnt].source = me;
