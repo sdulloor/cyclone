@@ -631,6 +631,7 @@ void* cyclone_boot(const char *config_quorum_path,
   cyclone_handle->me              = me;
   cyclone_handle->me_quorum       = quorum_id;
   cyclone_handle->me_port         = quorum_id % global_dpdk_context->ports;
+  cyclone_handle->ae_response_cnt = 0;
   cyclone_handle->raft_handle = raft_new();
   cyclone_handle->completions = 0;
   cyclone_handle->mark = rtc_clock::current_time();
