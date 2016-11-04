@@ -236,8 +236,6 @@ typedef struct cyclone_st {
     if(msg->ae.n_entries > 0) {
       msg->ae.entries = (msg_entry_t *)payload;
       msg->ae.entries[0].data.buf = (void *)m;
-      rpc = pktadj2rpc(m);
-      rpc->wal.leader = 0;
     }
     else {
       free_buf = 1;

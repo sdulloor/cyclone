@@ -335,8 +335,15 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
   struct circular_log *log = cyclone_handle->log;
   unsigned long tail = log->tail;
   raft_entry_t *e = ety;
+  int is_leader;
+  if(cyclone_is_leader(cyclone_handle)) {
+    is_leader = 1;
+  }
+  else {
+    is_leader = 0;
+  }
   for(int i=0; i<count;i++,e++) {
-    if(cyclone_is_leader(cyclone_handle)) {
+    if(is_leader) {
       add_head(e->data.buf, cyclone_handle, e, prev, ety_idx + i);
     }
     e->id = ety_idx + i;
@@ -364,6 +371,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
       while(true) {
 	handle_cfg_change(cyclone_handle, e, (unsigned char *)rpc);
 	rpc->wal.rep = REP_UNKNOWN;
+	rpc->wal.leader = is_leader;
 	// Issue unless nodeadd final step
 	if(e->type != RAFT_LOGTYPE_ADD_NODE) { 
 	  int core = rpc->core_id;
