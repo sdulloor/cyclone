@@ -73,9 +73,11 @@ static const int RPC_REQ_NODEADD        = 3; // Add a replica
 static const int RPC_REQ_NODEADDFINAL   = 4; // Completion of add replica
 static const int RPC_REQ_NODEDEL        = 5; // Delete a replica 
 static const int RPC_REQ_NOOP           = 6; // No-op
+static const int RPC_REQ_KICKER         = 7; // Leader change
+
 // Responses
-static const int RPC_REP_COMPLETE       = 7; // DONE 
-static const int RPC_REP_UNKNOWN        = 8; // UNKNOWN RPC
-static const int RPC_REP_INVSRV         = 9; // Not leader
-static const int RPC_REP_OLD            = 10; // RPC too old to cache results
+static const int RPC_REP_COMPLETE       = 8; // DONE 
+static const int RPC_REP_UNKNOWN        = 9; // UNKNOWN RPC
+static const int RPC_REP_INVSRV         = 10; // Not leader
+static const int RPC_REP_OLD            = 11; // RPC too old to cache results
 #endif

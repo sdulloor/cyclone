@@ -375,14 +375,16 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	// Issue unless nodeadd final step
 	if(e->type != RAFT_LOGTYPE_ADD_NODE) { 
 	  int core = rpc->core_id;
-	  //Increment refcount handoff segment for exec 
-	  rte_mbuf_refcnt_update(m, 1);
-	  void *pair[2];
-	  pair[0] = m;
-	  pair[1] = rpc;
-	  if(rte_ring_mp_enqueue_bulk(to_cores[core], pair, 2) == -ENOBUFS) {
-	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
-	    exit(-1);
+	  if(rpc->code != RPC_REQ_KICKER) {
+	    //Increment refcount handoff segment for exec 
+	    rte_mbuf_refcnt_update(m, 1);
+	    void *pair[2];
+	    pair[0] = m;
+	    pair[1] = rpc;
+	    if(rte_ring_mp_enqueue_bulk(to_cores[core], pair, 2) == -ENOBUFS) {
+	      BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
+	      exit(-1);
+	    }
 	  }
 	}
 	char *point = (char *)rpc;
@@ -634,6 +636,7 @@ void* cyclone_boot(const char *config_quorum_path,
   cyclone_handle->ae_response_cnt = 0;
   cyclone_handle->raft_handle = raft_new();
   cyclone_handle->completions = 0;
+  cyclone_handle->saved_is_leader = 0;
   cyclone_handle->mark = rtc_clock::current_time();
   raft_set_multi_inflight(cyclone_handle->raft_handle);
   BOOST_LOG_TRIVIAL(info) << "RAFT start. sizeof(msg_t) is :" 

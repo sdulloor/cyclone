@@ -138,6 +138,8 @@ typedef struct cyclone_st {
 
   unsigned long completions;
   unsigned long mark;
+  
+  int saved_is_leader;
 
   int my_q(int q)
   {
@@ -333,6 +335,7 @@ struct cyclone_monitor {
     messages = (msg_entry_t *)malloc(2*PKT_BURST*sizeof(msg_entry_t));
     int available;
     int accepted;
+    int is_leader;
     while(!terminate) {
       // Handle any outstanding requests
       available = rte_eth_rx_burst(cyclone_handle->me_port,
@@ -352,6 +355,36 @@ struct cyclone_monitor {
 
       accepted  = 0;
       memset(chain_size, 0, 2*PKT_BURST);
+      is_leader = cyclone_is_leader(cyclone_handle);
+      
+      if(is_leader != cyclone_handle->saved_is_leader) {
+	if(!cyclone_handle->saved_is_leader) {
+	  // Became leader -- send kicker
+	  rte_mbuf *k = rte_pktmbuf_alloc(global_dpdk_context->mempools[cyclone_handle->my_q(q_raft)]);
+	  if(k == NULL) {
+	    BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for kicker";
+	  }
+	  rpc_t *k_rpc = (rpc_t *)rte_pktmbuf_mtod_offset(k, void *, sizeof(ether_hdr) + sizeof(ipv4_hdr));
+	  k_rpc->code  = RPC_REQ_KICKER;
+	  k_rpc->flags = 0;
+	  k_rpc->payload_sz = 0;
+	  pktsetrpcsz(k, sizeof(rpc_t));
+	  adjust_head(k);
+	  messages[0].data.buf = (void *)k;
+	  messages[0].data.len = pktadj2rpcsz(k);
+	  messages[0].type = RAFT_LOGTYPE_NORMAL;
+	  int e = raft_recv_entry_batch(cyclone_handle->raft_handle, 
+					messages, 
+					NULL,
+					1);
+	  if(e != 0) {
+	    rte_pktmbuf_free(k);
+	  }
+	}
+	cyclone_handle->saved_is_leader = is_leader;
+	continue;
+      }
+
       while(accepted <= PKT_BURST) {
 	available = rte_eth_rx_burst(cyclone_handle->me_port,
 				     cyclone_handle->my_q(q_dispatcher),
@@ -373,7 +406,7 @@ struct cyclone_monitor {
 	  if(rpc->code == RPC_REQ_LAST_TXID || 
 	     rpc->code == RPC_REQ_STATUS ||  
 	     rpc->flags & RPC_FLAG_RO) {
-	    if(cyclone_is_leader(cyclone_handle)) {
+	    if(is_leader) {
 	      void *pair[2];
 	      pair[0] = m;
 	      pair[1] = rpc;
