@@ -25,6 +25,6 @@ static const int q_dispatcher = 2;
 static const int num_queues   = 3;
 static const int num_quorums  = 8;
 static const int Q_BUFS = 8191;
-static const int R_BUFS = 4095;
+static const int R_BUFS = 1023;
 
 #endif
