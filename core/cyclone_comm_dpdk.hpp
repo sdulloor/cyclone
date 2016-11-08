@@ -52,6 +52,8 @@
 #define JUMBO_FRAME_MAX_SIZE    0x2600
 #define RTE_TEST_RX_DESC_DEFAULT 128
 #define RTE_TEST_TX_DESC_DEFAULT 512
+#define RTE_RESP_RX_DESC_DEFAULT 8*RTE_TEST_RX_DESC_DEFAULT
+#define RTE_RESP_TX_DESC_DEFAULT 2*RTE_TEST_TX_DESC_DEFAULT
 #define PKT_BURST 32
 #define IP_DEFTTL  64   /* from RFC 1340. */
 #define IP_VERSION 0x40
@@ -447,6 +449,7 @@ static void dpdk_context_init(dpdk_context_t *context,
 
   struct rte_eth_dev_info dev_info;
   struct rte_eth_txconf *txconf;
+  unsigned long max_req_size;
   
   BOOST_LOG_TRIVIAL(info) << "MAXIMUM PKTSIZE = " << max_pktsize;
   pack_ratio = 32; // Forced by burst recv. limitations
@@ -490,16 +493,23 @@ static void dpdk_context_init(dpdk_context_t *context,
       max_pktsize = 16384;
     }
     
+    max_req_size = max_pktsize/pack_ratio;
+    if(max_req_size < RTE_MBUF_DEFAULT_DATAROOM) {
+      max_req_size = RTE_MBUF_DEFAULT_DATAROOM;
+    }
     
+
     BOOST_LOG_TRIVIAL(info) << "Init mempool max pktsize = " << max_pktsize;
-    bool is_disp_pool = (i < num_queues*num_quorums) && (i % num_queues == q_dispatcher);
+    BOOST_LOG_TRIVIAL(info) << "Init mempool max reqsize = " << max_req_size;
+
     bool is_raft_pool = (i < num_queues*num_quorums) && (i % num_queues == q_raft);
+    bool is_disp_pool = (i < num_queues*num_quorums) && (i % num_queues == q_dispatcher);
     if(is_disp_pool) {
       context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
 						     Q_BUFS*pack_ratio,
 						     32,
 						     0,
-						     RTE_PKTMBUF_HEADROOM + max_pktsize,
+						     RTE_PKTMBUF_HEADROOM + max_req_size,
 						     rte_socket_id());
     }
     else if(is_raft_pool) {
@@ -512,7 +522,7 @@ static void dpdk_context_init(dpdk_context_t *context,
     }
     else {
       context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
-						     Q_BUFS,
+						     R_BUFS,
 						     32,
 						     0,
 						     RTE_PKTMBUF_HEADROOM + max_pktsize,
@@ -542,7 +552,7 @@ static void dpdk_context_init(dpdk_context_t *context,
       txconf->txq_flags = 0;
       ret = rte_eth_tx_queue_setup(j, 
 				   i, 
-				   nb_txd,
+				   (is_raft_pool || is_disp_pool) ? nb_txd:RTE_RESP_TX_DESC_DEFAULT,
 				   rte_eth_dev_socket_id(j),
 				   txconf);
       if (ret < 0)
@@ -567,7 +577,7 @@ static void dpdk_context_init(dpdk_context_t *context,
     for(int j=0;j<context->ports;j++) {
       ret = rte_eth_rx_queue_setup(j, 
 				   i, 
-				   nb_rxd,
+				   (is_raft_pool || is_disp_pool) ? nb_rxd:RTE_RESP_RX_DESC_DEFAULT,
 				   rte_eth_dev_socket_id(j),
 				   NULL,
 				   context->mempools[i]);
