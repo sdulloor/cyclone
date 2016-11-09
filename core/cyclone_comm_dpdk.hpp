@@ -525,7 +525,7 @@ static void dpdk_context_init(dpdk_context_t *context,
 						     R_BUFS,
 						     32,
 						     0,
-						     RTE_PKTMBUF_HEADROOM + max_pktsize,
+						     RTE_PKTMBUF_HEADROOM + max_req_size,
 						     rte_socket_id());
     }
     if (context->mempools[i] == NULL)
