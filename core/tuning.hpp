@@ -13,7 +13,7 @@ static const int RAFT_LOG_TARGET  = 100;
 static const int timeout_msec  = 30; // Client - failure detect
 
 // Execution resources
-static const int executor_threads = 1;
+static const int executor_threads = 39;
 
 // ZMQ specific tuning
 static const int zmq_threads = 4;
