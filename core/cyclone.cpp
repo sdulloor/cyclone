@@ -714,7 +714,7 @@ void* cyclone_boot(const char *config_quorum_path,
   raft_set_request_timeout(cyclone_handle->raft_handle, RAFT_REQUEST_TIMEOUT);
   raft_set_nack_timeout(cyclone_handle->raft_handle, RAFT_NACK_TIMEOUT);
   raft_set_log_target(cyclone_handle->raft_handle, RAFT_LOG_TARGET);
-
+  
   /* setup connections */
   cyclone_handle->router = (quorum_switch *)router;
   bool i_am_active = false;
@@ -744,6 +744,13 @@ void* cyclone_boot(const char *config_quorum_path,
 			     cyclone_handle->me,
 			     1);
   }
+  else if(cyclone_handle->me_quorum % cyclone_handle->replicas == cyclone_handle->me) {
+    raft_set_preferred_leader(cyclone_handle->raft_handle);
+  }
+
+
+
+
   /* Launch cyclone service */
   __sync_synchronize(); // Going to give the thread control over the socket
   int e = rte_eal_remote_launch(dpdk_raft_monitor, (void *)cyclone_handle->monitor_obj, 1 + quorum_id);
