@@ -23,6 +23,7 @@
 dpdk_context_t * global_dpdk_context = NULL;
 extern struct rte_ring ** to_cores;
 extern struct rte_ring *from_cores;
+cyclone_t **quorums;
 static PMEMobjpool *state;
 static rpc_callbacks_t app_callbacks;
 static void client_reply(rpc_t *req, 
@@ -431,7 +432,8 @@ void dispatcher_start(const char* config_cluster_path,
     } TX_END
     BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered state";
   }
-
+  
+  quorums = (cyclone_t **)malloc(num_quorums*sizeof(cyclone_t *));
   for(int i=0;i<num_quorums;i++) {
     quorum_switch *router = new quorum_switch(&pt_cluster, &pt_quorum);
     cyclone_boot(config_quorum_path,

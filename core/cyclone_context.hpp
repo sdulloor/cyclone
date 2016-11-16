@@ -113,6 +113,9 @@ extern struct rte_ring *from_cores;
 extern dpdk_context_t *global_dpdk_context;
 
 struct cyclone_monitor;
+struct cyclone_st;
+extern cyclone_st ** quorums;
+
 typedef struct cyclone_st {
   boost::property_tree::ptree pt;
   boost::property_tree::ptree pt_client;
@@ -139,7 +142,10 @@ typedef struct cyclone_st {
   unsigned long completions;
   unsigned long mark;
   
-  int saved_is_leader;
+  volatile int published_term;
+  volatile int published_is_leader;
+
+
 
   int my_q(int q)
   {
@@ -355,10 +361,12 @@ struct cyclone_monitor {
 
       accepted  = 0;
       memset(chain_size, 0, 2*PKT_BURST);
+     
+      // Publish quorum status
+      cyclone_handle->published_term   = raft_get_current_term(cyclone_handle->raft_handle);
       is_leader = cyclone_is_leader(cyclone_handle);
-      
-      if(is_leader != cyclone_handle->saved_is_leader) {
-	if(!cyclone_handle->saved_is_leader) {
+      if(is_leader != cyclone_handle->published_is_leader) {
+	if(!cyclone_handle->published_is_leader) {
 	  // Became leader -- send kicker
 	  rte_mbuf *k = rte_pktmbuf_alloc(global_dpdk_context->mempools[cyclone_handle->my_q(q_raft)]);
 	  if(k == NULL) {
@@ -381,9 +389,10 @@ struct cyclone_monitor {
 	    rte_pktmbuf_free(k);
 	  }
 	}
-	cyclone_handle->saved_is_leader = is_leader;
+	cyclone_handle->published_is_leader = is_leader;
 	continue;
       }
+      __sync_synchronize(); // publish results
 
       while(accepted <= PKT_BURST) {
 	available = rte_eth_rx_burst(cyclone_handle->me_port,
@@ -477,6 +486,13 @@ struct cyclone_monitor {
       if(elapsed_time  >= PERIODICITY_CYCLES) {
 	raft_periodic(cyclone_handle->raft_handle, (int)(elapsed_time/tsc_mhz));
 	mark = rte_get_tsc_cycles();
+      }
+      // Set preferred leader
+      if(cyclone_handle->me_quorum > 0 && quorums[0]->published_is_leader) {
+	raft_set_preferred_leader(cyclone_handle->raft_handle);
+      }
+      else {
+	raft_unset_preferred_leader(cyclone_handle->raft_handle);
       }
     }
   }

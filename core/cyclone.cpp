@@ -7,6 +7,7 @@
 #include <rte_mbuf.h>
 
 extern dpdk_context_t * global_dpdk_context;
+extern cyclone_t ** quorums;
 struct rte_ring ** to_cores;
 struct rte_ring *from_cores;
 
@@ -621,6 +622,7 @@ void* cyclone_boot(const char *config_quorum_path,
   std::stringstream addr;
   
   cyclone_handle = new cyclone_t();
+  quorums[quorum_id] = cyclone_handle;
   cyclone_handle->user_arg   = user_arg;
   
   boost::property_tree::read_ini(config_quorum_path, cyclone_handle->pt);
@@ -636,7 +638,7 @@ void* cyclone_boot(const char *config_quorum_path,
   cyclone_handle->ae_response_cnt = 0;
   cyclone_handle->raft_handle = raft_new();
   cyclone_handle->completions = 0;
-  cyclone_handle->saved_is_leader = 0;
+  cyclone_handle->published_is_leader = 0;
   cyclone_handle->mark = rtc_clock::current_time();
   raft_set_multi_inflight(cyclone_handle->raft_handle);
   BOOST_LOG_TRIVIAL(info) << "RAFT start. sizeof(msg_t) is :" 
@@ -744,12 +746,6 @@ void* cyclone_boot(const char *config_quorum_path,
 			     cyclone_handle->me,
 			     1);
   }
-  else if(cyclone_handle->me_quorum % cyclone_handle->replicas == cyclone_handle->me) {
-    raft_set_preferred_leader(cyclone_handle->raft_handle);
-  }
-
-
-
 
   /* Launch cyclone service */
   __sync_synchronize(); // Going to give the thread control over the socket
