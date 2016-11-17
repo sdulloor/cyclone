@@ -373,6 +373,8 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	handle_cfg_change(cyclone_handle, e, (unsigned char *)rpc);
 	rpc->wal.rep = REP_UNKNOWN;
 	rpc->wal.leader = is_leader;
+	rpc->wal.term   = e->term;
+	rpc->wal.idx    = ety_idx + i;
 	// Issue unless nodeadd final step
 	if(e->type != RAFT_LOGTYPE_ADD_NODE) { 
 	  int core = rpc->core_id;

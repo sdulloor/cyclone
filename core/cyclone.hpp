@@ -40,6 +40,8 @@ typedef struct cfg_change_st {
 // Comm between disp core and raft core
 typedef struct wal_entry_st {
   volatile int rep;
+  int term;
+  int idx;
   int leader;
 } __attribute__((packed)) wal_entry_t;
 
@@ -53,31 +55,18 @@ typedef struct rpc_st {
   int client_id;
   int requestor;
   int client_port;
-  union {
-    unsigned long client_txid;
-    unsigned long last_client_txid;
-  };
   unsigned long channel_seq;
   unsigned long timestamp; // For tracing
 } __attribute__((packed)) rpc_t; // Used for both requests and replies
 
 
-// Possble values for code follow
+// Possble values for code
+static const int RPC_REQ                = 0; // RPC request 
+static const int RPC_REQ_KICKER         = 1; // RPC internal 
+static const int RPC_REQ_NODEADDFINAL   = 2; // RPC internal 
+static const int RPC_REQ_NODEADD        = 3; // Add node 
+static const int RPC_REQ_NODEDEL        = 4; // Delete node 
+static const int RPC_REP_OK             = 5; // RPC response OK
+static const int RPC_REP_FAIL           = 6; // RPC response FAILED 
 
-// Request
-
-static const int RPC_REQ_STATUS         = 0; // Check status 
-static const int RPC_REQ_LAST_TXID      = 1; // Get last seen txid from this client
-static const int RPC_REQ_FN             = 2; // Execute 
-static const int RPC_REQ_NODEADD        = 3; // Add a replica 
-static const int RPC_REQ_NODEADDFINAL   = 4; // Completion of add replica
-static const int RPC_REQ_NODEDEL        = 5; // Delete a replica 
-static const int RPC_REQ_NOOP           = 6; // No-op
-static const int RPC_REQ_KICKER         = 7; // Leader change
-
-// Responses
-static const int RPC_REP_COMPLETE       = 8; // DONE 
-static const int RPC_REP_UNKNOWN        = 9; // UNKNOWN RPC
-static const int RPC_REP_INVSRV         = 10; // Not leader
-static const int RPC_REP_OLD            = 11; // RPC too old to cache results
 #endif

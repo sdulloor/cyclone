@@ -95,53 +95,7 @@ typedef struct rpc_client_st {
     cyclone_tx(global_dpdk_context, 0, mb, me_queue);
   }
 
-  int get_last_txid(int quorum_id, int core_id)
-  {
-    int retcode;
-    int resp_sz;
-    while(true) {
-      packet_out->code        = RPC_REQ_LAST_TXID;
-      packet_out->flags       = 0;
-      packet_out->client_id   = me;
-      packet_out->core_id     = core_id;
-      packet_out->client_port = me_queue;
-      packet_out->client_txid = (int)packet_out->timestamp;
-      packet_out->channel_seq = channel_seq++;
-      packet_out->requestor   = me_mc;
-      packet_out->payload_sz  = 0;
-      send_to_server(sizeof(rpc_t), quorum_id);
-      while(true) {
-	resp_sz = cyclone_rx_timeout(global_dpdk_context,
-				     0, 
-				     me_queue,
-				     buf,
-				     (unsigned char *)packet_in,
-				     MSG_MAXSIZE,
-				     timeout_msec*1000);
-	if(resp_sz == -1) {
-	  break;
-	}
-
-	if(packet_in->channel_seq != (channel_seq - 1)) {
-	  continue;
-	}
-
-	break;
-      }
-      if(resp_sz == -1) {
-	update_server("rx timeout, get txid", quorum_id);
-	continue;
-      }
-      if(packet_in->code == RPC_REP_INVSRV) {
-	update_server("Server not leader", quorum_id);
-	continue;
-      }
-      break;
-    }
-    return packet_in->last_client_txid;
-  }
-
-  int delete_node(int txid, int quorum_id, int core_id, int nodeid)
+  int delete_node(int quorum_id, int core_id, int nodeid)
   {
     int retcode;
     int resp_sz;
@@ -151,7 +105,6 @@ typedef struct rpc_client_st {
       packet_out->client_id   = me;
       packet_out->core_id     = core_id;
       packet_out->client_port = me_queue;
-      packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
       packet_out->payload_sz  = sizeof(cfg_change_t);
@@ -163,22 +116,15 @@ typedef struct rpc_client_st {
 	update_server("rx timeout", quorum_id);
 	continue;
       }
-      if(packet_in->code == RPC_REP_INVSRV) {
-	update_server("Server not leader", quorum_id);
-	continue;
-      }
-      if(packet_in->code == RPC_REP_UNKNOWN) {
+      if(packet_in->code == RPC_REP_FAIL) {
 	continue;
       }
       break;
     }
-    if(packet_in->code == RPC_REP_OLD) {
-      return RPC_EOLD;
-    }
     return 0;
   }
 
-  int add_node(int txid, int quorum_id, int core_id, int nodeid)
+  int add_node(int quorum_id, int core_id, int nodeid)
   {
     int retcode;
     int resp_sz;
@@ -188,7 +134,6 @@ typedef struct rpc_client_st {
       packet_out->client_id   = me;
       packet_out->core_id     = core_id;
       packet_out->client_port = me_queue;
-      packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
       packet_out->payload_sz  = sizeof(cfg_change_t);
@@ -200,85 +145,25 @@ typedef struct rpc_client_st {
 	update_server("rx timeout", quorum_id);
 	continue;
       }
-      if(packet_in->code == RPC_REP_INVSRV) {
-	update_server("Server not leader", quorum_id);
-	continue;
-      }
-      if(packet_in->code == RPC_REP_UNKNOWN) {
+      if(packet_in->code == RPC_REP_FAIL) {
 	continue;
       }
       break;
-    }
-    if(packet_in->code == RPC_REP_OLD) {
-      return RPC_EOLD;
     }
     return 0;
   }
 
-  int retrieve_response(void **response, int txid, int quorum_id, int core_id)
-  {
-    int retcode;
-    int resp_sz;
-    packet_out->client_id   = me;
-    packet_out->client_port = me_queue;
-    packet_out->client_txid = txid;
-    packet_out->core_id     = core_id;
-    packet_out->channel_seq  = channel_seq++;
-    packet_out->requestor   = me_mc;
-    while(true) {
-      packet_out->code        = RPC_REQ_STATUS;
-      packet_out->flags       = 0;
-      send_to_server(sizeof(rpc_t), quorum_id);
-      while(true) {
-	resp_sz = cyclone_rx_timeout(global_dpdk_context,
-				     0,
-				     me_queue,
-				     buf,
-				     (unsigned char *)packet_in,
-				     MSG_MAXSIZE,
-				     timeout_msec*1000);
-	if(resp_sz == -1) {
-	  break;
-	}
-	
-	if(packet_in->channel_seq != (channel_seq - 1)) {
-	  continue;
-	}
-
-	break;
-      }
-      if(resp_sz == -1) {
-	update_server("rx timeout, get response", quorum_id);
-	continue;
-      }
-      if(packet_in->code == RPC_REP_INVSRV) {
-	update_server("Server not leader", quorum_id);
-	continue;
-      }
-      break;
-    }
-    if(packet_in->code == RPC_REP_OLD) {
-      return RPC_EOLD;
-    }
-    if(packet_in->code == RPC_REP_UNKNOWN) {
-      return RPC_EUNKNOWN;
-    }
-    *response = (void *)(packet_in + 1);
-    return (int)(resp_sz - sizeof(rpc_t));
-  }
-  
-  int make_rpc(void *payload, int sz, void **response, int txid, int quorum_id, int core_id, int flags)
+  int make_rpc(void *payload, int sz, void **response, int quorum_id, int core_id, int flags)
   {
     int retcode;
     int resp_sz;
     while(true) {
       // Make request
-      packet_out->code        = RPC_REQ_FN;
+      packet_out->code        = RPC_REQ;
       packet_out->flags       = flags;
       packet_out->client_id   = me;
       packet_out->core_id     = core_id;
       packet_out->client_port = me_queue;
-      packet_out->client_txid = txid;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
       packet_out->payload_sz  = sz;
@@ -289,59 +174,14 @@ typedef struct rpc_client_st {
 	update_server("rx timeout, make rpc", quorum_id);
 	continue;
       }
-      if(packet_in->code == RPC_REP_INVSRV) {
-	update_server("Server not leader", quorum_id);
-	continue;
-      }
-      if(packet_in->code == RPC_REP_UNKNOWN) {
+      if(packet_in->code == RPC_REP_FAIL) {
 	continue;
       }
       break;
-    }
-    if(packet_in->code == RPC_REP_OLD) {
-      return RPC_EOLD;
     }
     *response = (void *)(packet_in + 1);
     return (int)(resp_sz - sizeof(rpc_t));
   }
-
-  int make_noop_rpc(void *payload, int sz, int txid, int quorum_id, int core_id, int flags)
-  {
-    int retcode;
-    int resp_sz;
-    while(true) {
-      // Make request
-      packet_out->code        = RPC_REQ_NOOP;
-      packet_out->flags       = flags;
-      packet_out->client_id   = me;
-      packet_out->core_id     = core_id;
-      packet_out->client_port = me_queue;
-      packet_out->client_txid = txid;
-      packet_out->channel_seq = channel_seq++;
-      packet_out->requestor   = me_mc;
-      packet_out->payload_sz  = sz;
-      memcpy(packet_out + 1, payload, sz);
-      send_to_server(sizeof(rpc_t) + sz, quorum_id);
-      resp_sz = common_receive_loop(sizeof(rpc_t));
-      if(resp_sz == -1) {
-	update_server("rx timeout, make rpc", quorum_id);
-	continue;
-      }
-      if(packet_in->code == RPC_REP_INVSRV) {
-	update_server("Server not leader", quorum_id);
-	continue;
-      }
-      if(packet_in->code == RPC_REP_UNKNOWN) {
-	continue;
-      }
-      break;
-    }
-    if(packet_in->code == RPC_REP_OLD) {
-      return RPC_EOLD;
-    }
-    return (int)(resp_sz - sizeof(rpc_t));
-  }
-  
 } rpc_client_t;
 
 
@@ -387,7 +227,6 @@ int make_rpc(void *handle,
 	     void *payload,
 	     int sz,
 	     void **response,
-	     int txid,
 	     int quorum_id,
 	     int core_id,
 	     int flags)
@@ -399,47 +238,17 @@ int make_rpc(void *handle,
 			     << " DISP_MAX_MSGSIZE = " << DISP_MAX_MSGSIZE;
     exit(-1);
   }
-  return client->make_rpc(payload, sz, response, txid, quorum_id, core_id, flags);
+  return client->make_rpc(payload, sz, response, quorum_id, core_id, flags);
 }
 
-int make_noop_rpc(void *handle,
-		  void *payload, 
-		  int sz,
-		  int txid,
-		  int quorum_id,
-		  int core_id,
-		  int flags)
+int delete_node(void *handle, int quorum_id, int core_id, int node)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  if(sz > DISP_MAX_MSGSIZE) {
-    BOOST_LOG_TRIVIAL(fatal) << " noop rpc call params too large "
-			     << " param size =  " << sz
-			     << " DISP_MAX_MSGSIZE = " << DISP_MAX_MSGSIZE;
-    exit(-1);
-  }
-  return client->make_noop_rpc(payload, sz, txid, quorum_id, core_id, flags);
+  return client->delete_node(quorum_id, core_id, node);
 }
 
-int get_last_txid(void *handle, int quorum_id, int core_id)
+int add_node(void *handle, int quorum_id, int core_id, int node)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->get_last_txid(quorum_id, core_id);
-}
-
-int get_response(void *handle, void **response, int txid, int quorum_id, int core_id)
-{
-  rpc_client_t *client = (rpc_client_t *)handle;
-  return client->retrieve_response(response, txid, quorum_id, core_id);
-}
-
-int delete_node(void *handle, int txid, int quorum_id, int core_id, int node)
-{
-  rpc_client_t *client = (rpc_client_t *)handle;
-  return client->delete_node(txid, quorum_id, core_id, node);
-}
-
-int add_node(void *handle, int txid, int quorum_id, int core_id, int node)
-{
-  rpc_client_t *client = (rpc_client_t *)handle;
-  return client->add_node(txid, quorum_id, core_id, node);
+  return client->add_node(quorum_id, core_id, node);
 }

@@ -412,9 +412,7 @@ struct cyclone_monitor {
 	  rpc_t *rpc = pktadj2rpc(m);
 	  int core = rpc->core_id;
 	  rpc->wal.leader = 1;
-	  if(rpc->code == RPC_REQ_LAST_TXID || 
-	     rpc->code == RPC_REQ_STATUS ||  
-	     rpc->flags & RPC_FLAG_RO) {
+	  if(rpc->flags & RPC_FLAG_RO) {
 	    if(is_leader) {
 	      void *pair[2];
 	      pair[0] = m;

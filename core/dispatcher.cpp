@@ -24,7 +24,6 @@ dpdk_context_t * global_dpdk_context = NULL;
 extern struct rte_ring ** to_cores;
 extern struct rte_ring *from_cores;
 cyclone_t **quorums;
-static PMEMobjpool *state;
 static rpc_callbacks_t app_callbacks;
 static void client_reply(rpc_t *req, 
 			 rpc_t *rep,
@@ -57,17 +56,15 @@ static void client_reply(rpc_t *req,
 void init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
 {
   cookie->client_id = rpc->client_id;
-  cookie->client_txid = rpc->client_txid;
   cookie->core_id = rpc->core_id;
   cookie->replication = &(rpc->wal.rep);
 }
 
 int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie)
 {
-  TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
   init_rpc_cookie_info(cookie, rpc);
   app_callbacks.rpc_callback((const unsigned char *)(rpc + 1),
-			     len - sizeof(rpc_t),
+			     len,
 			     cookie);
   if(rpc->wal.rep == REP_SUCCESS) {
     return 0;
@@ -81,7 +78,7 @@ void exec_rpc_internal_ro(rpc_t *rpc, int len, rpc_cookie_t *cookie)
 {
   init_rpc_cookie_info(cookie, rpc);
   app_callbacks.rpc_callback((const unsigned char *)(rpc + 1),
-			     len - sizeof(rpc_t),
+			     len,
 			     cookie);
 }
 
@@ -95,35 +92,12 @@ typedef struct executor_st {
 
   void exec()
   {
-    if(client_buffer->code == RPC_REQ_LAST_TXID) {
-      resp_buffer->code = RPC_REP_COMPLETE;
-      cookie.client_id = client_buffer->client_id;
-      cookie.core_id   = client_buffer->core_id;
-      app_callbacks.cookie_get_callback(&cookie);
-      resp_buffer->last_client_txid = cookie.client_txid;
-      client_reply(client_buffer, 
-		   resp_buffer, 
-		   NULL, 
-		   0,
-		   port_id,
-		   num_queues*num_quorums + tid);
-    }
-    else if(client_buffer->code == RPC_REQ_STATUS) {
-      cookie.client_id = client_buffer->client_id;
-      cookie.core_id   = client_buffer->core_id;
-      app_callbacks.cookie_get_callback(&cookie);
-      resp_buffer->last_client_txid = client_buffer->client_txid;
-      if(cookie.client_txid < client_buffer->client_txid) {
-	resp_buffer->code = RPC_REP_UNKNOWN;
-	client_reply(client_buffer, 
-		     resp_buffer, 
-		     NULL, 
-		     0,
-		     port_id,
-		     num_queues*num_quorums + tid);
-      }
-      else if(cookie.client_txid == client_buffer->client_txid) {
-	resp_buffer->code = RPC_REP_COMPLETE;
+    // Exactly once RPC check
+    cookie.core_id   = client_buffer->core_id;
+    if(client_buffer->flags & RPC_FLAG_RO) {
+      exec_rpc_internal_ro(client_buffer, sz, &cookie);
+      if(client_buffer->wal.leader) {
+	resp_buffer->code = RPC_REP_OK;
 	client_reply(client_buffer, 
 		     resp_buffer, 
 		     cookie.ret_value, 
@@ -131,138 +105,52 @@ typedef struct executor_st {
 		     port_id,
 		     num_queues*num_quorums + tid);
       }
-      else {
-	resp_buffer->code = RPC_REP_OLD;
-	client_reply(client_buffer, 
-		     resp_buffer, 
-		     NULL,
-		     0,
-		     port_id,
-		     num_queues*num_quorums + tid);
+      if(cookie.ret_size > 0) {
+	app_callbacks.gc_callback(cookie.ret_value);
       }
     }
-    else if(client_buffer->code == RPC_REQ_NOOP) {
-      if((client_buffer->flags & RPC_FLAG_RO) == 0) {
-	while(client_buffer->wal.rep == REP_UNKNOWN);
-	if(client_buffer->wal.leader) {
-	  if(client_buffer->wal.rep == REP_SUCCESS) {
-	    resp_buffer->code = RPC_REP_COMPLETE;
-	    client_reply(client_buffer,
-			 resp_buffer,
-			 client_buffer + 1,
-			 client_buffer->payload_sz,
-			 port_id,
-			 num_queues*num_quorums + tid);
-	  }
-	  else {
-	    resp_buffer->code = RPC_REP_UNKNOWN;
-	    client_reply(client_buffer,
-			 resp_buffer,
-			 client_buffer + 1,
-			 client_buffer->payload_sz,
-			 port_id,
-			 num_queues*num_quorums + tid);
-	  }
-	}
-      }
-      else {
-	if(client_buffer->wal.leader) {
-	  resp_buffer->code = RPC_REP_COMPLETE;
+    else if(client_buffer->code == RPC_REQ_NODEDEL || 
+	    client_buffer->code == RPC_REQ_NODEADD) {
+      while(client_buffer->wal.rep == REP_UNKNOWN);
+      if(client_buffer->wal.leader) {
+	if(client_buffer->wal.rep == REP_SUCCESS) {
+	  resp_buffer->code = RPC_REP_OK;
 	  client_reply(client_buffer,
 		       resp_buffer,
-		       client_buffer + 1,
-		       client_buffer->payload_sz,
+		       NULL,
+		       0,
+		       port_id,
+		       num_queues*num_quorums + tid);
+	}
+	else {
+	  resp_buffer->code = RPC_REP_FAIL;
+	  client_reply(client_buffer,
+		       resp_buffer,
+		       NULL,
+		       0,
 		       port_id,
 		       num_queues*num_quorums + tid);
 	}
       }
     }
     else {
-      // Exactly once RPC check
-      cookie.client_id = client_buffer->client_id;
-      cookie.core_id   = client_buffer->core_id;
-      app_callbacks.cookie_get_callback(&cookie);
-      if(cookie.client_txid > client_buffer->client_txid) {
-	if(client_buffer->wal.leader) {
-	  resp_buffer->code = RPC_REP_OLD;
-	  client_reply(client_buffer, 
-		       resp_buffer, 
-		       cookie.ret_value, 
-		       cookie.ret_size,
-		       port_id,
-		       num_queues*num_quorums + tid);
-	}
-      }
-      else if(cookie.client_txid == client_buffer->client_txid) {
-	if(client_buffer->wal.leader) {
-	  resp_buffer->code = RPC_REP_COMPLETE;
-	  client_reply(client_buffer, 
-		       resp_buffer, 
-		       cookie.ret_value, 
-		       cookie.ret_size,
-		       port_id,
-		       num_queues*num_quorums + tid);
-	}
-      }
-      else if(client_buffer->flags & RPC_FLAG_RO) {
-	exec_rpc_internal_ro(client_buffer, sz, &cookie);
-	if(client_buffer->wal.leader) {
-	  resp_buffer->code = RPC_REP_COMPLETE;
-	  client_reply(client_buffer, 
-		       resp_buffer, 
-		       cookie.ret_value, 
-		       cookie.ret_size,
-		       port_id,
-		       num_queues*num_quorums + tid);
-	}
-	if(cookie.ret_size > 0) {
-	  free(cookie.ret_value);
-	}
-      }
-      else {
-	if(client_buffer->code == RPC_REQ_NODEDEL || client_buffer->code == RPC_REQ_NODEADD) {
-	  while(client_buffer->wal.rep == REP_UNKNOWN);
-	  if(client_buffer->wal.leader) {
-	    if(client_buffer->wal.rep == REP_SUCCESS) {
-	      resp_buffer->code = RPC_REP_COMPLETE;
-	      client_reply(client_buffer,
-			   resp_buffer,
-			   NULL,
-			   0,
-			   port_id,
-			   num_queues*num_quorums + tid);
-	    }
-	    else {
-	      resp_buffer->code = RPC_REP_UNKNOWN;
-	      client_reply(client_buffer,
-			   resp_buffer,
-			   NULL,
-			   0,
-			   port_id,
-			   num_queues*num_quorums + tid);
-	    }
-	  }
+      int e = exec_rpc_internal(client_buffer, sz, &cookie);
+      if(client_buffer->wal.leader) {
+	if(e) {
+	  resp_buffer->code = RPC_REP_FAIL;
 	}
 	else {
-	  int e = exec_rpc_internal(client_buffer, sz, &cookie);
-	  if(client_buffer->wal.leader) {
-	    if(e) {
-	      resp_buffer->code = RPC_REP_UNKNOWN;
-	    }
-	    else {
-	      resp_buffer->code = RPC_REP_COMPLETE;
-	    }
-	    client_reply(client_buffer, 
-			 resp_buffer, 
-			 cookie.ret_value, 
-			 cookie.ret_size,
-			 port_id,
-			 num_queues*num_quorums + tid);
-	  }
-	  if(cookie.ret_size > 0) {
-	    free(cookie.ret_value);
-	  }
+	  resp_buffer->code = RPC_REP_OK;
 	}
+	client_reply(client_buffer, 
+		     resp_buffer, 
+		     cookie.ret_value, 
+		     cookie.ret_size,
+		     port_id,
+		     num_queues*num_quorums + tid);
+      }
+      if(cookie.ret_size > 0) {
+	app_callbacks.gc_callback(cookie.ret_value);
       }
     }
   }
@@ -349,6 +237,7 @@ void dispatcher_start(const char* config_cluster_path,
   boost::property_tree::read_ini(config_cluster_path, pt_cluster);
   boost::property_tree::read_ini(config_quorum_path, pt_quorum);
   // Load/Setup state
+  static PMEMobjpool *state;
   std::string file_path = pt_quorum.get<std::string>("dispatch.filepath");
   unsigned long heapsize = pt_quorum.get<unsigned long>("dispatch.heapsize");
   char me_str[100];
@@ -400,17 +289,6 @@ void dispatcher_start(const char* config_cluster_path,
 	<< strerror(errno);
       exit(-1);
     }
-    
-    TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-    TX_BEGIN(state) {
-      TX_ADD(root); // Add everything
-      D_RW(root)->nvheap_root = app_callbacks.nvheap_setup_callback(TOID_NULL(char), state);
-    } TX_ONABORT {
-      BOOST_LOG_TRIVIAL(fatal) 
-	<< "Unable to setup dispatcher state:"
-	<< strerror(errno);
-      exit(-1);
-    } TX_END
   }
   else {
     state = pmemobj_open(file_path.c_str(), "disp_state");
@@ -421,15 +299,6 @@ void dispatcher_start(const char* config_cluster_path,
       exit(-1);
     }
     TOID(disp_state_t) root = POBJ_ROOT(state, disp_state_t);
-    TX_BEGIN(state) {
-      D_RW(root)->nvheap_root = 
-	app_callbacks.nvheap_setup_callback(D_RO(root)->nvheap_root, state);
-    } TX_ONABORT {
-      BOOST_LOG_TRIVIAL(fatal)
-	<< "Application unable to recover state:"
-	<< strerror(errno);
-      exit(-1);
-    } TX_END
     BOOST_LOG_TRIVIAL(info) << "DISPATCHER: Recovered state";
   }
   
