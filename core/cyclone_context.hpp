@@ -414,10 +414,11 @@ struct cyclone_monitor {
 	  rpc->wal.leader = 1;
 	  if(rpc->flags & RPC_FLAG_RO) {
 	    if(is_leader) {
-	      void *pair[2];
-	      pair[0] = m;
-	      pair[1] = rpc;
-	      if(rte_ring_mp_enqueue_bulk(to_cores[core], pair, 2) == -ENOBUFS) {
+	      void *triple[3];
+	      triple[0] = (void *)(unsigned long)cyclone_handle->me_quorum;
+	      triple[1] = m;
+	      triple[2] = rpc;
+	      if(rte_ring_mp_enqueue_bulk(to_cores[core], triple, 3) == -ENOBUFS) {
 		BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
 		exit(-1);
 	      }

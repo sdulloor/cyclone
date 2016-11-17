@@ -44,7 +44,7 @@
 #include<unistd.h>
 static rtc_clock timer("EXEC_LOAD ", 5000000);
 
-void* callback(const unsigned char *data,
+int callback(const unsigned char *data,
 	       const int len,
 	       rpc_cookie_t *cookie)
 {
@@ -54,7 +54,7 @@ void* callback(const unsigned char *data,
   memcpy(cookie->ret_value, data, len);
   while(*cookie->replication == REP_UNKNOWN);
   timer.sample_interval(exec_begin);
-  return NULL;
+  return cookie->log_idx;
 }
 
 void gc(void *data)

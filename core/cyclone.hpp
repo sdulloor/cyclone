@@ -37,13 +37,19 @@ typedef struct cfg_change_st {
   int node; // Node to be added/deleted
 } cfg_change_t;
 
-// Comm between disp core and raft core
+// Comm between app core and raft core
 typedef struct wal_entry_st {
   volatile int rep;
   int term;
   int idx;
   int leader;
 } __attribute__((packed)) wal_entry_t;
+
+typedef struct core_status_st {
+  volatile int exec_term;
+  volatile int checkpoint_idx;
+} __attribute__((aligned(64))) core_status_t;
+
 
 //////// RPC interface
 typedef struct rpc_st {
@@ -58,7 +64,6 @@ typedef struct rpc_st {
   unsigned long channel_seq;
   unsigned long timestamp; // For tracing
 } __attribute__((packed)) rpc_t; // Used for both requests and replies
-
 
 // Possble values for code
 static const int RPC_REQ                = 0; // RPC request 

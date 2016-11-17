@@ -10,6 +10,7 @@ extern dpdk_context_t * global_dpdk_context;
 extern cyclone_t ** quorums;
 struct rte_ring ** to_cores;
 struct rte_ring *from_cores;
+extern core_status_t **core_status;
 
 /** Raft callback for sending request vote message */
 static int __send_requestvote(raft_server_t* raft,
@@ -255,9 +256,17 @@ static int __applylog(raft_server_t* raft,
     cyclone_handle->mark = rtc_clock::current_time();
   }
   
-  // Till I figure out the distributed checkpoint
-  raft_checkpoint(cyclone_handle->raft_handle, ety_idx);
-  
+  int checkpoint_idx = -1;
+  for(int i=0;i<executor_threads;i++) {
+    if(i % num_quorums != cyclone_handle->me_quorum)
+      continue;
+    if(core_status[cyclone_handle->me_quorum][i].checkpoint_idx > checkpoint_idx) {
+      checkpoint_idx = core_status[cyclone_handle->me_quorum][i].checkpoint_idx;
+    }
+  }
+  if(checkpoint_idx >= 0) {
+    raft_checkpoint(cyclone_handle->raft_handle, checkpoint_idx);
+  }
   return 0;
 }
 
@@ -381,10 +390,11 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	  if(rpc->code != RPC_REQ_KICKER) {
 	    //Increment refcount handoff segment for exec 
 	    rte_mbuf_refcnt_update(m, 1);
-	    void *pair[2];
-	    pair[0] = m;
-	    pair[1] = rpc;
-	    if(rte_ring_mp_enqueue_bulk(to_cores[core], pair, 2) == -ENOBUFS) {
+	    void *triple[3];
+	    triple[0] = (void *)(unsigned long)cyclone_handle->me_quorum;
+	    triple[1] = m;
+	    triple[2] = rpc;
+	    if(rte_ring_mp_enqueue_bulk(to_cores[core], triple, 3) == -ENOBUFS) {
 	      BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
 	      exit(-1);
 	    }

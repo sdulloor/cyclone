@@ -95,10 +95,11 @@ typedef struct rpc_client_st {
     cyclone_tx(global_dpdk_context, 0, mb, me_queue);
   }
 
-  int delete_node(int quorum_id, int core_id, int nodeid)
+  int delete_node(int core_id, int nodeid)
   {
     int retcode;
     int resp_sz;
+    int quorum_id = core_id % num_quorums;
     while(true) {
       packet_out->code        = RPC_REQ_NODEDEL;
       packet_out->flags       = 0;
@@ -124,10 +125,11 @@ typedef struct rpc_client_st {
     return 0;
   }
 
-  int add_node(int quorum_id, int core_id, int nodeid)
+  int add_node(int core_id, int nodeid)
   {
     int retcode;
     int resp_sz;
+    int quorum_id = core_id % num_quorums;
     while(true) {
       packet_out->code        = RPC_REQ_NODEADD;
       packet_out->flags       = 0;
@@ -153,10 +155,11 @@ typedef struct rpc_client_st {
     return 0;
   }
 
-  int make_rpc(void *payload, int sz, void **response, int quorum_id, int core_id, int flags)
+  int make_rpc(void *payload, int sz, void **response, int core_id, int flags)
   {
     int retcode;
     int resp_sz;
+    int quorum_id = core_id % num_quorums;
     while(true) {
       // Make request
       packet_out->code        = RPC_REQ;
@@ -227,7 +230,6 @@ int make_rpc(void *handle,
 	     void *payload,
 	     int sz,
 	     void **response,
-	     int quorum_id,
 	     int core_id,
 	     int flags)
 {
@@ -238,17 +240,17 @@ int make_rpc(void *handle,
 			     << " DISP_MAX_MSGSIZE = " << DISP_MAX_MSGSIZE;
     exit(-1);
   }
-  return client->make_rpc(payload, sz, response, quorum_id, core_id, flags);
+  return client->make_rpc(payload, sz, response, core_id, flags);
 }
 
-int delete_node(void *handle, int quorum_id, int core_id, int node)
+int delete_node(void *handle, int core_id, int node)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->delete_node(quorum_id, core_id, node);
+  return client->delete_node(core_id, node);
 }
 
-int add_node(void *handle, int quorum_id, int core_id, int node)
+int add_node(void *handle, int core_id, int node)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->add_node(quorum_id, core_id, node);
+  return client->add_node(core_id, node);
 }

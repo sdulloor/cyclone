@@ -81,7 +81,7 @@ int driver(void *arg)
   unsigned long total_latency  = 0;
   int rpc_flags;
 
-  int my_core = dargs->me % executor_threads;
+  int my_core;
   
   unsigned long payload = 0;
   const char *payload_env = getenv("PAYLOAD");
@@ -99,13 +99,12 @@ int driver(void *arg)
   while(true) {
     rpc_flags = 0;
     //rpc_flags = RPC_FLAG_RO;
-    int my_quorum = rand() % num_quorums;
+    my_core = dargs->me % executor_threads;
     sz = make_rpc(handles[partition],
 		  buffer,
 		  payload,
 		  (void **)&resp,
-		  my_quorum,
-		  my_quorum,
+		  my_core,
 		  rpc_flags);
     if(sz != payload) {
       BOOST_LOG_TRIVIAL(fatal) << "Invalid response";

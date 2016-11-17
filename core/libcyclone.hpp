@@ -12,17 +12,18 @@ const int REP_FAILED  = -1;
 typedef struct rpc_cookie_st {
   int client_id;
   int core_id;
+  int log_idx;
   volatile int *replication;
   void *ret_value;
   int ret_size;
 } rpc_cookie_t;
 
 ////// RPC Server side interface
-// Returns a handle to the transaction
+// Returns currently checkpointed log idx
 typedef 
-void* (*rpc_callback_t)(const unsigned char *data,
-			const int len,
-			rpc_cookie_t * rpc_cookie);
+int (*rpc_callback_t)(const unsigned char *data,
+		      const int len,
+		      rpc_cookie_t * rpc_cookie);
 
 //Garbage collect return value
 typedef void (*rpc_gc_callback_t)(void *data);
@@ -59,13 +60,12 @@ int make_rpc(void *handle,
 	     void *payload,
 	     int sz,
 	     void **response,
-	     int quorum_id,
 	     int core_id,
 	     int rpc_flags);
 
-int delete_node(void *handle, int txid, int quorum_id, int core_id, int node);
+int delete_node(void *handle, int core_id, int node);
 
-int add_node(void *handle, int txid, int quorum_id, int core_id, int node);
+int add_node(void *handle, int core_id, int node);
 
 
 // Possible flags 
