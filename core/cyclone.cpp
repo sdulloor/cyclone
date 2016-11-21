@@ -5,6 +5,10 @@
 #include "checkpoint.hpp"
 #include <rte_ring.h>
 #include <rte_mbuf.h>
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 extern dpdk_context_t * global_dpdk_context;
 extern cyclone_t ** quorums;
@@ -163,14 +167,9 @@ static int __persist_vote(raft_server_t* raft,
 {
   int status = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state,
-				       raft_pstate_t);
-  TX_BEGIN(cyclone_handle->pop_raft_state) {
-    TX_ADD(root);
-    D_RW(root)->voted_for = voted_for;
-  }TX_ONABORT {
-    status = -1;
-  } TX_END
+  raft_pstate_t* root = cyclone_handle->pop_raft_state;
+  root->voted_for = voted_for;
+  clflush(root, sizeof(raft_pstate_t));
   return status;
 }
 
@@ -183,14 +182,9 @@ static int __persist_term(raft_server_t* raft,
 {
   int status = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state,
-				       raft_pstate_t);
-  TX_BEGIN(cyclone_handle->pop_raft_state) {
-    TX_ADD(root);
-    D_RW(root)->term = current_term;
-  } TX_ONABORT {
-    status = -1;
-  } TX_END
+  raft_pstate_t *root = cyclone_handle->pop_raft_state;
+  root->term = current_term;
+  clflush(root, sizeof(raft_pstate_t));
   return status;
 }
 
@@ -657,71 +651,33 @@ void* cyclone_boot(const char *config_quorum_path,
 			  << sizeof(msg_t)
 			  << " sizeof(msg_entry_t) is: "
 			  << sizeof(msg_entry_t);
-  /* Setup raft state */
-  if(access(path_raft.c_str(), F_OK)) {
-    // TBD: figure out how to make this atomic
-    cyclone_handle->pop_raft_state = pmemobj_create(path_raft.c_str(),
-						    POBJ_LAYOUT_NAME(raft_persistent_state),
-						    8*cyclone_handle->RAFT_LOGENTRIES + PMEMOBJ_MIN_POOL,
-						    0666);
-    if(cyclone_handle->pop_raft_state == NULL) {
-      BOOST_LOG_TRIVIAL(fatal)
-	<< "Unable to creat pmemobj pool:"
-	<< strerror(errno);
-      exit(-1);
-    }
-  
-    TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state, raft_pstate_t);
-    TX_BEGIN(cyclone_handle->pop_raft_state) {
-      TX_ADD(root);
-      D_RW(root)->term      = 0;
-      D_RW(root)->voted_for = -1;
-      D_RW(root)->log = 
-	TX_ALLOC(struct circular_log, 
-		 (sizeof(struct circular_log) + 8*cyclone_handle->RAFT_LOGENTRIES));
-      log_t log = D_RO(root)->log;
-      cyclone_handle->log = D_RW(log);
-      TX_ADD(log);
-      D_RW(log)->head = 0;
-      D_RW(log)->tail = 0;
-    } TX_ONABORT {
-      BOOST_LOG_TRIVIAL(fatal) 
-	<< "Unable to allocate log:"
-	<< strerror(errno);
-      exit(-1);
-    } TX_END
+  /* Note: no support for recovery yet. */
+  int fd = open(path_raft.c_str(), O_CREAT|O_RDWR|O_TRUNC, S_IRWXU);
+  if(fd == -1) {
+    BOOST_LOG_TRIVIAL(fatal) << "Raft state open failed for file:" << path_raft.c_str();
+    exit(-1);
   }
-  else {
-    cyclone_handle->pop_raft_state = pmemobj_open(path_raft.c_str(),
-						  "raft_persistent_state");
-    if(cyclone_handle->pop_raft_state == NULL) {
-      BOOST_LOG_TRIVIAL(fatal)
-	<< "Unable to open pmemobj pool:"
-	<< strerror(errno);
-      exit(-1);
-    }
-    BOOST_LOG_TRIVIAL(info) << "CYCLONE: Recovering state";
-    TOID(raft_pstate_t) root = POBJ_ROOT(cyclone_handle->pop_raft_state, raft_pstate_t);
-    log_t log = D_RO(root)->log;
-    cyclone_handle->log = D_RW(log);
-    /* TBD
-    raft_vote(cyclone_handle->raft_handle, 
-	      raft_get_node(cyclone_handle->raft_handle,
-			    D_RO(root)->voted_for));
-    raft_set_current_term(cyclone_handle->raft_handle, 
-			  D_RO(root)->term);
-    unsigned long ptr = D_RO(log)->log_head;
-    raft_entry_t ety;
-    while(ptr != D_RO(log)->log_tail) {
-      // Optimize later by removing transaction
-      ptr = cyclone_handle->read_from_log((unsigned char *)&ety, ptr);
-      ety.data.buf = (void *)ptr;
-      ptr = cyclone_handle->skip_log_entry(ptr);
-      raft_append_entry(cyclone_handle->raft_handle, &ety);
-    }
-    BOOST_LOG_TRIVIAL(info) << "CYCLONE: Recovery complete";
-    */
+  if(posix_fallocate(fd, 0, 8*cyclone_handle->RAFT_LOGENTRIES + sizeof(raft_pstate_t)) != 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "Posix fallocate failed for file:"<< path_raft.c_str();
+    exit(-1);
   }
+  cyclone_handle->pop_raft_state = (raft_pstate_t *)mmap(NULL,
+							 8*cyclone_handle->RAFT_LOGENTRIES + sizeof(raft_pstate_t),
+							 PROT_READ|PROT_WRITE, 
+							 MAP_PRIVATE,
+							 fd,
+							 0);
+  if(cyclone_handle->pop_raft_state == MAP_FAILED) {
+    BOOST_LOG_TRIVIAL(fatal) << "Raft state map in failed for file:" << path_raft.c_str();
+    exit(-1);
+  }
+							 
+  raft_pstate_t *root = cyclone_handle->pop_raft_state;
+  root->term      = 0;
+  root->voted_for = -1;
+  root->log.head = 0;
+  root->log.tail = 0;
+  cyclone_handle->log = &root->log;
   // Note: set raft callbacks AFTER recovery
   raft_set_callbacks(cyclone_handle->raft_handle, &raft_funcs, cyclone_handle);
   raft_set_election_timeout(cyclone_handle->raft_handle, RAFT_ELECTION_TIMEOUT);

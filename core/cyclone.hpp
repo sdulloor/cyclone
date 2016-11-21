@@ -1,6 +1,5 @@
 #ifndef _CYCLONE_
 #define _CYCLONE_
-#include<libpmemobj.h>
 extern "C" {
  #include<raft.h>
 }

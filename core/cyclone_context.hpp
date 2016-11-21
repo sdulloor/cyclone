@@ -10,9 +10,6 @@ extern "C" {
 #include <raft.h>
 }
 #include <unistd.h>
-#include <boost/thread.hpp>
-#include <boost/asio/io_service.hpp>
-#include <boost/bind.hpp>
 #include "pmem_layout.h"
 #include "circular_log.h"
 #include "clock.hpp"
@@ -126,7 +123,7 @@ typedef struct cyclone_st {
   int me_port;
   boost::thread *checkpoint_thread;
   int RAFT_LOGENTRIES;
-  PMEMobjpool *pop_raft_state;
+  raft_pstate_t *pop_raft_state;
   struct circular_log *log;
   raft_server_t *raft_handle;
   void *user_arg;
