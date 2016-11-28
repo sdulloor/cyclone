@@ -99,7 +99,6 @@ typedef struct executor_st {
 
   void exec()
   {
-    // Exactly once RPC check
     cookie.core_id   = client_buffer->core_id;
     if(client_buffer->flags & RPC_FLAG_RO) {
       exec_rpc_internal_ro(client_buffer, sz, &cookie);
