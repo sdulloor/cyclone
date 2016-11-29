@@ -31,6 +31,11 @@ typedef struct rpc_client_st {
     return num_queues*quorum_id + q;
   }
   
+  int choose_quorum(int core_mask)
+  {
+    return (__builtin_ffs(core_mask) - 1) % num_quorums;
+  }
+
   void update_server(const char *context, int quorum)
   {
     BOOST_LOG_TRIVIAL(info) 
@@ -95,16 +100,16 @@ typedef struct rpc_client_st {
     cyclone_tx(global_dpdk_context, 0, mb, me_queue);
   }
 
-  int delete_node(int core_id, int nodeid)
+  int delete_node(int core_mask, int nodeid)
   {
     int retcode;
     int resp_sz;
-    int quorum_id = core_id % num_quorums;
+    int quorum_id = choose_quorum(core_mask);
     while(true) {
       packet_out->code        = RPC_REQ_NODEDEL;
       packet_out->flags       = 0;
       packet_out->client_id   = me;
-      packet_out->core_id     = core_id;
+      packet_out->core_mask   = core_mask;
       packet_out->client_port = me_queue;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
@@ -125,16 +130,16 @@ typedef struct rpc_client_st {
     return 0;
   }
 
-  int add_node(int core_id, int nodeid)
+  int add_node(int core_mask, int nodeid)
   {
     int retcode;
     int resp_sz;
-    int quorum_id = core_id % num_quorums;
+    int quorum_id = choose_quorum(core_mask);
     while(true) {
       packet_out->code        = RPC_REQ_NODEADD;
       packet_out->flags       = 0;
       packet_out->client_id   = me;
-      packet_out->core_id     = core_id;
+      packet_out->core_mask     = core_mask;
       packet_out->client_port = me_queue;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
@@ -155,17 +160,17 @@ typedef struct rpc_client_st {
     return 0;
   }
 
-  int make_rpc(void *payload, int sz, void **response, int core_id, int flags)
+  int make_rpc(void *payload, int sz, void **response, int core_mask, int flags)
   {
     int retcode;
     int resp_sz;
-    int quorum_id = core_id % num_quorums;
+    int quorum_id = choose_quorum(core_mask);
     while(true) {
       // Make request
       packet_out->code        = RPC_REQ;
       packet_out->flags       = flags;
       packet_out->client_id   = me;
-      packet_out->core_id     = core_id;
+      packet_out->core_mask     = core_mask;
       packet_out->client_port = me_queue;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
@@ -230,7 +235,7 @@ int make_rpc(void *handle,
 	     void *payload,
 	     int sz,
 	     void **response,
-	     int core_id,
+	     int core_mask,
 	     int flags)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
@@ -240,17 +245,17 @@ int make_rpc(void *handle,
 			     << " DISP_MAX_MSGSIZE = " << DISP_MAX_MSGSIZE;
     exit(-1);
   }
-  return client->make_rpc(payload, sz, response, core_id, flags);
+  return client->make_rpc(payload, sz, response, core_mask, flags);
 }
 
-int delete_node(void *handle, int core_id, int node)
+int delete_node(void *handle, int core_mask, int node)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->delete_node(core_id, node);
+  return client->delete_node(core_mask, node);
 }
 
-int add_node(void *handle, int core_id, int node)
+int add_node(void *handle, int core_mask, int node)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
-  return client->add_node(core_id, node);
+  return client->add_node(core_mask, node);
 }

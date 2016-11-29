@@ -57,7 +57,6 @@ static void client_reply(rpc_t *req,
 void init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
 {
   cookie->client_id = rpc->client_id;
-  cookie->core_id = rpc->core_id;
   cookie->replication = &(rpc->wal.rep);
   cookie->log_idx     = rpc->wal.idx;
 }
@@ -99,7 +98,7 @@ typedef struct executor_st {
 
   void exec()
   {
-    cookie.core_id   = client_buffer->core_id;
+    cookie.core_id   = tid;
     if(client_buffer->flags & RPC_FLAG_RO) {
       exec_rpc_internal_ro(client_buffer, sz, &cookie);
       if(client_buffer->wal.leader) {

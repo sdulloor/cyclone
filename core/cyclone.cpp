@@ -380,7 +380,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	rpc->wal.idx    = ety_idx + i;
 	// Issue unless nodeadd final step
 	if(e->type != RAFT_LOGTYPE_ADD_NODE) { 
-	  int core = rpc->core_id;
+	  int core = __builtin_ffs(rpc->core_mask) - 1;
 	  if(rpc->code != RPC_REQ_KICKER) {
 	    //Increment refcount handoff segment for exec 
 	    rte_mbuf_refcnt_update(m, 1);
@@ -644,7 +644,7 @@ void* cyclone_boot(const char *config_quorum_path,
   cyclone_handle->ae_response_cnt = 0;
   cyclone_handle->raft_handle = raft_new();
   cyclone_handle->completions = 0;
-  cyclone_handle->published_is_leader = 0;
+  cyclone_handle->is_quorum_leader = 0;
   cyclone_handle->mark = rtc_clock::current_time();
   raft_set_multi_inflight(cyclone_handle->raft_handle);
   BOOST_LOG_TRIVIAL(info) << "RAFT start. sizeof(msg_t) is :" 
