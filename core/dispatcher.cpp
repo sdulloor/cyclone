@@ -16,7 +16,6 @@
 #include <boost/asio/io_service.hpp>
 #include <boost/bind.hpp>
 #include<libpmemobj.h>
-#include "tuning.hpp"
 #include "checkpoint.hpp"
 #include "cyclone_context.hpp"
 
@@ -64,7 +63,6 @@ void init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
 int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie, core_status_t *cstatus)
 {
   init_rpc_cookie_info(cookie, rpc);
-  cstatus->exec_term = rpc->wal.term;
   int checkpoint_idx = app_callbacks.rpc_callback((const unsigned char *)(rpc + 1),
 						  len,
 						  cookie);
@@ -95,11 +93,13 @@ typedef struct executor_st {
   unsigned long tid;
   int port_id;
   rpc_cookie_t cookie;
+  core_status_t *cstatus;
 
   void exec()
   {
     cookie.core_id   = tid;
     if(client_buffer->code == RPC_REQ_KICKER) {
+      cstatus->exec_term = client_buffer->wal.term;
       while(client_buffer->wal.rep == REP_UNKNOWN);
       return;
     }
@@ -120,6 +120,7 @@ typedef struct executor_st {
     }
     else if(client_buffer->code == RPC_REQ_NODEDEL || 
 	    client_buffer->code == RPC_REQ_NODEADD) {
+      cstatus->exec_term = client_buffer->wal.term;
       while(client_buffer->wal.rep == REP_UNKNOWN);
       if(client_buffer->wal.leader) {
 	if(client_buffer->wal.rep == REP_SUCCESS) {
@@ -143,7 +144,7 @@ typedef struct executor_st {
       }
     }
     else {
-      core_status_t *cstatus = &core_status[quorum][tid];
+      cstatus->exec_term = client_buffer->wal.term;
       int e = exec_rpc_internal(client_buffer, sz, &cookie, cstatus);
       if(client_buffer->wal.leader) {
 	if(e) {
@@ -174,6 +175,7 @@ typedef struct executor_st {
 	while(rte_ring_sc_dequeue(to_cores[tid], (void **)&m) != 0);
 	while(rte_ring_sc_dequeue(to_cores[tid], (void **)&client_buffer) != 0);
 	sz = client_buffer->payload_sz;
+	cstatus = &core_status[quorum][tid];
 	exec();
 	rte_pktmbuf_free_seg(m);
       }

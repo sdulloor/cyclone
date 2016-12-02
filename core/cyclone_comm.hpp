@@ -5,7 +5,7 @@
 #include "logging.hpp"
 #include <unistd.h>
 #include "clock.hpp"
-#include "tuning.hpp"
+
 
 /* Cyclone max message size */
 const int MSG_MAXSIZE  = 8000; // Maximum user data in pkt

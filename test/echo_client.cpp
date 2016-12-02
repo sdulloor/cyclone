@@ -41,7 +41,6 @@
 #include <boost/property_tree/ptree.hpp>
 #include "../core/clock.hpp"
 #include "../core/logging.hpp"
-#include "../core/tuning.hpp"
 #include <libcyclone.hpp>
 #include <rte_launch.h>
 

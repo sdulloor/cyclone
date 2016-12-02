@@ -14,7 +14,6 @@ extern "C" {
 #include "circular_log.h"
 #include "clock.hpp"
 #include "cyclone_comm.hpp"
-#include "tuning.hpp"
 #include "cyclone.hpp"
 #include <rte_cycles.h>
 
@@ -370,6 +369,7 @@ struct cyclone_monitor {
     int accepted;
     int is_leader;
     unsigned int current_term;
+    unsigned int *snapshot = (unsigned int *)malloc(num_quorums*sizeof(unsigned int));
     while(!terminate) {
       // Handle any outstanding requests
       available = rte_eth_rx_burst(cyclone_handle->me_port,
@@ -446,8 +446,12 @@ struct cyclone_monitor {
 	  adjust_head(m);
 	  rpc_t *rpc = pktadj2rpc(m);
 	  if(rpc->core_mask & (rpc->core_mask - 1)) {
-	    BOOST_LOG_TRIVIAL(fatal) << "Don't know how to handle multi-core operation";
-	    exit(-1);
+	    // Received a multi-core operation
+	    // Check that I am quorum 0 and there is a viable quorum state
+	    if(cyclone_handle->me_quorum != 0 || !take_snapshot(snapshot)) {
+	      rte_pktmbuf_free(m);
+	      continue;
+	    }
 	  }
 	  int core = __builtin_ffs(rpc->core_mask) - 1;
 	  rpc->wal.leader = 1;
