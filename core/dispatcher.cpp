@@ -99,7 +99,11 @@ typedef struct executor_st {
   void exec()
   {
     cookie.core_id   = tid;
-    if(client_buffer->flags & RPC_FLAG_RO) {
+    if(client_buffer->code == RPC_REQ_KICKER) {
+      while(client_buffer->wal.rep == REP_UNKNOWN);
+      return;
+    }
+    else if(client_buffer->flags & RPC_FLAG_RO) {
       exec_rpc_internal_ro(client_buffer, sz, &cookie);
       if(client_buffer->wal.leader) {
 	resp_buffer->code = RPC_REP_OK;

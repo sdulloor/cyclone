@@ -33,7 +33,7 @@ typedef struct rpc_client_st {
   
   int choose_quorum(int core_mask)
   {
-    return (__builtin_ffs(core_mask) - 1) % num_quorums;
+    return core_to_quorum(__builtin_ffs(core_mask) - 1);
   }
 
   void update_server(const char *context, int quorum)

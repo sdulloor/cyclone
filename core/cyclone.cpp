@@ -380,8 +380,10 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	rpc->wal.idx    = ety_idx + i;
 	// Issue unless nodeadd final step
 	if(e->type != RAFT_LOGTYPE_ADD_NODE) { 
-	  int core = __builtin_ffs(rpc->core_mask) - 1;
-	  if(rpc->code != RPC_REQ_KICKER) {
+	  int core_mask = rpc->core_mask;
+	  while(core_mask != 0) {
+	    int core  = __builtin_ffs(core_mask) - 1;
+	    core_mask = core_mask & ~(1 << core);
 	    //Increment refcount handoff segment for exec 
 	    rte_mbuf_refcnt_update(m, 1);
 	    void *triple[3];

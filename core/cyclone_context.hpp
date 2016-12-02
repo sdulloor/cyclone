@@ -408,6 +408,11 @@ struct cyclone_monitor {
 	  k_rpc->code  = RPC_REQ_KICKER;
 	  k_rpc->flags = 0;
 	  k_rpc->payload_sz = 0;
+	  for(int i= 0, j=1;i<executor_threads;i++,(j=j<<1)) {
+	    if(core_to_quorum(i) == cyclone_handle->me_quorum) {
+	      k_rpc->core_mask |= j;
+	    }
+	  }
 	  pktsetrpcsz(k, sizeof(rpc_t));
 	  adjust_head(k);
 	  messages[0].data.buf = (void *)k;

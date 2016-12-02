@@ -27,4 +27,9 @@ static const int num_quorums  = 8;
 static const int Q_BUFS = 8191;
 static const int R_BUFS = 1023;
 
+static int core_to_quorum(int core_id)
+{
+  return core_id % num_quorums;
+}
+
 #endif
