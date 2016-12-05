@@ -404,7 +404,29 @@ struct cyclone_monitor {
       }
       int core = __builtin_ffs(rpc->core_mask) - 1;
       rpc->wal.leader = 1;
-      if(rpc->flags & RPC_FLAG_RO) {
+      if(rpc->code == RPC_REQ_STABLE) {
+	if(take_snapshot(snapshot)) {
+	  rte_pktmbuf_append(m, num_quorums*sizeof(unsigned int));
+	  memcpy(rpc + 1, snapshot, num_quorums*sizeof(unsigned int));
+	  void *triple[3];
+	  triple[0] = (void *)(unsigned long)cyclone_handle->me_quorum;
+	  triple[1] = m;
+	  triple[2] = rpc;
+	  if(rte_ring_mp_enqueue_bulk(to_cores[core], triple, 3) == -ENOBUFS) {
+	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
+	    exit(-1);
+	  }
+	}
+	else {
+	  rte_pktmbuf_free(m);
+	}
+	continue;
+      }
+      else if(rpc->wal.term != raft_get_current_term(cyclone_handle->raft_handle)) {
+	rte_pktmbuf_free(m);
+	continue;
+      } 
+      else if(rpc->flags & RPC_FLAG_RO) {
 	if(is_leader) {
 	  void *triple[3];
 	  triple[0] = (void *)(unsigned long)cyclone_handle->me_quorum;

@@ -103,6 +103,17 @@ typedef struct executor_st {
       while(client_buffer->wal.rep == REP_UNKNOWN);
       return;
     }
+    else if(client_buffer->code == RPC_REQ_STABLE) {
+      resp_buffer->code = RPC_REP_OK;
+      cookie.ret_value  = client_buffer + 1;
+      cookie.ret_size   = num_quorums*sizeof(unsigned int);
+      client_reply(client_buffer, 
+		   resp_buffer, 
+		   cookie.ret_value, 
+		   cookie.ret_size,
+		   port_id,
+		   num_queues*num_quorums + tid);
+    }
     else if(client_buffer->flags & RPC_FLAG_RO) {
       exec_rpc_internal_ro(client_buffer, sz, &cookie);
       if(client_buffer->wal.leader) {

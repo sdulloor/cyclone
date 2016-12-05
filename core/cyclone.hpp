@@ -71,12 +71,13 @@ typedef struct ic_rdv_st{
 } __attribute__((packed)) ic_rdv_t; 
 
 // Possble values for code
-static const int RPC_REQ                = 0; // RPC request 
-static const int RPC_REQ_KICKER         = 1; // RPC internal 
-static const int RPC_REQ_NODEADDFINAL   = 2; // RPC internal 
-static const int RPC_REQ_NODEADD        = 3; // Add node 
-static const int RPC_REQ_NODEDEL        = 4; // Delete node 
-static const int RPC_REP_OK             = 5; // RPC response OK
-static const int RPC_REP_FAIL           = 6; // RPC response FAILED 
+static const int RPC_REQ_STABLE         = 0; // Check for stable quorums
+static const int RPC_REQ                = 1; // RPC request 
+static const int RPC_REQ_KICKER         = 2; // RPC internal 
+static const int RPC_REQ_NODEADDFINAL   = 3; // RPC internal 
+static const int RPC_REQ_NODEADD        = 4; // Add node 
+static const int RPC_REQ_NODEDEL        = 5; // Delete node 
+static const int RPC_REP_OK             = 6; // RPC response OK
+static const int RPC_REP_FAIL           = 7; // RPC response FAILED 
 
 #endif

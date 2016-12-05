@@ -17,13 +17,15 @@ typedef struct rpc_client_st {
   int me_queue;
   quorum_switch *router;
   rpc_t *packet_out;
+  rpc_t *packet_out_aux;
   msg_t *packet_rep;
   rpc_t *packet_in;
-  int *servers;
+  int server;
   int replicas;
   unsigned long channel_seq;
   dpdk_rx_buffer_t *buf;
   int server_ports;
+  unsigned int *terms;
 
   int quorum_q(int quorum_id, int q)
   {
@@ -34,26 +36,6 @@ typedef struct rpc_client_st {
   {
     return core_to_quorum(__builtin_ffs(core_mask) - 1);
   }
-
-  void update_server(const char *context, int quorum)
-  {
-    BOOST_LOG_TRIVIAL(info) 
-      << "CLIENT DETECTED POSSIBLE FAILED LEADER: "
-      << servers[quorum]
-      << " of quorum "
-      << quorum
-      << " Reason " 
-      << context;
-    servers[quorum] = (servers[quorum] + 1)%replicas;
-    BOOST_LOG_TRIVIAL(info) << "CLIENT SET NEW LEADER " << servers[quorum];
-  }
-
-  void set_server(int quorum)
-  {
-    BOOST_LOG_TRIVIAL(info) << "CLIENT SETTING LEADER for quorum " 
-			    << quorum << " = " << servers[quorum];
-  }
-
 
   int common_receive_loop(int blob_sz)
   {
@@ -83,21 +65,62 @@ typedef struct rpc_client_st {
     return resp_sz;
   }
 
-  void send_to_server(int sz, int quorum_id)
+  void send_to_server(rpc_t *pkt, int sz, int quorum_id)
   {
     rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[me_queue]);
     if(mb == NULL) {
       BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send to server";
     }
+    pkt->wal.term = terms[quorum_id];
     cyclone_prep_mbuf_client2server(global_dpdk_context,
 				    quorum_id % server_ports,
-				    router->replica_mc(servers[quorum_id]),
+				    router->replica_mc(server),
 				    quorum_q(quorum_id, q_dispatcher),
 				    mb,
-				    packet_out,
+				    pkt,
 				    sz);
     cyclone_tx(global_dpdk_context, 0, mb, me_queue);
   }
+
+
+  
+  int set_server()
+  {
+    packet_out_aux->code        = RPC_REQ_STABLE;
+    packet_out_aux->flags       = 0;
+    packet_out_aux->client_id   = me;
+    packet_out_aux->core_mask   = 1; // Always core 0
+    packet_out_aux->client_port = me_queue;
+    packet_out_aux->channel_seq = channel_seq++;
+    packet_out_aux->requestor   = me_mc;
+    packet_out_aux->payload_sz  = 0;
+    send_to_server(packet_out_aux, sizeof(rpc_t), 0); // always quorum 0
+    int resp_sz = common_receive_loop(sizeof(rpc_t));
+    if(resp_sz != -1) {
+      memcpy(terms, packet_in + 1, num_quorums*sizeof(unsigned int));
+      for(int i=0;i<num_quorums;i++) {
+	terms[i] = terms[i] >> 1;
+      }
+      return 1;
+    }
+    return 0;
+  }
+
+  void update_server(const char *context)
+  {
+    BOOST_LOG_TRIVIAL(info) 
+      << "CLIENT DETECTED POSSIBLE FAILED LEADER: "
+      << server
+      << " Reason " 
+      << context;
+    do {
+      server = (server + 1)%replicas;
+      BOOST_LOG_TRIVIAL(info) << "Trying " << server;
+    } while(!set_server());
+    BOOST_LOG_TRIVIAL(info) << "Success";
+  }
+
+
 
   int delete_node(int core_mask, int nodeid)
   {
@@ -115,10 +138,10 @@ typedef struct rpc_client_st {
       packet_out->payload_sz  = sizeof(cfg_change_t);
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
       cfg->node = nodeid;
-      send_to_server(sizeof(rpc_t) + sizeof(cfg_change_t), quorum_id);
+      send_to_server(packet_out, sizeof(rpc_t) + sizeof(cfg_change_t), quorum_id);
       resp_sz = common_receive_loop(sizeof(rpc_t) + sizeof(cfg_change_t));
       if(resp_sz == -1) {
-	update_server("rx timeout", quorum_id);
+	update_server("rx timeout");
 	continue;
       }
       if(packet_in->code == RPC_REP_FAIL) {
@@ -145,10 +168,10 @@ typedef struct rpc_client_st {
       packet_out->payload_sz  = sizeof(cfg_change_t);
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
       cfg->node      = nodeid;
-      send_to_server(sizeof(rpc_t) + sizeof(cfg_change_t), quorum_id);
+      send_to_server(packet_out, sizeof(rpc_t) + sizeof(cfg_change_t), quorum_id);
       resp_sz = common_receive_loop(sizeof(rpc_t) + sizeof(cfg_change_t));
       if(resp_sz == -1) {
-	update_server("rx timeout", quorum_id);
+	update_server("rx timeout");
 	continue;
       }
       if(packet_in->code == RPC_REP_FAIL) {
@@ -175,10 +198,10 @@ typedef struct rpc_client_st {
       packet_out->requestor   = me_mc;
       packet_out->payload_sz  = sz;
       memcpy(packet_out + 1, payload, sz);
-      send_to_server(sizeof(rpc_t) + sz, quorum_id);
+      send_to_server(packet_out, sizeof(rpc_t) + sz, quorum_id);
       resp_sz = common_receive_loop(sizeof(rpc_t) + sz);
       if(resp_sz == -1) {
-	update_server("rx timeout, make rpc", quorum_id);
+	update_server("rx timeout, make rpc");
 	continue;
       }
       if(packet_in->code == RPC_REP_FAIL) {
@@ -206,8 +229,8 @@ void* cyclone_client_init(int client_id,
   boost::property_tree::read_ini(config_quorum, pt_quorum);
   std::stringstream key;
   std::stringstream addr;
-  client->servers = new int[num_quorums];
   client->router = new quorum_switch(&pt_cluster, &pt_quorum);
+  client->terms  = (unsigned int *)malloc(num_quorums*sizeof(unsigned int));
   client->me = client_id;
   client->me_mc = client_mc;
   client->me_queue = client_queue;
@@ -218,14 +241,16 @@ void* cyclone_client_init(int client_id,
   void *buf = new char[MSG_MAXSIZE];
   client->packet_out = (rpc_t *)buf;
   buf = new char[MSG_MAXSIZE];
+  client->packet_out_aux = (rpc_t *)buf;
+  buf = new char[MSG_MAXSIZE];
   client->packet_in = (rpc_t *)buf;
   buf = new char[MSG_MAXSIZE];
   client->packet_rep = (msg_t *)buf;
   client->replicas = pt_quorum.get<int>("quorum.replicas");
   client->channel_seq = client_id*client_mc*rtc_clock::current_time();
   for(int i=0;i<num_quorums;i++) {
-    client->servers[i] = 0;
-    client->set_server(i);
+    client->server = 0;
+    client->update_server("Initialization");
   }
   return (void *)client;
 }
