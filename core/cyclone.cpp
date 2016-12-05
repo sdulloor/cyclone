@@ -12,6 +12,7 @@
 extern dpdk_context_t * global_dpdk_context;
 extern cyclone_t ** quorums;
 struct rte_ring ** to_cores;
+struct rte_ring ** to_quorums;
 struct rte_ring *from_cores;
 extern core_status_t **core_status;
 
@@ -383,6 +384,9 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	  while(core_mask != 0) {
 	    int core  = __builtin_ffs(core_mask) - 1;
 	    core_mask = core_mask & ~(1 << core);
+	    if(core_to_quorum(core) != cyclone_handle->me_quorum) {
+	      continue;
+	    }
 	    //Increment refcount handoff segment for exec 
 	    rte_mbuf_refcnt_update(m, 1);
 	    void *triple[3];

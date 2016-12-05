@@ -105,6 +105,7 @@ const int  MSG_APPENDENTRIES            = 3;
 const int  MSG_APPENDENTRIES_RESPONSE   = 4;
 
 extern struct rte_ring ** to_cores;
+extern struct rte_ring ** to_quorums;
 extern struct rte_ring *from_cores;
 extern dpdk_context_t *global_dpdk_context;
 
@@ -287,7 +288,11 @@ static int take_snapshot(unsigned int *snapshot)
 struct cyclone_monitor {
   volatile bool terminate;
   cyclone_t *cyclone_handle;
-  void *poll_items;
+  rte_mbuf *pkt_array[PKT_BURST], *m, *chain_tail;
+  int chain_size[2*PKT_BURST];
+  unsigned int *snapshot;
+  int is_leader;
+  msg_entry_t *messages;
 
   cyclone_monitor()
   :terminate(false)
@@ -348,12 +353,124 @@ struct cyclone_monitor {
     __sync_synchronize();
     if(cyclone_get_leader(cyclone_handle) == -1) 
       return; // Still in leader election 
-    int is_leader    = cyclone_is_leader(cyclone_handle);
+    int check_is_leader    = cyclone_is_leader(cyclone_handle);
     if(current_term == raft_get_current_term(cyclone_handle->raft_handle)) {
-      cyclone_handle->snapshot      = (current_term << 1) + (is_leader ? 1:0);
+      cyclone_handle->snapshot      = (current_term << 1) + (check_is_leader ? 1:0);
       __sync_synchronize();
     }
   }
+
+  void accept(int available)
+  {
+    int accepted = 0;
+    memset(chain_size, 0, 2*PKT_BURST);
+    
+    for(int i=0;i<available;i++) {
+      m = pkt_array[i];
+      if(bad(m)) {
+	rte_pktmbuf_free(m);
+	continue;
+      }
+      adjust_head(m);
+      rpc_t *rpc = pktadj2rpc(m);
+      if(rpc->core_mask & (rpc->core_mask - 1)) {
+	// Received a multi-core operation
+	// Check that I am quorum 0 and there is a viable quorum state
+	if(cyclone_handle->me_quorum != 0 || !take_snapshot(snapshot)) {
+	  rte_pktmbuf_free(m);
+	  continue;
+	}
+	ic_rdv_t *rdv = (ic_rdv_t *)(rpc + 1);
+	rdv->rtc_ts = rtc_clock::current_time();
+	memcpy(&rdv->mc_id, 
+	       global_dpdk_context->mc_addresses[global_dpdk_context->me],
+	       6);
+	int quorum_mask = 0;
+	int t = rpc->core_mask;
+	while(t) {
+	  int c = __builtin_ffs(t) - 1;
+	  quorum_mask |= (1 << core_to_quorum(c));
+	  t = t & ~(1 << c);
+	}
+	while(quorum_mask) {
+	  int q = __builtin_ffs(quorum_mask) - 1;
+	  rte_mbuf_refcnt_update(m, 1);
+	  if(rte_ring_sp_enqueue(to_quorums[q], (void *)m) == -ENOBUFS) {
+	    BOOST_LOG_TRIVIAL(fatal) << "Failed to enqueue in cross quorum q";
+	  }
+	}
+	rte_pktmbuf_free(m);
+	continue;
+      }
+      int core = __builtin_ffs(rpc->core_mask) - 1;
+      rpc->wal.leader = 1;
+      if(rpc->flags & RPC_FLAG_RO) {
+	if(is_leader) {
+	  void *triple[3];
+	  triple[0] = (void *)(unsigned long)cyclone_handle->me_quorum;
+	  triple[1] = m;
+	  triple[2] = rpc;
+	  if(rte_ring_mp_enqueue_bulk(to_cores[core], triple, 3) == -ENOBUFS) {
+	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
+	    exit(-1);
+	  }
+	}
+	else {
+	  rte_pktmbuf_free(m);
+	}
+	continue;
+      }
+      else if(rpc->code == RPC_REQ_NODEDEL) {
+	messages[accepted].data.buf = (void *)m;
+	messages[accepted].data.len = pktadj2rpcsz(m);
+	messages[accepted].type = RAFT_LOGTYPE_REMOVE_NODE;
+	chain_tail = m;
+	accepted++;
+      }
+      else if(rpc->code == RPC_REQ_NODEADD) {
+	messages[accepted].data.buf = (void *)m;
+	messages[accepted].data.len = pktadj2rpcsz(m);
+	messages[accepted].type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
+	chain_tail = m;
+	accepted++;
+      }
+      else if(accepted > 0 && 
+	      (messages[accepted - 1].data.len + pktadj2rpcsz(m)) <= MSG_MAXSIZE &&
+	      messages[accepted - 1].type == RAFT_LOGTYPE_NORMAL &&
+	      chain_size[accepted - 1] < PKT_BURST) {
+	rte_mbuf *mhead = (rte_mbuf *)messages[accepted - 1].data.buf;
+	messages[accepted - 1].data.len += pktadj2rpcsz(m);
+	// Wipe out the hdr in the chained packet
+	del_adj_header(m);
+	// Chain to prev packet
+	chain_tail->next = m;
+	chain_tail = m;
+	mhead->nb_segs++;
+	mhead->pkt_len += m->data_len;
+	chain_size[accepted - 1]++;
+	//compact(mprev); // debug
+      }
+      else {
+	messages[accepted].data.buf = (void *)m;
+	messages[accepted].data.len = pktadj2rpcsz(m);
+	messages[accepted].type = RAFT_LOGTYPE_NORMAL;
+	chain_tail = m;
+	accepted++;
+      }
+    }
+    if(accepted > 0) {
+      int e = raft_recv_entry_batch(cyclone_handle->raft_handle, 
+				    messages, 
+				    NULL,
+				    accepted);
+      if(e != 0) {
+	for(int i=0;i<accepted;i++) {
+	  rte_pktmbuf_free((rte_mbuf *)messages[i].data.buf);
+	}
+      }
+    }
+  }
+
 
   void operator ()()
   {
@@ -361,15 +478,10 @@ struct cyclone_monitor {
     double tsc_mhz = (rte_get_tsc_hz()/1000000.0);
     unsigned long PERIODICITY_CYCLES = PERIODICITY*tsc_mhz;
     unsigned long elapsed_time;
-    msg_entry_t *messages;
-    rte_mbuf *pkt_array[PKT_BURST], *m, *chain_tail;
-    int chain_size[2*PKT_BURST];
     messages = (msg_entry_t *)malloc(2*PKT_BURST*sizeof(msg_entry_t));
     int available;
-    int accepted;
-    int is_leader;
     unsigned int current_term;
-    unsigned int *snapshot = (unsigned int *)malloc(num_quorums*sizeof(unsigned int));
+    snapshot = (unsigned int *)malloc(num_quorums*sizeof(unsigned int));
     while(!terminate) {
       // Handle any outstanding requests
       available = rte_eth_rx_burst(cyclone_handle->me_port,
@@ -387,9 +499,6 @@ struct cyclone_monitor {
       }
       cyclone_handle->send_ae_responses();
 
-      accepted  = 0;
-      memset(chain_size, 0, 2*PKT_BURST);
-     
       // Publish snapshot
       current_term = raft_get_current_term(cyclone_handle->raft_handle);
       if(current_term != (cyclone_handle->snapshot >> 1)) {
@@ -429,99 +538,12 @@ struct cyclone_monitor {
 	cyclone_handle->is_quorum_leader = is_leader;
 	continue;
       }
-      while(accepted <= PKT_BURST) {
-	available = rte_eth_rx_burst(cyclone_handle->me_port,
-				     cyclone_handle->my_q(q_dispatcher),
-				     &pkt_array[0],
-				     PKT_BURST);
-	if(available == 0) {
-	  break;
-	}
-	for(int i=0;i<available;i++) {
-	  m = pkt_array[i];
-	  if(bad(m)) {
-	    rte_pktmbuf_free(m);
-	    continue;
-	  }
-	  adjust_head(m);
-	  rpc_t *rpc = pktadj2rpc(m);
-	  if(rpc->core_mask & (rpc->core_mask - 1)) {
-	    // Received a multi-core operation
-	    // Check that I am quorum 0 and there is a viable quorum state
-	    if(cyclone_handle->me_quorum != 0 || !take_snapshot(snapshot)) {
-	      rte_pktmbuf_free(m);
-	      continue;
-	    }
-	  }
-	  int core = __builtin_ffs(rpc->core_mask) - 1;
-	  rpc->wal.leader = 1;
-	  if(rpc->flags & RPC_FLAG_RO) {
-	    if(is_leader) {
-	      void *triple[3];
-	      triple[0] = (void *)(unsigned long)cyclone_handle->me_quorum;
-	      triple[1] = m;
-	      triple[2] = rpc;
-	      if(rte_ring_mp_enqueue_bulk(to_cores[core], triple, 3) == -ENOBUFS) {
-		BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
-		exit(-1);
-	      }
-	    }
-	    else {
-	      rte_pktmbuf_free(m);
-	    }
-	    continue;
-	  }
-	  else if(rpc->code == RPC_REQ_NODEDEL) {
-	    messages[accepted].data.buf = (void *)m;
-	    messages[accepted].data.len = pktadj2rpcsz(m);
-	    messages[accepted].type = RAFT_LOGTYPE_REMOVE_NODE;
-	    chain_tail = m;
-	    accepted++;
-	  }
-	  else if(rpc->code == RPC_REQ_NODEADD) {
-	    messages[accepted].data.buf = (void *)m;
-	    messages[accepted].data.len = pktadj2rpcsz(m);
-	    messages[accepted].type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
-	    chain_tail = m;
-	    accepted++;
-	  }
-	  else if(accepted > 0 && 
-		  (messages[accepted - 1].data.len + pktadj2rpcsz(m)) <= MSG_MAXSIZE &&
-		  messages[accepted - 1].type == RAFT_LOGTYPE_NORMAL &&
-		  chain_size[accepted - 1] < PKT_BURST) {
-	    rte_mbuf *mhead = (rte_mbuf *)messages[accepted - 1].data.buf;
-	    messages[accepted - 1].data.len += pktadj2rpcsz(m);
-	    // Wipe out the hdr in the chained packet
-	    del_adj_header(m);
-	    // Chain to prev packet
-	    chain_tail->next = m;
-	    chain_tail = m;
-	    mhead->nb_segs++;
-	    mhead->pkt_len += m->data_len;
-	    chain_size[accepted - 1]++;
-	    //compact(mprev); // debug
-	  }
-	  else {
-	    messages[accepted].data.buf = (void *)m;
-	    messages[accepted].data.len = pktadj2rpcsz(m);
-	    messages[accepted].type = RAFT_LOGTYPE_NORMAL;
-	    chain_tail = m;
-	    accepted++;
-	  }
-	}
-	// Currently the port seems to stall after a BURST
-	break;
-      }
-      if(accepted > 0) {
-	int e = raft_recv_entry_batch(cyclone_handle->raft_handle, 
-				      messages, 
-				      NULL,
-				      accepted);
-	if(e != 0) {
-	  for(int i=0;i<accepted;i++) {
-	    rte_pktmbuf_free((rte_mbuf *)messages[i].data.buf);
-	  }
-	}
+      available = rte_eth_rx_burst(cyclone_handle->me_port,
+				   cyclone_handle->my_q(q_dispatcher),
+				   &pkt_array[0],
+				   PKT_BURST);
+      if(available) {
+	accept(available);
       }
       // Handle periodic events -- - AFTER any incoming requests
       elapsed_time = rte_get_tsc_cycles() - mark;

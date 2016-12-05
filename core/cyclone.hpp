@@ -64,6 +64,12 @@ typedef struct rpc_st {
   unsigned long timestamp; // For tracing
 } __attribute__((packed)) rpc_t; // Used for both requests and replies
 
+//////// Addendum for inter-core rendevouz
+typedef struct ic_rdv_st{
+  char mc_id[6];
+  unsigned long rtc_ts;
+} __attribute__((packed)) ic_rdv_t; 
+
 // Possble values for code
 static const int RPC_REQ                = 0; // RPC request 
 static const int RPC_REQ_KICKER         = 1; // RPC internal 
