@@ -288,7 +288,7 @@ static int take_snapshot(unsigned int *snapshot)
 struct cyclone_monitor {
   volatile bool terminate;
   cyclone_t *cyclone_handle;
-  rte_mbuf *pkt_array[PKT_BURST], *m, *chain_tail;
+  rte_mbuf *pkt_array[PKT_BURST], *chain_tail;
   int chain_size[2*PKT_BURST];
   unsigned int *snapshot;
   int is_leader;
@@ -363,8 +363,10 @@ struct cyclone_monitor {
   void accept(int available)
   {
     int accepted = 0;
-    memset(chain_size, 0, 2*PKT_BURST);
+    rte_mbuf *m;
     
+    memset(chain_size, 0, 2*PKT_BURST);
+    BOOST_LOG_TRIVIAL(info) << "BOOM";
     for(int i=0;i<available;i++) {
       m = pkt_array[i];
       if(bad(m)) {
@@ -386,11 +388,11 @@ struct cyclone_monitor {
 	       global_dpdk_context->mc_addresses[global_dpdk_context->me],
 	       6);
 	int quorum_mask = 0;
-	int t = rpc->core_mask;
+	unsigned long t = rpc->core_mask;
 	while(t) {
 	  int c = __builtin_ffs(t) - 1;
 	  quorum_mask |= (1 << core_to_quorum(c));
-	  t = t & ~(1 << c);
+	  t = t & ~(1UL << c);
 	}
 	while(quorum_mask) {
 	  int q = __builtin_ffs(quorum_mask) - 1;
@@ -503,6 +505,8 @@ struct cyclone_monitor {
     messages = (msg_entry_t *)malloc(2*PKT_BURST*sizeof(msg_entry_t));
     int available;
     unsigned int current_term;
+    rte_mbuf *m;
+
     snapshot = (unsigned int *)malloc(num_quorums*sizeof(unsigned int));
     while(!terminate) {
       // Handle any outstanding requests
@@ -519,8 +523,9 @@ struct cyclone_monitor {
 	}
 	cyclone_handle->handle_incoming(m);
       }
+      
       cyclone_handle->send_ae_responses();
-
+      
       // Publish snapshot
       current_term = raft_get_current_term(cyclone_handle->raft_handle);
       if(current_term != (cyclone_handle->snapshot >> 1)) {
@@ -534,14 +539,16 @@ struct cyclone_monitor {
 	  rte_mbuf *k = rte_pktmbuf_alloc(global_dpdk_context->mempools[cyclone_handle->my_q(q_raft)]);
 	  if(k == NULL) {
 	    BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for kicker";
+	    exit(-1);
 	  }
-	  rpc_t *k_rpc = (rpc_t *)rte_pktmbuf_mtod_offset(k, void *, sizeof(ether_hdr) + sizeof(ipv4_hdr));
-	  k_rpc->code  = RPC_REQ_KICKER;
-	  k_rpc->flags = 0;
+	  rpc_t *k_rpc      = (rpc_t *)rte_pktmbuf_mtod_offset(k, void *, sizeof(ether_hdr) + sizeof(ipv4_hdr));
+	  k_rpc->code       = RPC_REQ_KICKER;
+	  k_rpc->flags      = 0;
 	  k_rpc->payload_sz = 0;
-	  for(int i= 0, j=1;i<executor_threads;i++,(j=j<<1)) {
+	  k_rpc->core_mask  = 0;
+	  for(int i = 0;i<executor_threads;i++) {
 	    if(core_to_quorum(i) == cyclone_handle->me_quorum) {
-	      k_rpc->core_mask |= j;
+	      k_rpc->core_mask |= (1UL << i);
 	    }
 	  }
 	  pktsetrpcsz(k, sizeof(rpc_t));
@@ -560,12 +567,26 @@ struct cyclone_monitor {
 	cyclone_handle->is_quorum_leader = is_leader;
 	continue;
       }
+      // Check for requests on the network
       available = rte_eth_rx_burst(cyclone_handle->me_port,
 				   cyclone_handle->my_q(q_dispatcher),
 				   &pkt_array[0],
 				   PKT_BURST);
       if(available) {
 	accept(available);
+      }
+      // Check for transactions
+      int e = rte_ring_sc_dequeue(to_quorums[cyclone_handle->me_quorum], (void **)&m);
+      if(e == 0) {
+	pkt_array[0] = rte_pktmbuf_clone(m, 
+					 global_dpdk_context->mempools
+					 [cyclone_handle->my_q(q_dispatcher)]);
+	if(pkt_array[0] == NULL) {
+	  BOOST_LOG_TRIVIAL(fatal) << "Failed to clone tx packet";
+	  exit(-1);
+	}
+	rte_pktmbuf_free(m);
+	accept(1);
       }
       // Handle periodic events -- - AFTER any incoming requests
       elapsed_time = rte_get_tsc_cycles() - mark;

@@ -32,18 +32,14 @@ typedef struct rpc_client_st {
     return num_queues*quorum_id + q;
   }
   
-  int choose_quorum(int core_mask)
+  int choose_quorum(unsigned long core_mask)
   {
     return core_to_quorum(__builtin_ffs(core_mask) - 1);
   }
 
   int common_receive_loop(int blob_sz)
   {
-    int retcode;
     int resp_sz;
-    bool sent_assist_msg   = false;
-    bool sent_assist_reply = false;
-    unsigned long response_map = 0;
     while(true) {
       resp_sz = cyclone_rx_timeout(global_dpdk_context,
 				   0,
@@ -122,7 +118,7 @@ typedef struct rpc_client_st {
 
 
 
-  int delete_node(int core_mask, int nodeid)
+  int delete_node(unsigned long core_mask, int nodeid)
   {
     int retcode;
     int resp_sz;
@@ -152,7 +148,7 @@ typedef struct rpc_client_st {
     return 0;
   }
 
-  int add_node(int core_mask, int nodeid)
+  int add_node(unsigned long core_mask, int nodeid)
   {
     int retcode;
     int resp_sz;
@@ -182,7 +178,7 @@ typedef struct rpc_client_st {
     return 0;
   }
 
-  int make_rpc(void *payload, int sz, void **response, int core_mask, int flags)
+  int make_rpc(void *payload, int sz, void **response, unsigned long core_mask, int flags)
   {
     int retcode;
     int resp_sz;
@@ -259,7 +255,7 @@ int make_rpc(void *handle,
 	     void *payload,
 	     int sz,
 	     void **response,
-	     int core_mask,
+	     unsigned long core_mask,
 	     int flags)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
@@ -272,13 +268,13 @@ int make_rpc(void *handle,
   return client->make_rpc(payload, sz, response, core_mask, flags);
 }
 
-int delete_node(void *handle, int core_mask, int node)
+int delete_node(void *handle, unsigned long core_mask, int node)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
   return client->delete_node(core_mask, node);
 }
 
-int add_node(void *handle, int core_mask, int node)
+int add_node(void *handle, unsigned long core_mask, int node)
 {
   rpc_client_t *client = (rpc_client_t *)handle;
   return client->add_node(core_mask, node);

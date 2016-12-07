@@ -23,7 +23,7 @@ dpdk_context_t * global_dpdk_context = NULL;
 extern struct rte_ring ** to_cores;
 extern struct rte_ring *from_cores;
 cyclone_t **quorums;
-core_status_t **core_status;
+core_status_t *core_status;
 static rpc_callbacks_t app_callbacks;
 static void client_reply(rpc_t *req, 
 			 rpc_t *rep,
@@ -53,16 +53,34 @@ static void client_reply(rpc_t *req,
   cyclone_tx(global_dpdk_context, port, m, q);
 }
 
-void init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
+int init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
 {
   cookie->client_id = rpc->client_id;
   cookie->replication = &(rpc->wal.rep);
   cookie->log_idx     = rpc->wal.idx;
+  cookie->ret_size    = 0;
+  // Multi-core operation ?
+  if(rpc->core_mask & (rpc->core_mask - 1)) {
+    // Need to wait for sync
+    unsigned long mask = rpc->core_mask;
+    while(mask != 0) {
+      int core = __builtin_ffs(mask) - 1;
+      mask = mask & ~(1UL << core);
+    }
+    BOOST_LOG_TRIVIAL(fatal) << "Multi-core ops not supported";
+    exit(-1);
+    return 1;
+  }
+  else {
+    return 1;
+  }
 }
 
 int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie, core_status_t *cstatus)
 {
-  init_rpc_cookie_info(cookie, rpc);
+  if(!init_rpc_cookie_info(cookie, rpc)) {
+    return -1;
+  }
   int checkpoint_idx = app_callbacks.rpc_callback((const unsigned char *)(rpc + 1),
 						  len,
 						  cookie);
@@ -77,12 +95,15 @@ int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie, core_status_t *
   } 
 }
 
-void exec_rpc_internal_ro(rpc_t *rpc, int len, rpc_cookie_t *cookie)
+int exec_rpc_internal_ro(rpc_t *rpc, int len, rpc_cookie_t *cookie)
 {
-  init_rpc_cookie_info(cookie, rpc);
+  if(!init_rpc_cookie_info(cookie, rpc)) {
+    return -1;
+  }
   app_callbacks.rpc_callback((const unsigned char *)(rpc + 1),
 			     len,
 			     cookie);
+  return 0;
 }
 
 typedef struct executor_st {
@@ -115,18 +136,20 @@ typedef struct executor_st {
 		   num_queues*num_quorums + tid);
     }
     else if(client_buffer->flags & RPC_FLAG_RO) {
-      exec_rpc_internal_ro(client_buffer, sz, &cookie);
+      int e = exec_rpc_internal_ro(client_buffer, sz, &cookie);
       if(client_buffer->wal.leader) {
-	resp_buffer->code = RPC_REP_OK;
+	if(!e) {
+	  resp_buffer->code = RPC_REP_OK;
+	}
+	else {
+	  resp_buffer->code = RPC_REP_FAIL;
+	}
 	client_reply(client_buffer, 
 		     resp_buffer, 
 		     cookie.ret_value, 
 		     cookie.ret_size,
 		     port_id,
 		     num_queues*num_quorums + tid);
-      }
-      if(cookie.ret_size > 0) {
-	app_callbacks.gc_callback(cookie.ret_value);
       }
     }
     else if(client_buffer->code == RPC_REQ_NODEDEL || 
@@ -151,6 +174,9 @@ typedef struct executor_st {
 		       0,
 		       port_id,
 		       num_queues*num_quorums + tid);
+	}
+	if(cookie.ret_size > 0) {
+	  app_callbacks.gc_callback(cookie.ret_value);
 	}
       }
     }
@@ -186,7 +212,7 @@ typedef struct executor_st {
 	while(rte_ring_sc_dequeue(to_cores[tid], (void **)&m) != 0);
 	while(rte_ring_sc_dequeue(to_cores[tid], (void **)&client_buffer) != 0);
 	sz = client_buffer->payload_sz;
-	cstatus = &core_status[quorum][tid];
+	cstatus = &core_status[tid];
 	exec();
 	rte_pktmbuf_free_seg(m);
       }
@@ -289,6 +315,16 @@ void dispatcher_start(const char* config_cluster_path,
 				   rte_socket_id(), 
 				   RING_F_SC_DEQ); 
   }
+
+  to_quorums = (struct rte_ring **)malloc(num_quorums*sizeof(struct rte_ring *));
+  for(int i=0;i<num_quorums;i++) {
+    sprintf(ringname, "TO_QUORUM%d", i);
+    to_quorums[i] =  rte_ring_create(ringname, 
+				     65536,
+				     rte_socket_id(), 
+				     RING_F_SP_ENQ|RING_F_SC_DEQ); 
+  }
+
   
   for(int i=0;i<pt_quorum.get<int>("active.replicas");i++) {
     char nodeidxkey[100];
@@ -327,14 +363,12 @@ void dispatcher_start(const char* config_cluster_path,
   }
   
   quorums = (cyclone_t **)malloc(num_quorums*sizeof(cyclone_t *));
-  core_status = (core_status_t **)malloc(num_quorums*sizeof(core_status_t *));
-  for(int i=0;i<num_quorums;i++) {
-    core_status[i] = (core_status_t *)malloc(executor_threads*sizeof(core_status_t));
-    for(int j=0;j < executor_threads;j++) {
-      core_status[i][j].exec_term      = 0;
-      core_status[i][j].checkpoint_idx = -1;
-    }
+  core_status = (core_status_t *)malloc(executor_threads*sizeof(core_status_t));
+  for(int i=0;i < executor_threads;i++) {
+    core_status[i].exec_term      = 0;
+    core_status[i].checkpoint_idx = -1;
   }
+  
   for(int i=0;i<num_quorums;i++) {
     quorum_switch *router = new quorum_switch(&pt_cluster, &pt_quorum);
     cyclone_boot(config_quorum_path,

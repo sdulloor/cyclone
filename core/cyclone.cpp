@@ -14,7 +14,7 @@ extern cyclone_t ** quorums;
 struct rte_ring ** to_cores;
 struct rte_ring ** to_quorums;
 struct rte_ring *from_cores;
-extern core_status_t **core_status;
+extern core_status_t *core_status;
 
 /** Raft callback for sending request vote message */
 static int __send_requestvote(raft_server_t* raft,
@@ -252,10 +252,10 @@ static int __applylog(raft_server_t* raft,
   
   int checkpoint_idx = -1;
   for(int i=0;i<executor_threads;i++) {
-    if(i % num_quorums != cyclone_handle->me_quorum)
+    if(core_to_quorum(i) != cyclone_handle->me_quorum)
       continue;
-    if(core_status[cyclone_handle->me_quorum][i].checkpoint_idx > checkpoint_idx) {
-      checkpoint_idx = core_status[cyclone_handle->me_quorum][i].checkpoint_idx;
+    if(core_status[i].checkpoint_idx > checkpoint_idx) {
+      checkpoint_idx = core_status[i].checkpoint_idx;
     }
   }
   if(checkpoint_idx >= 0) {
@@ -380,10 +380,10 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	rpc->wal.idx    = ety_idx + i;
 	// Issue unless nodeadd final step
 	if(e->type != RAFT_LOGTYPE_ADD_NODE) { 
-	  int core_mask = rpc->core_mask;
+	  unsigned long core_mask = rpc->core_mask;
 	  while(core_mask != 0) {
 	    int core  = __builtin_ffs(core_mask) - 1;
-	    core_mask = core_mask & ~(1 << core);
+	    core_mask = core_mask & ~(1UL << core);
 	    if(core_to_quorum(core) != cyclone_handle->me_quorum) {
 	      continue;
 	    }

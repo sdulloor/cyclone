@@ -97,12 +97,12 @@ int make_rpc(void *handle,
 	     void *payload,
 	     int sz,
 	     void **response,
-	     int core_mask,
+	     unsigned long core_mask,
 	     int rpc_flags);
 
-int delete_node(void *handle, int core_mask, int node);
+int delete_node(void *handle, unsigned long core_mask, int node);
 
-int add_node(void *handle, int core_mask, int node);
+int add_node(void *handle, unsigned long core_mask, int node);
 
 
 // Possible flags 

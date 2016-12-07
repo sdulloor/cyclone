@@ -103,7 +103,7 @@ int driver(void *arg)
 		  buffer,
 		  payload,
 		  (void **)&resp,
-		  1 << my_core,
+		  1UL << my_core,
 		  rpc_flags);
     if(sz != payload) {
       BOOST_LOG_TRIVIAL(fatal) << "Invalid response";

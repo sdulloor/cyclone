@@ -55,7 +55,7 @@ typedef struct rpc_st {
   int code;
   int flags;
   int payload_sz;
-  int core_mask;
+  unsigned long core_mask;
   wal_entry_t wal;
   int client_id;
   int requestor;
