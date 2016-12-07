@@ -140,7 +140,6 @@ typedef struct cyclone_st {
   unsigned long mark;
   
   volatile unsigned int snapshot;
-  volatile int is_quorum_leader;
 
   int my_q(int q)
   {
@@ -347,16 +346,24 @@ struct cyclone_monitor {
     return 0;
   }
 
-  void publish_snapshot()
+  int publish_snapshot()
   {
     unsigned int current_term = raft_get_current_term(cyclone_handle->raft_handle);
-    __sync_synchronize();
-    if(cyclone_get_leader(cyclone_handle) == -1) 
-      return; // Still in leader election 
-    int check_is_leader    = cyclone_is_leader(cyclone_handle);
-    if(current_term == raft_get_current_term(cyclone_handle->raft_handle)) {
-      cyclone_handle->snapshot      = (current_term << 1) + (check_is_leader ? 1:0);
+    int is_leader;
+    if(cyclone_handle->replicas == 1) {
+      is_leader = 1;
+    }
+    else {
+      is_leader = cyclone_get_leader(cyclone_handle);
+    }
+    unsigned int new_snapshot = (current_term << 1) + (is_leader ? 1:0);
+    if(new_snapshot != cyclone_handle->snapshot) {
+      cyclone_handle->snapshot = new_snapshot;
       __sync_synchronize();
+      return 1;
+    }
+    else {
+      return 0;
     }
   }
 
@@ -366,7 +373,6 @@ struct cyclone_monitor {
     rte_mbuf *m;
     
     memset(chain_size, 0, 2*PKT_BURST);
-    BOOST_LOG_TRIVIAL(info) << "BOOM";
     for(int i=0;i<available;i++) {
       m = pkt_array[i];
       if(bad(m)) {
@@ -508,6 +514,8 @@ struct cyclone_monitor {
     rte_mbuf *m;
 
     snapshot = (unsigned int *)malloc(num_quorums*sizeof(unsigned int));
+    cyclone_handle->snapshot = ~1L;
+    
     while(!terminate) {
       // Handle any outstanding requests
       available = rte_eth_rx_burst(cyclone_handle->me_port,
@@ -525,17 +533,10 @@ struct cyclone_monitor {
       }
       
       cyclone_handle->send_ae_responses();
-      
-      // Publish snapshot
-      current_term = raft_get_current_term(cyclone_handle->raft_handle);
-      if(current_term != (cyclone_handle->snapshot >> 1)) {
-	publish_snapshot();
-      }
-      // Leadership change ?
-      is_leader    = cyclone_is_leader(cyclone_handle);
-      if(is_leader != cyclone_handle->is_quorum_leader) {
-	if(!cyclone_handle->is_quorum_leader) {
-	  // Became leader -- send kicker
+
+      if(publish_snapshot()) {
+	if(cyclone_handle->snapshot & 1) { // is leader
+	  // Send kicker
 	  rte_mbuf *k = rte_pktmbuf_alloc(global_dpdk_context->mempools[cyclone_handle->my_q(q_raft)]);
 	  if(k == NULL) {
 	    BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for kicker";
@@ -564,7 +565,6 @@ struct cyclone_monitor {
 	    rte_pktmbuf_free(k);
 	  }
 	}
-	cyclone_handle->is_quorum_leader = is_leader;
 	continue;
       }
       // Check for requests on the network
@@ -595,7 +595,7 @@ struct cyclone_monitor {
 	mark = rte_get_tsc_cycles();
       }
       // Set preferred leader
-      if(cyclone_handle->me_quorum > 0 && quorums[0]->is_quorum_leader) {
+      if(cyclone_handle->me_quorum > 0 && (quorums[0]->snapshot & 1)) {
 	raft_set_preferred_leader(cyclone_handle->raft_handle);
       }
       else {

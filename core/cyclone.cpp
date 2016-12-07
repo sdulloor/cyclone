@@ -649,7 +649,6 @@ void* cyclone_boot(const char *config_quorum_path,
   cyclone_handle->ae_response_cnt = 0;
   cyclone_handle->raft_handle = raft_new();
   cyclone_handle->completions = 0;
-  cyclone_handle->is_quorum_leader = 0;
   cyclone_handle->mark = rtc_clock::current_time();
   raft_set_multi_inflight(cyclone_handle->raft_handle);
   BOOST_LOG_TRIVIAL(info) << "RAFT start. sizeof(msg_t) is :" 
