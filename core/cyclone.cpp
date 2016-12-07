@@ -382,7 +382,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	if(e->type != RAFT_LOGTYPE_ADD_NODE) { 
 	  unsigned long core_mask = rpc->core_mask;
 	  while(core_mask != 0) {
-	    int core  = __builtin_ffs(core_mask) - 1;
+	    int core  = __builtin_ffsl(core_mask) - 1;
 	    core_mask = core_mask & ~(1UL << core);
 	    if(core_to_quorum(core) != cyclone_handle->me_quorum) {
 	      continue;
@@ -564,7 +564,11 @@ void __raft_log(raft_server_t* raft,
 		void *udata, 
 		const char *buf)
 {
-  //BOOST_LOG_TRIVIAL(debug) << "CYCLONE::RAFT " << buf;
+  cyclone_t* cyclone_handle = (cyclone_t *)udata;
+  BOOST_LOG_TRIVIAL(debug) << "CYCLONE::RAFT quorum = " 
+			   << cyclone_handle->me_quorum
+			   << " "
+			   << buf;
 }
 
 /** Raft callback for displaying debugging information (elections)*/
@@ -573,7 +577,12 @@ void __raft_log_election(raft_server_t* raft,
 			 void *udata, 
 			 const char *buf)
 {
-  //BOOST_LOG_TRIVIAL(debug) << "CYCLONE::RAFT::ELECTION " << buf;
+  cyclone_t* cyclone_handle = (cyclone_t *)udata;
+  BOOST_LOG_TRIVIAL(debug) << "CYCLONE::RAFT::ELECTION quorum =" 
+			   << cyclone_handle->me_quorum
+			   << " "
+			   << buf;
+  
 }
 
 
@@ -621,12 +630,12 @@ int dpdk_raft_monitor(void *arg)
   return 0;
 }
 
-void* cyclone_boot(const char *config_quorum_path,
-		   void *router,
-		   int quorum_id,
-		   int me,
-		   int clients,
-		   void *user_arg)
+void* cyclone_setup(const char *config_quorum_path,
+		    void *router,
+		    int quorum_id,
+		    int me,
+		    int clients,
+		    void *user_arg)
 {
   cyclone_t *cyclone_handle;
   std::stringstream key;
@@ -721,12 +730,21 @@ void* cyclone_boot(const char *config_quorum_path,
 
   /* Launch cyclone service */
   __sync_synchronize(); // Going to give the thread control over the socket
-  int e = rte_eal_remote_launch(dpdk_raft_monitor, (void *)cyclone_handle->monitor_obj, 1 + quorum_id);
-  if(e != 0) {
-    BOOST_LOG_TRIVIAL(fatal) << "Failed to launch raft monitor on remote lcore";
-    exit(-1);
-  }
   return cyclone_handle;
+}
+
+
+void cyclone_boot()
+{
+  for(int i=0;i<num_quorums;i++) {
+    int e = rte_eal_remote_launch(dpdk_raft_monitor, 
+				  (void *)quorums[i]->monitor_obj, 
+				  1 + i);
+    if(e != 0) {
+      BOOST_LOG_TRIVIAL(fatal) << "Failed to launch raft monitor on remote lcore";
+      exit(-1);
+    }
+  }
 }
 
 void cyclone_shutdown(void *cyclone_handle)

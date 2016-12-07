@@ -34,7 +34,7 @@ typedef struct rpc_client_st {
   
   int choose_quorum(unsigned long core_mask)
   {
-    return core_to_quorum(__builtin_ffs(core_mask) - 1);
+    return core_to_quorum(__builtin_ffsl(core_mask) - 1);
   }
 
   int common_receive_loop(int blob_sz)

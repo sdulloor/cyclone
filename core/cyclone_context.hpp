@@ -354,7 +354,7 @@ struct cyclone_monitor {
       is_leader = 1;
     }
     else {
-      is_leader = cyclone_get_leader(cyclone_handle);
+      is_leader = cyclone_is_leader(cyclone_handle);
     }
     unsigned int new_snapshot = (current_term << 1) + (is_leader ? 1:0);
     if(new_snapshot != cyclone_handle->snapshot) {
@@ -396,12 +396,12 @@ struct cyclone_monitor {
 	int quorum_mask = 0;
 	unsigned long t = rpc->core_mask;
 	while(t) {
-	  int c = __builtin_ffs(t) - 1;
+	  int c = __builtin_ffsl(t) - 1;
 	  quorum_mask |= (1 << core_to_quorum(c));
 	  t = t & ~(1UL << c);
 	}
 	while(quorum_mask) {
-	  int q = __builtin_ffs(quorum_mask) - 1;
+	  int q = __builtin_ffsl(quorum_mask) - 1;
 	  rte_mbuf_refcnt_update(m, 1);
 	  if(rte_ring_sp_enqueue(to_quorums[q], (void *)m) == -ENOBUFS) {
 	    BOOST_LOG_TRIVIAL(fatal) << "Failed to enqueue in cross quorum q";
@@ -410,7 +410,7 @@ struct cyclone_monitor {
 	rte_pktmbuf_free(m);
 	continue;
       }
-      int core = __builtin_ffs(rpc->core_mask) - 1;
+      int core = __builtin_ffsl(rpc->core_mask) - 1;
       rpc->wal.leader = 1;
       if(rpc->code == RPC_REQ_STABLE) {
 	if(take_snapshot(snapshot)) {
@@ -595,12 +595,14 @@ struct cyclone_monitor {
 	mark = rte_get_tsc_cycles();
       }
       // Set preferred leader
+      
       if(cyclone_handle->me_quorum > 0 && (quorums[0]->snapshot & 1)) {
 	raft_set_preferred_leader(cyclone_handle->raft_handle);
       }
       else {
 	raft_unset_preferred_leader(cyclone_handle->raft_handle);
       }
+      
     }
   }
 };

@@ -64,7 +64,7 @@ int init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
     // Need to wait for sync
     unsigned long mask = rpc->core_mask;
     while(mask != 0) {
-      int core = __builtin_ffs(mask) - 1;
+      int core = __builtin_ffsl(mask) - 1;
       mask = mask & ~(1UL << core);
     }
     BOOST_LOG_TRIVIAL(fatal) << "Multi-core ops not supported";
@@ -371,13 +371,15 @@ void dispatcher_start(const char* config_cluster_path,
   
   for(int i=0;i<num_quorums;i++) {
     quorum_switch *router = new quorum_switch(&pt_cluster, &pt_quorum);
-    cyclone_boot(config_quorum_path,
-		 router,
-		 i,
-		 me,
-		 clients,
-		 NULL);
+    cyclone_setup(config_quorum_path,
+		  router,
+		  i,
+		  me,
+		  clients,
+		  NULL);
   }
+  cyclone_boot();
+  
   for(int i=0;i < executor_threads;i++) {
     executor_t *ex = new executor_t();
     ex->tid = i;
@@ -390,3 +392,4 @@ void dispatcher_start(const char* config_cluster_path,
   }
   rte_eal_mp_wait_lcore();
 }
+
