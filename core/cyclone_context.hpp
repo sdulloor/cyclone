@@ -367,7 +367,7 @@ struct cyclone_monitor {
     }
   }
 
-  void accept(int available)
+  void accept(int available, int multicore)
   {
     int accepted = 0;
     rte_mbuf *m;
@@ -381,14 +381,14 @@ struct cyclone_monitor {
       }
       adjust_head(m);
       rpc_t *rpc = pktadj2rpc(m);
-      if(rpc->core_mask & (rpc->core_mask - 1)) {
+      if(!multicore && (rpc->core_mask & (rpc->core_mask - 1))) {
 	// Received a multi-core operation
-	// Check that I am quorum 0 and there is a viable quorum state
-	if(cyclone_handle->me_quorum != 0 || !take_snapshot(snapshot)) {
+	// Check that I am quorum 0
+	if(cyclone_handle->me_quorum != 0) {
 	  rte_pktmbuf_free(m);
 	  continue;
 	}
-	ic_rdv_t *rdv = (ic_rdv_t *)(rpc + 1);
+	ic_rdv_t *rdv = rpc2rdv(rpc);
 	rdv->rtc_ts = rtc_clock::current_time();
 	memcpy(&rdv->mc_id, 
 	       global_dpdk_context->mc_addresses[global_dpdk_context->me],
@@ -430,11 +430,22 @@ struct cyclone_monitor {
 	}
 	continue;
       }
-      else if(rpc->wal.term != raft_get_current_term(cyclone_handle->raft_handle)) {
-	rte_pktmbuf_free(m);
-	continue;
-      } 
-      else if(rpc->flags & RPC_FLAG_RO) {
+      // Do term checks
+      if(!multicore) {
+	if(rpc->wal.term != raft_get_current_term(cyclone_handle->raft_handle)) {
+	  rte_pktmbuf_free(m);
+	  continue;
+	} 
+      }
+      else {
+	unsigned int *term_array = (unsigned int *)(rpc + 1);
+	if(term_array[cyclone_handle->me_quorum] != raft_get_current_term(cyclone_handle->raft_handle)) {
+	  rte_pktmbuf_free(m);
+	  continue;
+	}
+      }
+      /////
+      if(rpc->flags & RPC_FLAG_RO) {
 	if(is_leader) {
 	  void *triple[3];
 	  triple[0] = (void *)(unsigned long)cyclone_handle->me_quorum;
@@ -573,7 +584,7 @@ struct cyclone_monitor {
 				   &pkt_array[0],
 				   PKT_BURST);
       if(available) {
-	accept(available);
+	accept(available, 0);
       }
       // Check for transactions
       int e = rte_ring_sc_dequeue(to_quorums[cyclone_handle->me_quorum], (void **)&m);
@@ -586,7 +597,7 @@ struct cyclone_monitor {
 	  exit(-1);
 	}
 	rte_pktmbuf_free(m);
-	accept(1);
+	accept(1, 1);
       }
       // Handle periodic events -- - AFTER any incoming requests
       elapsed_time = rte_get_tsc_cycles() - mark;

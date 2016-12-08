@@ -12,7 +12,6 @@
 
 extern dpdk_context_t *global_dpdk_context;
 typedef struct rpc_client_st {
-  int me;
   int me_mc;
   int me_queue;
   quorum_switch *router;
@@ -84,7 +83,6 @@ typedef struct rpc_client_st {
   {
     packet_out_aux->code        = RPC_REQ_STABLE;
     packet_out_aux->flags       = 0;
-    packet_out_aux->client_id   = me;
     packet_out_aux->core_mask   = 1; // Always core 0
     packet_out_aux->client_port = me_queue;
     packet_out_aux->channel_seq = channel_seq++;
@@ -126,7 +124,6 @@ typedef struct rpc_client_st {
     while(true) {
       packet_out->code        = RPC_REQ_NODEDEL;
       packet_out->flags       = 0;
-      packet_out->client_id   = me;
       packet_out->core_mask   = core_mask;
       packet_out->client_port = me_queue;
       packet_out->channel_seq = channel_seq++;
@@ -156,7 +153,6 @@ typedef struct rpc_client_st {
     while(true) {
       packet_out->code        = RPC_REQ_NODEADD;
       packet_out->flags       = 0;
-      packet_out->client_id   = me;
       packet_out->core_mask     = core_mask;
       packet_out->client_port = me_queue;
       packet_out->channel_seq = channel_seq++;
@@ -187,7 +183,6 @@ typedef struct rpc_client_st {
       // Make request
       packet_out->code        = RPC_REQ;
       packet_out->flags       = flags;
-      packet_out->client_id   = me;
       packet_out->core_mask     = core_mask;
       packet_out->client_port = me_queue;
       packet_out->channel_seq = channel_seq++;
@@ -211,8 +206,7 @@ typedef struct rpc_client_st {
 } rpc_client_t;
 
 
-void* cyclone_client_init(int client_id,
-			  int client_mc,
+void* cyclone_client_init(int client_mc,
 			  int client_queue,
 			  const char *config_cluster,
 			  int server_ports,
@@ -227,7 +221,6 @@ void* cyclone_client_init(int client_id,
   std::stringstream addr;
   client->router = new quorum_switch(&pt_cluster, &pt_quorum);
   client->terms  = (unsigned int *)malloc(num_quorums*sizeof(unsigned int));
-  client->me = client_id;
   client->me_mc = client_mc;
   client->me_queue = client_queue;
   client->buf = (dpdk_rx_buffer_t *)malloc(sizeof(dpdk_rx_buffer_t));
@@ -243,7 +236,7 @@ void* cyclone_client_init(int client_id,
   buf = new char[MSG_MAXSIZE];
   client->packet_rep = (msg_t *)buf;
   client->replicas = pt_quorum.get<int>("quorum.replicas");
-  client->channel_seq = client_id*client_mc*rtc_clock::current_time();
+  client->channel_seq = client_queue*client_mc*rtc_clock::current_time();
   for(int i=0;i<num_quorums;i++) {
     client->server = 0;
     client->update_server("Initialization");

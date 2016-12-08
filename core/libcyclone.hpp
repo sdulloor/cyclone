@@ -47,7 +47,6 @@ static int core_to_quorum(int core_id)
 /////////////////////////////////
 
 typedef struct rpc_cookie_st {
-  int client_id;
   int core_id;
   int log_idx;
   volatile int *replication;
@@ -86,8 +85,7 @@ void dispatcher_start(const char* config_cluster_path,
 		      int clients);
 
 ////// RPC client side interface
-void* cyclone_client_init(int client_id,
-			  int client_mc,
+void* cyclone_client_init(int client_mc,
 			  int client_queue,
 			  const char *config_cluster_path,
 			  int server_ports,

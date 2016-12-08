@@ -37,7 +37,6 @@ static void client_reply(rpc_t *req,
     BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for client response";
     exit(-1);
   }
-  rep->client_id   = req->client_id;
   rep->channel_seq = req->channel_seq;
   if(sz > 0) {
     memcpy(rep + 1, payload, sz);
@@ -55,20 +54,20 @@ static void client_reply(rpc_t *req,
 
 int init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
 {
-  cookie->client_id = rpc->client_id;
   cookie->replication = &(rpc->wal.rep);
   cookie->log_idx     = rpc->wal.idx;
   cookie->ret_size    = 0;
   // Multi-core operation ?
   if(rpc->core_mask & (rpc->core_mask - 1)) {
     // Need to wait for sync
-    unsigned long mask = rpc->core_mask;
+    unsigned long mask     = rpc->core_mask;
+    unsigned int *snapshot = (unsigned int *)(rpc + 1);
     while(mask != 0) {
       int core = __builtin_ffsl(mask) - 1;
+      core_status_t *cstatus = &core_status[core];
       mask = mask & ~(1UL << core);
+      // TBD
     }
-    BOOST_LOG_TRIVIAL(fatal) << "Multi-core ops not supported";
-    exit(-1);
     return 1;
   }
   else {

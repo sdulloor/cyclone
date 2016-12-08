@@ -71,6 +71,13 @@ typedef struct ic_rdv_st{
   unsigned long rtc_ts;
 } __attribute__((packed)) ic_rdv_t; 
 
+static ic_rdv_t *rpc2rdv(rpc_t *rpc)
+{
+  unsigned char *ptr = (unsigned char *)rpc;
+  ptr = ptr + num_quorums*sizeof(unsigned long);
+  return (ic_rdv_t *)ptr;
+}
+
 // Possble values for code
 static const int RPC_REQ_STABLE         = 0; // Check for stable quorums
 static const int RPC_REQ                = 1; // RPC request 
