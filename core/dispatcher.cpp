@@ -65,14 +65,25 @@ int init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
     while(mask != 0) {
       int core = __builtin_ffsl(mask) - 1;
       core_status_t *cstatus = &core_status[core];
-      mask = mask & ~(1UL << core);
-      // TBD
+      if(cookie->core_id == core) {
+	if(!wait_barrier_leader(cstatus, 
+				rpc2rdv(rpc),
+				cookie->core_id,
+				snapshot,
+				mask))
+	  return 0;
+      }
+      else {
+	if(!wait_barrier_follower(cstatus, 
+				  rpc2rdv(rpc),
+				  cookie->core_id,
+				  snapshot,
+				  mask))
+	  return 0;
+      }
     }
-    return 1;
   }
-  else {
-    return 1;
-  }
+  return 1;
 }
 
 int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie, core_status_t *cstatus)
@@ -366,6 +377,7 @@ void dispatcher_start(const char* config_cluster_path,
   for(int i=0;i < executor_threads;i++) {
     core_status[i].exec_term      = 0;
     core_status[i].checkpoint_idx = -1;
+    memset(&core_status[i].nonce, 0, sizeof(ic_rdv_t));
   }
   
   for(int i=0;i<num_quorums;i++) {
