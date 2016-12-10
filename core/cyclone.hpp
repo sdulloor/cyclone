@@ -156,6 +156,8 @@ static int wait_barrier_leader(core_status_t *c,
   __sync_fetch_and_or(&c->barrier[1], failed_mask);
   while(c->barrier[1] != mask);
   c->success = 0;
+  c->barrier[0] = 0;
+  c->barrier[1] = 0;
   if(failed_mask) {
     return 0;
   }

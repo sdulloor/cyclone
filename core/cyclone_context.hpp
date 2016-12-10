@@ -136,6 +136,10 @@ typedef struct cyclone_st {
   int ae_response_sources[PKT_BURST];
   int ae_response_cnt;
 
+  int ae_nack_term;
+  int ae_nack_idx;
+  unsigned long ae_nack_ts;
+
   unsigned long completions;
   unsigned long mark;
   
@@ -179,7 +183,19 @@ typedef struct cyclone_st {
 	to_send = i;
     }
     if(to_send != -1) {
-      send_msg(&ae_responses[to_send], ae_response_sources[to_send]);
+      if(ae_responses[to_send].aer.success == -1) {
+	if(ae_responses[to_send].aer.term != ae_nack_term ||
+	   ae_responses[to_send].aer.current_idx != ae_nack_idx ||
+	   (rtc_clock::current_time() >= (ae_nack_ts + RAFT_NACK_TIMEOUT))) {
+	  ae_nack_term = ae_responses[to_send].aer.term;
+	  ae_nack_idx  = ae_responses[to_send].aer.current_idx;
+	  ae_nack_ts   = rtc_clock::current_time();
+	  send_msg(&ae_responses[to_send], ae_response_sources[to_send]);
+	}
+      }
+      else {
+	send_msg(&ae_responses[to_send], ae_response_sources[to_send]);
+      }
     }
     else {
       for(int i=0;i<ae_response_cnt;i++) {
@@ -526,7 +542,8 @@ struct cyclone_monitor {
 
     snapshot = (unsigned int *)malloc(num_quorums*sizeof(unsigned int));
     cyclone_handle->snapshot = ~1L;
-    
+    cyclone_handle->ae_nack_term = -1;
+ 
     while(!terminate) {
       // Handle any outstanding requests
       available = rte_eth_rx_burst(cyclone_handle->me_port,

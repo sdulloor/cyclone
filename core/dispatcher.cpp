@@ -378,7 +378,12 @@ void dispatcher_start(const char* config_cluster_path,
     core_status[i].exec_term      = 0;
     core_status[i].checkpoint_idx = -1;
     memset(&core_status[i].nonce, 0, sizeof(ic_rdv_t));
+    core_status[i].stable  = 0;
+    core_status[i].success = 0;
+    core_status[i].barrier[0] = 0;
+    core_status[i].barrier[1] = 0;
   }
+  
   
   for(int i=0;i<num_quorums;i++) {
     quorum_switch *router = new quorum_switch(&pt_cluster, &pt_quorum);
