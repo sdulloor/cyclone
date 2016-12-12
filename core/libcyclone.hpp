@@ -62,7 +62,7 @@ int (*rpc_callback_t)(const unsigned char *data,
 		      rpc_cookie_t * rpc_cookie);
 
 //Garbage collect return value
-typedef void (*rpc_gc_callback_t)(void *data);
+typedef void (*rpc_gc_callback_t)(rpc_cookie_t *cookie);
 
 // Callbacks structure
 typedef struct rpc_callbacks_st {

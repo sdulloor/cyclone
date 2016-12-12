@@ -56,9 +56,9 @@ int callback(const unsigned char *data,
   return cookie->log_idx;
 }
 
-void gc(void *data)
+void gc(rpc_cookie_t *cookie)
 {
-  free(data);
+  free(cookie->ret_value);
 }
 
 rpc_callbacks_t rpc_callbacks =  {

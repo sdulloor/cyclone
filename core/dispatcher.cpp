@@ -147,13 +147,8 @@ typedef struct executor_st {
     }
     else if(client_buffer->flags & RPC_FLAG_RO) {
       int e = exec_rpc_internal_ro(client_buffer, sz, &cookie);
-      if(client_buffer->wal.leader) {
-	if(!e) {
-	  resp_buffer->code = RPC_REP_OK;
-	}
-	else {
-	  resp_buffer->code = RPC_REP_FAIL;
-	}
+      if(client_buffer->wal.leader && !e) {
+	resp_buffer->code = RPC_REP_OK;
 	client_reply(client_buffer, 
 		     resp_buffer, 
 		     cookie.ret_value, 
@@ -161,45 +156,29 @@ typedef struct executor_st {
 		     port_id,
 		     num_queues*num_quorums + tid);
       }
+      app_callbacks.gc_callback(&cookie);
     }
     else if(client_buffer->code == RPC_REQ_NODEDEL || 
 	    client_buffer->code == RPC_REQ_NODEADD) {
       cstatus->exec_term = client_buffer->wal.term;
       while(client_buffer->wal.rep == REP_UNKNOWN);
-      if(client_buffer->wal.leader) {
-	if(client_buffer->wal.rep == REP_SUCCESS) {
-	  resp_buffer->code = RPC_REP_OK;
-	  client_reply(client_buffer,
-		       resp_buffer,
-		       NULL,
-		       0,
-		       port_id,
-		       num_queues*num_quorums + tid);
-	}
-	else {
-	  resp_buffer->code = RPC_REP_FAIL;
-	  client_reply(client_buffer,
-		       resp_buffer,
-		       NULL,
-		       0,
-		       port_id,
-		       num_queues*num_quorums + tid);
-	}
-	if(cookie.ret_size > 0) {
-	  app_callbacks.gc_callback(cookie.ret_value);
-	}
+      if(client_buffer->wal.leader &&
+	 client_buffer->wal.rep == REP_SUCCESS) {
+	resp_buffer->code = RPC_REP_OK;
+	client_reply(client_buffer,
+		     resp_buffer,
+		     NULL,
+		     0,
+		     port_id,
+		     num_queues*num_quorums + tid);
       }
+      app_callbacks.gc_callback(&cookie);
     }
     else {
       cstatus->exec_term = client_buffer->wal.term;
       int e = exec_rpc_internal(client_buffer, sz, &cookie, cstatus);
-      if(client_buffer->wal.leader) {
-	if(e) {
-	  resp_buffer->code = RPC_REP_FAIL;
-	}
-	else {
-	  resp_buffer->code = RPC_REP_OK;
-	}
+      if(client_buffer->wal.leader && !e) {
+	resp_buffer->code = RPC_REP_OK;
 	client_reply(client_buffer, 
 		     resp_buffer, 
 		     cookie.ret_value, 
@@ -207,9 +186,7 @@ typedef struct executor_st {
 		     port_id,
 		     num_queues*num_quorums + tid);
       }
-      if(cookie.ret_size > 0) {
-	app_callbacks.gc_callback(cookie.ret_value);
-      }
+      app_callbacks.gc_callback(&cookie);
     }
   }
 
