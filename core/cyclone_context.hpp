@@ -593,7 +593,6 @@ struct cyclone_monitor {
 	    rte_pktmbuf_free(k);
 	  }
 	}
-	continue;
       }
       // Check for requests on the network
       available = rte_eth_rx_burst(cyclone_handle->me_port,
