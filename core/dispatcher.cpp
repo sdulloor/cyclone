@@ -101,6 +101,7 @@ int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie, core_status_t *
   }
   else {
     __sync_synchronize(); // publish core status
+    app_callbacks.gc_callback(cookie);
     return -1;
   } 
 }
@@ -156,7 +157,9 @@ typedef struct executor_st {
 		     port_id,
 		     num_queues*num_quorums + tid);
       }
-      app_callbacks.gc_callback(&cookie);
+      if(!e) {
+	app_callbacks.gc_callback(&cookie);
+      }
     }
     else if(client_buffer->code == RPC_REQ_NODEDEL || 
 	    client_buffer->code == RPC_REQ_NODEADD) {
@@ -172,7 +175,6 @@ typedef struct executor_st {
 		     port_id,
 		     num_queues*num_quorums + tid);
       }
-      app_callbacks.gc_callback(&cookie);
     }
     else {
       cstatus->exec_term = client_buffer->wal.term;
@@ -186,7 +188,9 @@ typedef struct executor_st {
 		     port_id,
 		     num_queues*num_quorums + tid);
       }
-      app_callbacks.gc_callback(&cookie);
+      if(!e) {
+	app_callbacks.gc_callback(&cookie);
+      }
     }
   }
 
