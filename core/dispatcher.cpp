@@ -126,6 +126,30 @@ typedef struct executor_st {
   int port_id;
   rpc_cookie_t cookie;
   core_status_t *cstatus;
+  int replicas;
+
+  int compute_quorum_size(int idx)
+  {
+    int votes = 1; // include me
+    for(int i=0;i<replicas;i++) {
+      if(i == quorums[quorum]->me)
+	continue;
+      if(quorums[quorum]->match_indices[i] >= idx) {
+	votes++;
+      }
+    }
+    return votes;
+  }
+
+  void await_quorum(int idx)
+  {
+   
+    int x = compute_quorum_size(idx);
+    if(x <= replicas/2) {
+      BOOST_LOG_TRIVIAL(info) << "Warning .. commit w/o full quorum. "
+			      << x; 
+    }
+  }
 
   void exec()
   {
@@ -180,6 +204,7 @@ typedef struct executor_st {
       cstatus->exec_term = client_buffer->wal.term;
       int e = exec_rpc_internal(client_buffer, sz, &cookie, cstatus);
       if(client_buffer->wal.leader && !e) {
+	await_quorum(client_buffer->wal.idx);
 	resp_buffer->code = RPC_REP_OK;
 	client_reply(client_buffer, 
 		     resp_buffer, 
@@ -204,6 +229,7 @@ typedef struct executor_st {
 	while(rte_ring_sc_dequeue(to_cores[tid], (void **)&client_buffer) != 0);
 	sz = client_buffer->payload_sz;
 	cstatus = &core_status[tid];
+	client_buffer->timestamp = rte_get_tsc_cycles();
 	exec();
 	rte_pktmbuf_free_seg(m);
       }
@@ -381,6 +407,7 @@ void dispatcher_start(const char* config_cluster_path,
     executor_t *ex = new executor_t();
     ex->tid = i;
     ex->port_id = i % global_dpdk_context->ports; 
+    ex->replicas =  pt_quorum.get<int>("active.replicas");
     int e = rte_eal_remote_launch(dpdk_executor, (void *)ex, 1 + num_quorums + i);
     if(e != 0) {
       BOOST_LOG_TRIVIAL(fatal) << "Failed to launch executor on remote lcore";

@@ -42,7 +42,6 @@ typedef struct cfg_change_st {
 // Comm between app core and raft core
 typedef struct wal_entry_st {
   volatile int rep;
-  volatile int quorum;
   int term;
   int idx;
   int leader;

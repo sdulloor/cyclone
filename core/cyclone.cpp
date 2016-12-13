@@ -264,40 +264,13 @@ static int __applylog(raft_server_t* raft,
   return 0;
 }
 
-static int __setquorum(raft_server_t* raft,
-		       void *udata,
-		       raft_entry_t *ety,
-		       int ety_idx,
-		       int quorum)
+static int __setmatch(raft_server_t* raft,
+		      void *udata,
+		      int replica,
+		      int ety_idx)
 {
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
-  unsigned char *chunk = (unsigned char *)pktadj2rpc((rte_mbuf *)ety->pkt);
-  int delta_node_id;
-  int seg_no = 0;
-  char *pkt_end;
-  rte_mbuf *m = (rte_mbuf *)(ety->pkt);
-  while(m != NULL) {
-    rpc_t *rpc;
-    if(seg_no == 0) {
-      rpc = pktadj2rpc(m);
-    }
-    else {
-      rpc = rte_pktmbuf_mtod(m, rpc_t *);
-    }
-    pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
-    while(true) {
-      rpc->wal.quorum = quorum;
-      __sync_synchronize();
-      char *point = (char *)rpc;
-      point = point + sizeof(rpc_t);
-      point = point + rpc->payload_sz;
-      if(point >= pkt_end)
-	break;
-      rpc = (rpc_t *)point;
-    }
-    m = m->next;
-    seg_no++;
-  }
+  cyclone_handle->match_indices[replica] = ety_idx;
   return 0;
 }
 
@@ -413,7 +386,6 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
       while(true) {
 	handle_cfg_change(cyclone_handle, e, (unsigned char *)rpc);
 	rpc->wal.rep    = REP_UNKNOWN;
-	rpc->wal.quorum = 0;
 	rpc->wal.leader = is_leader;
 	rpc->wal.term   = e->term;
 	rpc->wal.idx    = ety_idx + i;
@@ -630,7 +602,7 @@ raft_cbs_t raft_funcs = {
   __send_appendentries_opt,
   __send_appendentries_response,
   __applylog,
-  __setquorum,
+  __setmatch,
   __persist_vote,
   __persist_term,
   __raft_logentry_offer,
@@ -698,6 +670,10 @@ void* cyclone_setup(const char *config_quorum_path,
   cyclone_handle->ae_response_cnt = 0;
   cyclone_handle->raft_handle = raft_new();
   cyclone_handle->completions = 0;
+  cyclone_handle->match_indices = (int *)malloc(cyclone_handle->replicas*sizeof(int));
+  for(int i=0;i<cyclone_handle->replicas;i++) {
+    cyclone_handle->match_indices[i] = -1;
+  }
   cyclone_handle->mark = rtc_clock::current_time();
   raft_set_multi_inflight(cyclone_handle->raft_handle);
   BOOST_LOG_TRIVIAL(info) << "RAFT start. sizeof(msg_t) is :" 

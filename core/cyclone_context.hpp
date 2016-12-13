@@ -131,6 +131,7 @@ typedef struct cyclone_st {
   unsigned char* cyclone_buffer_in;
   cyclone_monitor *monitor_obj;
   volatile int sending_checkpoints;
+  volatile int *match_indices;
 
   msg_t ae_responses[PKT_BURST];
   int ae_response_sources[PKT_BURST];
