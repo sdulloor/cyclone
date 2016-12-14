@@ -15,6 +15,7 @@ const int REP_FAILED  = -1;
 // Server side timeouts -- usecs
 static const int PERIODICITY                = 1; 
 static const int RAFT_ELECTION_TIMEOUT      = 10000; 
+static const int RAFT_QUORUM_TO             = 500;
 static const int RAFT_REQUEST_TIMEOUT       = 1000; 
 static const int RAFT_NACK_TIMEOUT          = 20;
 // RAFT log tuning -- need to match load

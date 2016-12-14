@@ -41,18 +41,29 @@
 #include<stdio.h>
 #include <time.h>
 #include<unistd.h>
-static rtc_clock timer("EXEC_LOAD ", 5000000);
+
+// Rate measurement stuff
+static unsigned long *marks;
+static unsigned long *completions;
+
 
 int callback(const unsigned char *data,
 	       const int len,
 	       rpc_cookie_t *cookie)
 {
-  unsigned long exec_begin = rtc_clock::current_time();
+  cookie->ret_value  = NULL;
+  cookie->ret_size   = 0;
   cookie->ret_value  = malloc(len);
   cookie->ret_size   = len;
   memcpy(cookie->ret_value, data, len);
   while(*cookie->replication == REP_UNKNOWN);
-  timer.sample_interval(exec_begin);
+  if((++completions[cookie->core_id]) >= 1000000) {
+    BOOST_LOG_TRIVIAL(info) << "Completion rate = "
+			    << ((double)completions[cookie->core_id])
+      /(rtc_clock::current_time() - marks[cookie->core_id]);
+    completions[cookie->core_id] = 0;
+    marks[cookie->core_id] = rtc_clock::current_time();
+  }
   return cookie->log_idx;
 }
 
@@ -72,6 +83,10 @@ int main(int argc, char *argv[])
     printf("Usage1: %s replica_id replica_mc clients cluster_config quorum_config ports\n", argv[0]);
     exit(-1);
   }
+  marks       = (unsigned long *)malloc(executor_threads*sizeof(unsigned long));
+  completions = (unsigned long *)malloc(executor_threads*sizeof(unsigned long));
+  memset(marks, 0, executor_threads*sizeof(unsigned long));
+  memset(completions, 0, executor_threads*sizeof(unsigned long));
   int server_id = atoi(argv[1]);
   cyclone_network_init(argv[4],
 		       atoi(argv[6]),

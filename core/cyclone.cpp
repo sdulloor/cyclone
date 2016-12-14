@@ -405,7 +405,7 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	    triple[1] = m;
 	    triple[2] = rpc;
 	    if(rte_ring_mp_enqueue_bulk(to_cores[core], triple, 3) == -ENOBUFS) {
-	      BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
+	      BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full (req rw)";
 	      exit(-1);
 	    }
 	  }

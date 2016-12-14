@@ -438,7 +438,7 @@ struct cyclone_monitor {
 	  triple[1] = m;
 	  triple[2] = rpc;
 	  if(rte_ring_mp_enqueue_bulk(to_cores[core], triple, 3) == -ENOBUFS) {
-	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
+	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full (req stable)";
 	    exit(-1);
 	  }
 	}
@@ -469,7 +469,7 @@ struct cyclone_monitor {
 	  triple[1] = m;
 	  triple[2] = rpc;
 	  if(rte_ring_mp_enqueue_bulk(to_cores[core], triple, 3) == -ENOBUFS) {
-	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full";
+	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full (req ro)";
 	    exit(-1);
 	  }
 	}

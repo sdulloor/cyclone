@@ -49,7 +49,10 @@ static void client_reply(rpc_t *req,
 				  rep,
 				  sizeof(rpc_t) + sz);
   
-  cyclone_tx(global_dpdk_context, port, m, q);
+  int e = cyclone_tx(global_dpdk_context, port, m, q);
+  if(e) {
+    BOOST_LOG_TRIVIAL(warning) << "Failed to send response to client";
+  }
 }
 
 int init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
@@ -127,6 +130,7 @@ typedef struct executor_st {
   rpc_cookie_t cookie;
   core_status_t *cstatus;
   int replicas;
+  unsigned long QUORUM_TO;
 
   int compute_quorum_size(int idx)
   {
@@ -141,14 +145,11 @@ typedef struct executor_st {
     return votes;
   }
 
-  void await_quorum(int idx)
+  void await_quorum(rpc_t *rpc, int idx)
   {
-   
-    int x = compute_quorum_size(idx);
-    if(x <= replicas/2) {
-      BOOST_LOG_TRIVIAL(info) << "Warning .. commit w/o full quorum. "
-			      << x; 
-    }
+    do {
+    } while(compute_quorum_size(idx) < replicas &&
+	    (rte_get_tsc_cycles() - rpc->timestamp <= QUORUM_TO));
   }
 
   void exec()
@@ -172,7 +173,7 @@ typedef struct executor_st {
     }
     else if(client_buffer->flags & RPC_FLAG_RO) {
       int e = exec_rpc_internal_ro(client_buffer, sz, &cookie);
-      if(client_buffer->wal.leader && !e) {
+      if(client_buffer->wal.leader && !e && (quorums[quorum]->snapshot&1)) {
 	resp_buffer->code = RPC_REP_OK;
 	client_reply(client_buffer, 
 		     resp_buffer, 
@@ -190,7 +191,8 @@ typedef struct executor_st {
       cstatus->exec_term = client_buffer->wal.term;
       while(client_buffer->wal.rep == REP_UNKNOWN);
       if(client_buffer->wal.leader &&
-	 client_buffer->wal.rep == REP_SUCCESS) {
+	 client_buffer->wal.rep == REP_SUCCESS &&
+	 (quorums[quorum]->snapshot&1)) {
 	resp_buffer->code = RPC_REP_OK;
 	client_reply(client_buffer,
 		     resp_buffer,
@@ -203,8 +205,8 @@ typedef struct executor_st {
     else {
       cstatus->exec_term = client_buffer->wal.term;
       int e = exec_rpc_internal(client_buffer, sz, &cookie, cstatus);
-      if(client_buffer->wal.leader && !e) {
-	await_quorum(client_buffer->wal.idx);
+      if(client_buffer->wal.leader && !e && (quorums[quorum]->snapshot&1)) {
+	await_quorum(client_buffer, client_buffer->wal.idx);
 	resp_buffer->code = RPC_REP_OK;
 	client_reply(client_buffer, 
 		     resp_buffer, 
@@ -403,11 +405,15 @@ void dispatcher_start(const char* config_cluster_path,
   }
   cyclone_boot();
   
+  double tsc_mhz = (rte_get_tsc_hz()/1000000.0);
+  unsigned long QUORUM_TO = RAFT_QUORUM_TO*tsc_mhz;
+  
   for(int i=0;i < executor_threads;i++) {
     executor_t *ex = new executor_t();
     ex->tid = i;
     ex->port_id = i % global_dpdk_context->ports; 
     ex->replicas =  pt_quorum.get<int>("active.replicas");
+    ex->QUORUM_TO = QUORUM_TO;
     int e = rte_eal_remote_launch(dpdk_executor, (void *)ex, 1 + num_quorums + i);
     if(e != 0) {
       BOOST_LOG_TRIVIAL(fatal) << "Failed to launch executor on remote lcore";

@@ -52,6 +52,7 @@ typedef struct rpc_client_st {
       }
 
       if(packet_in->channel_seq != (channel_seq - 1)) {
+	BOOST_LOG_TRIVIAL(warning) << "Channel seq mismatch";
 	continue;
       }
       
@@ -74,7 +75,10 @@ typedef struct rpc_client_st {
 				    mb,
 				    pkt,
 				    sz);
-    cyclone_tx(global_dpdk_context, 0, mb, me_queue);
+    int e = cyclone_tx(global_dpdk_context, 0, mb, me_queue);
+    if(e) {
+      BOOST_LOG_TRIVIAL(warning) << "Client failed to send to server";
+    }
   }
 
 

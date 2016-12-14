@@ -138,7 +138,7 @@ int main(int argc, const char *argv[]) {
   int client_id_stop  = atoi(argv[2]);
   driver_args_t *dargs;
   void **prev_handles;
-  cyclone_network_init(argv[7], 1, atoi(argv[3]), client_id_stop - client_id_start);
+  cyclone_network_init(argv[7], 1, atoi(argv[3]), 1 + client_id_stop - client_id_start);
   driver_args_t ** dargs_array = 
     (driver_args_t **)malloc((client_id_stop - client_id_start)*sizeof(driver_args_t *));
   for(int me = client_id_start; me < client_id_stop; me++) {
@@ -162,7 +162,7 @@ int main(int argc, const char *argv[]) {
       sprintf(fname_server, "%s", argv[7]);
       sprintf(fname_client, "%s%d.ini", argv[8], i);
       dargs->handles[i] = cyclone_client_init(dargs->mc,
-					      me - client_id_start,
+					      1 + me - client_id_start,
 					      fname_server,
 					      atoi(argv[9]),
 					      fname_client);
