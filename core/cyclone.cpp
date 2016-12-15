@@ -59,7 +59,7 @@ static void __send_appendentries_response(void *udata,
   int my_raft_q   = cyclone_handle->my_q(q_raft);
   rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[my_raft_q]);
   if(m == NULL) {
-    BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send requestvote";
+    BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send appendentries response";
     exit(-1);
   }
   cyclone_prep_mbuf(global_dpdk_context,
@@ -92,7 +92,8 @@ static int __send_appendentries(raft_server_t* raft,
   int my_raft_q   = cyclone_handle->my_q(q_raft);
   rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[my_raft_q]);
   if(mb == NULL) {
-    BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send requestvote";
+    BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send appendentries";
+    exit(-1);
   }
   cyclone_prep_mbuf(global_dpdk_context,
 		    cyclone_handle->me_port,
@@ -101,7 +102,10 @@ static int __send_appendentries(raft_server_t* raft,
 		    mb,
 		    msg,
 		    ptr - cyclone_handle->cyclone_buffer_out);
-  cyclone_tx(global_dpdk_context, cyclone_handle->me_port, mb, my_raft_q);
+  
+  if(cyclone_tx(global_dpdk_context, cyclone_handle->me_port, mb, my_raft_q)) {
+    BOOST_LOG_TRIVIAL(warning) << "Send appendentries (empty) fail";
+  }
   return m->n_entries;
 }
 
@@ -130,8 +134,8 @@ static int __send_appendentries_opt(raft_server_t* raft,
     // Bump refcnt, add ethernet header and handoff for transmission
     rte_mbuf *e = rte_pktmbuf_alloc(global_dpdk_context->extra_pools[cyclone_handle->me_quorum]);
     if(e == NULL) {
-      BOOST_LOG_TRIVIAL(info) << "Unable to allocate header ";
-      break;
+      BOOST_LOG_TRIVIAL(fatal) << "Unable to allocate header ";
+      exit(-1);
     }
     
     rte_mbuf *bc = b;
@@ -156,6 +160,9 @@ static int __send_appendentries_opt(raft_server_t* raft,
     tx += cyclone_buffer_pkt(global_dpdk_context, cyclone_handle->me_port, e, my_raft_q);
   }
   tx += cyclone_flush_buffer(global_dpdk_context, cyclone_handle->me_port, my_raft_q);
+  if(tx < pkts_out) {
+    BOOST_LOG_TRIVIAL(warning) << "Send appendentries fail";
+  }
   return tx;
 }
 

@@ -136,6 +136,7 @@ typedef struct cyclone_st {
   msg_t ae_responses[PKT_BURST];
   int ae_response_sources[PKT_BURST];
   int ae_response_cnt;
+  unsigned long RAFT_NACK_TIMEOUT_CYCLES;
 
   int ae_nack_term;
   int ae_nack_idx;
@@ -187,10 +188,10 @@ typedef struct cyclone_st {
       if(ae_responses[to_send].aer.success == -1) {
 	if(ae_responses[to_send].aer.term != ae_nack_term ||
 	   ae_responses[to_send].aer.current_idx != ae_nack_idx ||
-	   (rtc_clock::current_time() >= (ae_nack_ts + RAFT_NACK_TIMEOUT))) {
+	   (rte_get_tsc_cycles() >= (ae_nack_ts + RAFT_NACK_TIMEOUT_CYCLES))) {
 	  ae_nack_term = ae_responses[to_send].aer.term;
 	  ae_nack_idx  = ae_responses[to_send].aer.current_idx;
-	  ae_nack_ts   = rtc_clock::current_time();
+	  ae_nack_ts   = rte_get_tsc_cycles();
 	  send_msg(&ae_responses[to_send], ae_response_sources[to_send]);
 	}
       }
@@ -540,6 +541,7 @@ struct cyclone_monitor {
     int available;
     unsigned int current_term;
     rte_mbuf *m;
+    cyclone_handle->RAFT_NACK_TIMEOUT_CYCLES = RAFT_NACK_TIMEOUT*tsc_mhz;
 
     snapshot = (unsigned int *)malloc(num_quorums*sizeof(unsigned int));
     cyclone_handle->snapshot = ~1L;
