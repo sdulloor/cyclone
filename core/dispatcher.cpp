@@ -147,6 +147,7 @@ typedef struct executor_st {
 
   void await_quorum(rpc_t *rpc, int idx)
   {
+    return; // TBD
     do {
     } while(compute_quorum_size(idx) < replicas &&
 	    (rte_get_tsc_cycles() - rpc->timestamp <= QUORUM_TO));

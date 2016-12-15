@@ -250,13 +250,14 @@ static int __applylog(raft_server_t* raft,
     delta_node_id = cfg->node;
     BOOST_LOG_TRIVIAL(info) << "STARTUP node " << delta_node_id;
   }
+  /*
   if(cyclone_handle->completions >= 1000000) {
     BOOST_LOG_TRIVIAL(info) << "Replication rate = "
 			    <<((double)cyclone_handle->completions)/(rtc_clock::current_time() - cyclone_handle->mark);
     cyclone_handle->completions = 0;
     cyclone_handle->mark = rtc_clock::current_time();
   }
-  
+  */
   int checkpoint_idx = -1;
   for(int i=0;i<executor_threads;i++) {
     if(core_to_quorum(i) != cyclone_handle->me_quorum)

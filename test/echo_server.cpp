@@ -57,6 +57,7 @@ int callback(const unsigned char *data,
   cookie->ret_size   = len;
   memcpy(cookie->ret_value, data, len);
   while(*cookie->replication == REP_UNKNOWN);
+  /*
   if((++completions[cookie->core_id]) >= 1000000) {
     BOOST_LOG_TRIVIAL(info) << "Completion rate = "
 			    << ((double)completions[cookie->core_id])
@@ -64,6 +65,7 @@ int callback(const unsigned char *data,
     completions[cookie->core_id] = 0;
     marks[cookie->core_id] = rtc_clock::current_time();
   }
+  */
   return cookie->log_idx;
 }
 
