@@ -536,6 +536,7 @@ struct cyclone_monitor {
     unsigned long mark = rte_get_tsc_cycles();
     double tsc_mhz = (rte_get_tsc_hz()/1000000.0);
     unsigned long PERIODICITY_CYCLES = PERIODICITY*tsc_mhz;
+    unsigned long LOOP_TO_CYCLES     = RAFT_REQUEST_TIMEOUT*tsc_mhz;
     unsigned long elapsed_time;
     messages = (msg_entry_t *)malloc(2*PKT_BURST*sizeof(msg_entry_t));
     int available;
@@ -620,6 +621,11 @@ struct cyclone_monitor {
       }
       // Handle periodic events -- - AFTER any incoming requests
       elapsed_time = rte_get_tsc_cycles() - mark;
+      if(elapsed_time >= LOOP_TO_CYCLES) {
+	BOOST_LOG_TRIVIAL(warning) << "Quorum " << cyclone_handle->me_quorum
+				   << " event loop too long cycles = " 
+				   << elapsed_time;
+      }
       if(elapsed_time  >= PERIODICITY_CYCLES) {
 	raft_periodic(cyclone_handle->raft_handle, (int)(elapsed_time/tsc_mhz));
 	mark = rte_get_tsc_cycles();
