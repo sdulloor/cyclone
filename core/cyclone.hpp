@@ -78,7 +78,7 @@ typedef struct core_status_st {
   volatile int exec_term;
   volatile int checkpoint_idx;
   volatile int stable;
-  ic_rdv_t * nonce;
+  ic_rdv_t nonce;
   volatile int success;
   volatile unsigned int barrier[2];
 } __attribute__((aligned(64))) core_status_t;
@@ -116,7 +116,7 @@ static int wait_barrier_follower(core_status_t *c,
     stable = c->stable;
     if(stable & 1)
       continue;
-    if(memcmp(c->nonce, nonce, sizeof(ic_rdv_t)) != 0)
+    if(memcmp(&c->nonce, nonce, sizeof(ic_rdv_t)) != 0)
       continue;
     if(stable != c->stable)
       continue;
@@ -140,7 +140,7 @@ static int wait_barrier_leader(core_status_t *c,
   int cnt = __builtin_popcountl(mask);
   c->stable++;
   __sync_synchronize();
-  memcpy(c->nonce, nonce, sizeof(ic_rdv_t));
+  memcpy(&c->nonce, nonce, sizeof(ic_rdv_t));
   __sync_synchronize();
   c->stable++;
   __sync_fetch_and_or(&c->barrier[0], 1UL << core_id);

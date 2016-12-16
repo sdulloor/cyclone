@@ -409,6 +409,10 @@ struct cyclone_monitor {
 	  rte_pktmbuf_free(m);
 	  continue;
 	}
+	if(rpc->core_mask > ((1UL << executor_threads) - 1)) {
+	  BOOST_LOG_TRIVIAL(fatal) << "Invalid core mask " << rpc->core_mask;
+	  exit(-1);
+	}
 	ic_rdv_t *rdv = rpc2rdv(rpc);
 	rdv->rtc_ts = rtc_clock::current_time();
 	memcpy(&rdv->mc_id, 
