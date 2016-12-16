@@ -399,6 +399,7 @@ struct cyclone_monitor {
       }
       adjust_head(m);
       rpc_t *rpc = pktadj2rpc(m);
+      int core = __builtin_ffsl(rpc->core_mask) - 1;
       if(!multicore && (rpc->core_mask & (rpc->core_mask - 1))) {
 	// Received a multi-core operation
 	// Check that I am quorum 0
@@ -428,8 +429,9 @@ struct cyclone_monitor {
 	rte_pktmbuf_free(m);
 	continue;
       }
-      int core = __builtin_ffsl(rpc->core_mask) - 1;
-      rpc->wal.leader = 1;
+      if(core_to_quorum(__builtin_ffsl(rpc->core_mask) - 1) == cyclone_handle->me_quorum) {
+	rpc->wal.leader = 1;
+      }
       if(rpc->code == RPC_REQ_STABLE) {
 	if(take_snapshot(snapshot)) {
 	  rte_pktmbuf_append(m, num_quorums*sizeof(unsigned int));

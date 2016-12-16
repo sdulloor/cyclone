@@ -94,7 +94,11 @@ int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie, core_status_t *
   if(!init_rpc_cookie_info(cookie, rpc)) {
     return -1;
   }
-  int checkpoint_idx = app_callbacks.rpc_callback((const unsigned char *)(rpc + 1),
+  const unsigned char * user_data = (const unsigned char *)(rpc + 1);
+  if(rpc->core_mask & (rpc->core_mask - 1)) {
+    user_data += sizeof(ic_rdv_t);
+  }
+  int checkpoint_idx = app_callbacks.rpc_callback(user_data,
 						  len,
 						  cookie);
   if(rpc->wal.rep == REP_SUCCESS) {    
@@ -114,7 +118,8 @@ int exec_rpc_internal_ro(rpc_t *rpc, int len, rpc_cookie_t *cookie)
   if(!init_rpc_cookie_info(cookie, rpc)) {
     return -1;
   }
-  app_callbacks.rpc_callback((const unsigned char *)(rpc + 1),
+  const unsigned char * user_data = (const unsigned char *)(rpc + 1);
+  app_callbacks.rpc_callback(user_data,
 			     len,
 			     cookie);
   return 0;

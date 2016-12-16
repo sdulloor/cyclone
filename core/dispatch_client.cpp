@@ -33,7 +33,12 @@ typedef struct rpc_client_st {
   
   int choose_quorum(unsigned long core_mask)
   {
-    return core_to_quorum(__builtin_ffsl(core_mask) - 1);
+    if(core_mask & (core_mask - 1)) {
+      return 0;
+    }
+    else {
+      return core_to_quorum(__builtin_ffsl(core_mask) - 1);
+    }
   }
 
   int common_receive_loop(int blob_sz)
@@ -187,14 +192,23 @@ typedef struct rpc_client_st {
       // Make request
       packet_out->code        = RPC_REQ;
       packet_out->flags       = flags;
-      packet_out->core_mask     = core_mask;
+      packet_out->core_mask   = core_mask;
       packet_out->client_port = me_queue;
       packet_out->channel_seq = channel_seq++;
       packet_out->requestor   = me_mc;
       packet_out->payload_sz  = sz;
-      memcpy(packet_out + 1, payload, sz);
-      send_to_server(packet_out, sizeof(rpc_t) + sz, quorum_id);
-      resp_sz = common_receive_loop(sizeof(rpc_t) + sz);
+      if((core_mask & (core_mask - 1)) != 0) {
+	char *user_data = (char *)(packet_out + 1);
+	user_data += sizeof(ic_rdv_t);
+	memcpy(user_data, payload, sz);
+	send_to_server(packet_out, sizeof(rpc_t) + sizeof(ic_rdv_t) + sz, quorum_id);
+	resp_sz = common_receive_loop(sizeof(rpc_t) + sizeof(ic_rdv_t) + sz);
+      }
+      else {
+	memcpy(packet_out + 1, payload, sz);
+	send_to_server(packet_out, sizeof(rpc_t) + sz, quorum_id);
+	resp_sz = common_receive_loop(sizeof(rpc_t) + sz);
+      }
       if(resp_sz == -1) {
 	update_server("rx timeout, make rpc");
 	continue;
