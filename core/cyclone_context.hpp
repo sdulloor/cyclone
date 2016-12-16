@@ -393,11 +393,13 @@ struct cyclone_monitor {
     memset(chain_size, 0, 2*PKT_BURST);
     for(int i=0;i<available;i++) {
       m = pkt_array[i];
-      if(bad(m)) {
-	rte_pktmbuf_free(m);
-	continue;
+      if(!multicore) {
+	if(bad(m)) {
+	  rte_pktmbuf_free(m);
+	  continue;
+	}
+	adjust_head(m);
       }
-      adjust_head(m);
       rpc_t *rpc = pktadj2rpc(m);
       int core = __builtin_ffsl(rpc->core_mask) - 1;
       if(!multicore && (rpc->core_mask & (rpc->core_mask - 1))) {
@@ -412,7 +414,7 @@ struct cyclone_monitor {
 	memcpy(&rdv->mc_id, 
 	       global_dpdk_context->mc_addresses[global_dpdk_context->me],
 	       6);
-	int quorum_mask = 0;
+	unsigned long quorum_mask = 0;
 	unsigned long t = rpc->core_mask;
 	while(t) {
 	  int c = __builtin_ffsl(t) - 1;
@@ -424,7 +426,9 @@ struct cyclone_monitor {
 	  rte_mbuf_refcnt_update(m, 1);
 	  if(rte_ring_sp_enqueue(to_quorums[q], (void *)m) == -ENOBUFS) {
 	    BOOST_LOG_TRIVIAL(fatal) << "Failed to enqueue in cross quorum q";
+	    exit(-1);
 	  }
+	  quorum_mask = quorum_mask & ~(1UL << q);
 	}
 	rte_pktmbuf_free(m);
 	continue;
@@ -609,8 +613,7 @@ struct cyclone_monitor {
 	accept(available, 0);
       }
       // Check for transactions
-      int e = rte_ring_sc_dequeue(to_quorums[cyclone_handle->me_quorum], (void **)&m);
-      if(e == 0) {
+      while(rte_ring_sc_dequeue(to_quorums[cyclone_handle->me_quorum], (void **)&m) == 0) {
 	pkt_array[0] = rte_pktmbuf_clone(m, 
 					 global_dpdk_context->mempools
 					 [cyclone_handle->my_q(q_dispatcher)]);

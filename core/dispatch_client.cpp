@@ -199,10 +199,18 @@ typedef struct rpc_client_st {
       packet_out->payload_sz  = sz;
       if((core_mask & (core_mask - 1)) != 0) {
 	char *user_data = (char *)(packet_out + 1);
+	memcpy(user_data, terms, num_quorums*sizeof(unsigned int));
+	user_data += num_quorums*sizeof(unsigned int);
 	user_data += sizeof(ic_rdv_t);
 	memcpy(user_data, payload, sz);
-	send_to_server(packet_out, sizeof(rpc_t) + sizeof(ic_rdv_t) + sz, quorum_id);
-	resp_sz = common_receive_loop(sizeof(rpc_t) + sizeof(ic_rdv_t) + sz);
+	unsigned int pkt_sz =  sizeof(rpc_t) + 
+	  num_quorums*sizeof(unsigned int) +
+	  sizeof(ic_rdv_t) + 
+	  sz;
+	send_to_server(packet_out, 
+		       pkt_sz,
+		       quorum_id);
+	resp_sz = common_receive_loop(pkt_sz);
       }
       else {
 	memcpy(packet_out + 1, payload, sz);
