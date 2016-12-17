@@ -65,25 +65,23 @@ int init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
     // Need to wait for sync
     unsigned long mask     = rpc->core_mask;
     unsigned int *snapshot = (unsigned int *)(rpc + 1);
-    while(mask != 0) {
-      int core = __builtin_ffsl(mask) - 1;
-      core_status_t *cstatus = &core_status[core];
-      if(cookie->core_id == core) {
-	if(!wait_barrier_leader(cstatus, 
+    int core_leader = __builtin_ffsl(mask) - 1;
+    core_status_t *cstatus_leader = &core_status[core_leader];
+    if(cookie->core_id == core_leader) {
+      if(!wait_barrier_leader(cstatus_leader, 
+			      rpc2rdv(rpc),
+			      cookie->core_id,
+			      snapshot,
+			      mask))
+	return 0;
+    }
+    else {
+      if(!wait_barrier_follower(cstatus_leader, 
 				rpc2rdv(rpc),
 				cookie->core_id,
-				snapshot,
+				snapshot[core_leader],
 				mask))
 	  return 0;
-      }
-      else {
-	if(!wait_barrier_follower(cstatus, 
-				  rpc2rdv(rpc),
-				  cookie->core_id,
-				  snapshot,
-				  mask))
-	  return 0;
-      }
     }
   }
   return 1;
