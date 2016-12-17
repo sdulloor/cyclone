@@ -80,7 +80,7 @@ int init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
       if(!wait_barrier_follower(cstatus_leader, 
 				rpc2rdv(rpc),
 				cookie->core_id,
-				snapshot[core_leader],
+				snapshot[core_to_quorum(core_leader)],
 				mask)) {
 	return 0;
       }
@@ -96,7 +96,8 @@ int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie, core_status_t *
   }
   const unsigned char * user_data = (const unsigned char *)(rpc + 1);
   if(rpc->core_mask & (rpc->core_mask - 1)) {
-    user_data += sizeof(ic_rdv_t);
+    user_data += num_quorums*sizeof(unsigned int) + sizeof(ic_rdv_t);
+    len        -= (num_quorums*sizeof(unsigned int) + sizeof(ic_rdv_t));
   }
   int checkpoint_idx = app_callbacks.rpc_callback(user_data,
 						  len,
@@ -119,6 +120,10 @@ int exec_rpc_internal_ro(rpc_t *rpc, int len, rpc_cookie_t *cookie)
     return -1;
   }
   const unsigned char * user_data = (const unsigned char *)(rpc + 1);
+  if(rpc->core_mask & (rpc->core_mask - 1)) {
+    user_data += num_quorums*sizeof(unsigned int) + sizeof(ic_rdv_t);
+    len       -= (num_quorums*sizeof(unsigned int) + sizeof(ic_rdv_t));
+  }
   app_callbacks.rpc_callback(user_data,
 			     len,
 			     cookie);
