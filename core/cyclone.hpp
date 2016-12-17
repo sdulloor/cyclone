@@ -6,6 +6,7 @@ extern "C" {
 #include "libcyclone.hpp"
 #include <stdlib.h>
 #include <string.h>
+//#include "logging.hpp"
 
 //////// Direct interface
 int cyclone_is_leader(void *cyclone_handle); // returns 1 if true
@@ -108,8 +109,15 @@ static int wait_barrier_follower(core_status_t *c_leader,
   int stable;
   int success;
   while(true) {
-    if(c_leader->exec_term > term_leader) 
+    if(c_leader->exec_term > term_leader) {
+      /*
+      BOOST_LOG_TRIVIAL(info) << "leader term wrong "
+			      << c_leader->exec_term
+			      << " != "
+			      << term_leader;
+      */
       return 0;
+    }
     stable = c_leader->stable;
     if(stable & 1)
       continue;
@@ -123,6 +131,11 @@ static int wait_barrier_follower(core_status_t *c_leader,
   while(c_leader->barrier[0] != mask);
   success = c_leader->success;
   __sync_fetch_and_or(&c_leader->barrier[1], 1UL << core_id);
+  /*
+  if(!success) {
+    BOOST_LOG_TRIVIAL(info) << "leader indicated fail ";
+  }
+  */
   return success;
 }
 
@@ -139,23 +152,38 @@ static int wait_barrier_leader(core_status_t *c_leader,
   __sync_synchronize();
   memcpy(&c_leader->nonce, nonce, sizeof(ic_rdv_t));
   __sync_synchronize();
+  c_leader->success = 1;
+  c_leader->barrier[0] = 0;
+  c_leader->barrier[1] = 0;
   c_leader->stable++;
   __sync_fetch_and_or(&c_leader->barrier[0], 1UL << core_id);
-  unsigned long failed_mask;
+  unsigned long failed_mask = 0;
   while(c_leader->barrier[0] != mask) {
     failed_mask = check_terms(snapshot);
     failed_mask = failed_mask & mask;
     if(failed_mask) {
+      c_leader->success = 0;
       __sync_fetch_and_or(&c_leader->barrier[0], failed_mask);
     }
   }
-  c_leader->success = (failed_mask ? 0:1);
+  /*
+  if(failed_mask) {
+    BOOST_LOG_TRIVIAL(info) << "Failed follower";
+    for(int i=0;i<executor_threads;i++) {
+      if(snapshot[core_to_quorum(i)] < core_status[i].exec_term) {
+	BOOST_LOG_TRIVIAL(info) << "core = "
+				<< i
+				<< " exec term = "
+				<< core_status[i].exec_term
+				<< " snapshot = "
+				<< snapshot[core_to_quorum(i)];
+      }
+    }
+  }
+  */
   __sync_fetch_and_or(&c_leader->barrier[1], 1UL << core_id);
   __sync_fetch_and_or(&c_leader->barrier[1], failed_mask);
   while(c_leader->barrier[1] != mask);
-  c_leader->success = 0;
-  c_leader->barrier[0] = 0;
-  c_leader->barrier[1] = 0;
   if(failed_mask) {
     return 0;
   }
