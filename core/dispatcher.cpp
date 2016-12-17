@@ -72,16 +72,18 @@ int init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
 			      rpc2rdv(rpc),
 			      cookie->core_id,
 			      snapshot,
-			      mask))
+			      mask)) {
 	return 0;
+      }
     }
     else {
       if(!wait_barrier_follower(cstatus_leader, 
 				rpc2rdv(rpc),
 				cookie->core_id,
 				snapshot[core_leader],
-				mask))
-	  return 0;
+				mask)) {
+	return 0;
+      }
     }
   }
   return 1;

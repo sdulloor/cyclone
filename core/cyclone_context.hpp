@@ -576,6 +576,20 @@ struct cyclone_monitor {
       
       cyclone_handle->send_ae_responses();
 
+      // Handle periodic events 
+      elapsed_time = rte_get_tsc_cycles() - mark;
+      if(elapsed_time >= LOOP_TO_CYCLES) {
+	BOOST_LOG_TRIVIAL(warning) << "Quorum " << cyclone_handle->me_quorum
+				   << " event loop too long cycles = " 
+				   << elapsed_time;
+      }
+      if(elapsed_time  >= PERIODICITY_CYCLES) {
+	raft_periodic(cyclone_handle->raft_handle, (int)(elapsed_time/tsc_mhz));
+	mark = rte_get_tsc_cycles();
+      }
+
+      // Note: must do snapshot and kicker activity before
+      // accepting any requests in a new term
       if(publish_snapshot()) {
 	if(cyclone_handle->snapshot & 1) { // is leader
 	  // Send kicker
@@ -628,17 +642,7 @@ struct cyclone_monitor {
 	rte_pktmbuf_free(m);
 	accept(1, 1);
       }
-      // Handle periodic events -- - AFTER any incoming requests
-      elapsed_time = rte_get_tsc_cycles() - mark;
-      if(elapsed_time >= LOOP_TO_CYCLES) {
-	BOOST_LOG_TRIVIAL(warning) << "Quorum " << cyclone_handle->me_quorum
-				   << " event loop too long cycles = " 
-				   << elapsed_time;
-      }
-      if(elapsed_time  >= PERIODICITY_CYCLES) {
-	raft_periodic(cyclone_handle->raft_handle, (int)(elapsed_time/tsc_mhz));
-	mark = rte_get_tsc_cycles();
-      }
+      
       // Set preferred leader
       
       if(cyclone_handle->me_quorum > 0 && (quorums[0]->snapshot & 1)) {
