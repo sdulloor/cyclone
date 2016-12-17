@@ -110,9 +110,11 @@ int driver(void *arg)
 		  (void **)&resp,
 		  core_mask,
 		  rpc_flags);
+    /*
     if(sz != payload) {
       BOOST_LOG_TRIVIAL(fatal) << "Invalid response";
     }
+    */
     tx_block_cnt++;
     
     if(dargs->leader) {
