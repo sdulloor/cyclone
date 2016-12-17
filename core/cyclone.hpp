@@ -70,6 +70,7 @@ typedef struct ic_rdv_st{
 static ic_rdv_t *rpc2rdv(rpc_t *rpc)
 {
   unsigned char *ptr = (unsigned char *)rpc;
+  ptr = ptr + sizeof(rpc_t);
   ptr = ptr + num_quorums*sizeof(unsigned long);
   return (ic_rdv_t *)ptr;
 }
@@ -80,56 +81,53 @@ typedef struct core_status_st {
   volatile int stable;
   ic_rdv_t nonce;
   volatile int success;
-  volatile unsigned int barrier[2];
+  volatile unsigned long barrier[2];
 } __attribute__((aligned(64))) core_status_t;
 
 extern core_status_t *core_status;
 
-static unsigned long check_terms(unsigned int *snapshot, unsigned long mask)
+static unsigned long check_terms(unsigned int *snapshot)
 {
   unsigned long failed = 0;
-  while(mask != 0) {
-    int core = __builtin_ffsl(mask) - 1;
-    if(snapshot[core] != core_status[core].exec_term) {
-      failed = failed | (1UL << core);
+  for(int i=0;i<executor_threads;i++) {
+    if(snapshot[core_to_quorum(i)] < core_status[i].exec_term) {
+      failed = failed | (1UL << i);
     }
-    mask = mask & ~(1UL << core);
   }
   return failed;
 }
 
 
-static int wait_barrier_follower(core_status_t *c, 
+static int wait_barrier_follower(core_status_t *c_leader, 
 				 ic_rdv_t *nonce,
 				 int core_id,
-				 unsigned int *snapshot,
+				 unsigned int term_leader,
 				 unsigned long mask)
 {
   ic_rdv_t *n = NULL;
   int stable;
-  int cnt = __builtin_popcountl(mask);
   int success;
   while(true) {
-    if(!check_terms(snapshot, 1UL << (__builtin_ffsl(mask) - 1))) {
+    if(c_leader->exec_term > term_leader) 
       return 0;
-    }
-    stable = c->stable;
+    stable = c_leader->stable;
     if(stable & 1)
       continue;
-    if(memcmp(&c->nonce, nonce, sizeof(ic_rdv_t)) != 0)
+    if(memcmp(&c_leader->nonce, nonce, sizeof(ic_rdv_t)) != 0)
       continue;
-    if(stable != c->stable)
+    if(stable != c_leader->stable)
       continue;
+    break;
   }
-  __sync_fetch_and_or(&c->barrier[0], 1UL << core_id);
-  while(c->barrier[0] != mask);
-  success = c->success;
-  __sync_fetch_and_or(&c->barrier[1], 1UL << core_id);
+  __sync_fetch_and_or(&c_leader->barrier[0], 1UL << core_id);
+  while(c_leader->barrier[0] != mask);
+  success = c_leader->success;
+  __sync_fetch_and_or(&c_leader->barrier[1], 1UL << core_id);
   return success;
 }
 
 
-static int wait_barrier_leader(core_status_t *c,
+static int wait_barrier_leader(core_status_t *c_leader,
 			       ic_rdv_t *nonce,
 			       int core_id,
 			       unsigned int *snapshot,
@@ -137,27 +135,27 @@ static int wait_barrier_leader(core_status_t *c,
 {
   ic_rdv_t *n = NULL;
   int stable;
-  int cnt = __builtin_popcountl(mask);
-  c->stable++;
+  c_leader->stable++;
   __sync_synchronize();
-  memcpy(&c->nonce, nonce, sizeof(ic_rdv_t));
+  memcpy(&c_leader->nonce, nonce, sizeof(ic_rdv_t));
   __sync_synchronize();
-  c->stable++;
-  __sync_fetch_and_or(&c->barrier[0], 1UL << core_id);
-  unsigned long failed_mask = 0;
-  while(c->barrier[0] != mask) {
-    failed_mask = failed_mask | check_terms(snapshot, mask);
+  c_leader->stable++;
+  __sync_fetch_and_or(&c_leader->barrier[0], 1UL << core_id);
+  unsigned long failed_mask;
+  while(c_leader->barrier[0] != mask) {
+    failed_mask = check_terms(snapshot);
+    failed_mask = failed_mask & mask;
     if(failed_mask) {
-      __sync_fetch_and_or(&c->barrier[0], failed_mask);
+      __sync_fetch_and_or(&c_leader->barrier[0], failed_mask);
     }
   }
-  c->success = (failed_mask ? 0:1);
-  __sync_fetch_and_or(&c->barrier[1], 1UL << core_id);
-  __sync_fetch_and_or(&c->barrier[1], failed_mask);
-  while(c->barrier[1] != mask);
-  c->success = 0;
-  c->barrier[0] = 0;
-  c->barrier[1] = 0;
+  c_leader->success = (failed_mask ? 0:1);
+  __sync_fetch_and_or(&c_leader->barrier[1], 1UL << core_id);
+  __sync_fetch_and_or(&c_leader->barrier[1], failed_mask);
+  while(c_leader->barrier[1] != mask);
+  c_leader->success = 0;
+  c_leader->barrier[0] = 0;
+  c_leader->barrier[1] = 0;
   if(failed_mask) {
     return 0;
   }
