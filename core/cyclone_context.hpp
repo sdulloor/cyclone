@@ -437,9 +437,6 @@ struct cyclone_monitor {
 	rte_pktmbuf_free(m);
 	continue;
       }
-      if(core_to_quorum(__builtin_ffsl(rpc->core_mask) - 1) == cyclone_handle->me_quorum) {
-	rpc->wal.leader = 1;
-      }
       if(rpc->code == RPC_REQ_STABLE) {
 	if(take_snapshot(snapshot)) {
 	  rte_pktmbuf_append(m, num_quorums*sizeof(unsigned int));

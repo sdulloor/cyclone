@@ -179,7 +179,11 @@ typedef struct executor_st {
     }
     else if(client_buffer->flags & RPC_FLAG_RO) {
       int e = exec_rpc_internal_ro(client_buffer, sz, &cookie);
-      if(client_buffer->wal.leader && !e && (quorums[quorum]->snapshot&1)) {
+      int response_core = __builtin_ffsl(client_buffer->core_mask) - 1;
+      if(response_core && 
+	 client_buffer->wal.leader && 
+	 !e && 
+	 (quorums[quorum]->snapshot&1)) {
 	resp_buffer->code = RPC_REP_OK;
 	client_reply(client_buffer, 
 		     resp_buffer, 
@@ -211,7 +215,11 @@ typedef struct executor_st {
     else {
       cstatus->exec_term = client_buffer->wal.term;
       int e = exec_rpc_internal(client_buffer, sz, &cookie, cstatus);
-      if(client_buffer->wal.leader && !e && (quorums[quorum]->snapshot&1)) {
+      int response_core = __builtin_ffsl(client_buffer->core_mask) - 1;
+      if(response_core == tid &&
+	 client_buffer->wal.leader && 
+	 !e && 
+	 (quorums[quorum]->snapshot&1)) {
 	await_quorum(client_buffer, client_buffer->wal.idx);
 	resp_buffer->code = RPC_REP_OK;
 	client_reply(client_buffer, 
