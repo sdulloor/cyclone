@@ -87,6 +87,16 @@ typedef struct core_status_st {
 
 extern core_status_t *core_status;
 
+static int is_multicore_rpc(rpc_t *rpc)
+{
+  if(rpc->core_mask & (rpc->core_mask - 1)) {
+    return 1;
+  }
+  else {
+    return 0;
+  }
+}
+
 static unsigned long check_terms(unsigned int *snapshot)
 {
   unsigned long failed = 0;

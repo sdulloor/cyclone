@@ -61,7 +61,7 @@ int init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
   cookie->log_idx     = rpc->wal.idx;
   cookie->ret_size    = 0;
   // Multi-core operation ?
-  if(rpc->core_mask & (rpc->core_mask - 1)) {
+  if(is_multicore_rpc(rpc)) {
     // Need to wait for sync
     unsigned long mask     = rpc->core_mask;
     unsigned int *snapshot = (unsigned int *)(rpc + 1);
@@ -95,7 +95,7 @@ int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie, core_status_t *
     return -1;
   }
   const unsigned char * user_data = (const unsigned char *)(rpc + 1);
-  if(rpc->core_mask & (rpc->core_mask - 1)) {
+  if(is_multicore_rpc(rpc)) {
     user_data += num_quorums*sizeof(unsigned int) + sizeof(ic_rdv_t);
     len        -= (num_quorums*sizeof(unsigned int) + sizeof(ic_rdv_t));
   }
@@ -120,7 +120,7 @@ int exec_rpc_internal_ro(rpc_t *rpc, int len, rpc_cookie_t *cookie)
     return -1;
   }
   const unsigned char * user_data = (const unsigned char *)(rpc + 1);
-  if(rpc->core_mask & (rpc->core_mask - 1)) {
+  if(is_multicore_rpc(rpc)) {
     user_data += num_quorums*sizeof(unsigned int) + sizeof(ic_rdv_t);
     len       -= (num_quorums*sizeof(unsigned int) + sizeof(ic_rdv_t));
   }

@@ -402,7 +402,7 @@ struct cyclone_monitor {
       }
       rpc_t *rpc = pktadj2rpc(m);
       int core = __builtin_ffsl(rpc->core_mask) - 1;
-      if(!multicore && (rpc->core_mask & (rpc->core_mask - 1))) {
+      if(!multicore && is_multicore_rpc(rpc)) {
 	// Received a multi-core operation
 	// Check that I am quorum 0
 	if(cyclone_handle->me_quorum != 0) {
