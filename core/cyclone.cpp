@@ -215,15 +215,13 @@ static int __applylog(raft_server_t* raft,
       rpc = rte_pktmbuf_mtod(m, rpc_t *);
     }
     pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
-    while(true) {
+    char *point = (char *)rpc;
+    while(point < pkt_end) {
       rpc->wal.rep = REP_SUCCESS;
       cyclone_handle->completions++;
       __sync_synchronize();
-      char *point = (char *)rpc;
       point = point + sizeof(rpc_t);
       point = point + rpc->payload_sz;
-      if(point >= pkt_end)
-	break;
       rpc = (rpc_t *)point;
     }
     m = m->next;
@@ -391,7 +389,8 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	rpc = rte_pktmbuf_mtod(m, rpc_t *);
       }
       pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
-      while(true) {
+      char *point = (char *)rpc;
+      while(point < pkt_end) {
 	handle_cfg_change(cyclone_handle, e, (unsigned char *)rpc);
 	rpc->wal.rep    = REP_UNKNOWN;
 	rpc->wal.leader = is_leader;
@@ -418,11 +417,8 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	    }
 	  }
 	}
-	char *point = (char *)rpc;
 	point = point + sizeof(rpc_t);
 	point = point + rpc->payload_sz;
-	if(point >= pkt_end)
-	  break;
 	rpc = (rpc_t *)point;
       }
       m = m->next;
@@ -518,15 +514,13 @@ static int __raft_logentry_pop(raft_server_t* raft,
       rpc = rte_pktmbuf_mtod(m, rpc_t *);
     }
     pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
-    while(true) {
+    char *point = (char *)rpc;
+    while(point < pkt_end) {
       __sync_synchronize();
       rpc->wal.rep = REP_FAILED;
       __sync_synchronize();
-      char *point = (char *)rpc;
       point = point + sizeof(rpc_t);
       point = point + rpc->payload_sz;
-      if(point >= pkt_end)
-	break;
       rpc = (rpc_t *)point;
     }
     m = m->next;
