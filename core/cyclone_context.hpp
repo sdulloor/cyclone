@@ -89,6 +89,13 @@ static void del_adj_header(rte_mbuf *m)
     exit(-1);
   }
 }
+static void add_adj_header(rte_mbuf *m) 
+{
+  if(rte_pktmbuf_prepend(m, sizeof(struct ipv4_hdr) + sizeof(msg_t) + sizeof(msg_entry_t)) == NULL) {
+    BOOST_LOG_TRIVIAL(fatal) << "Failed to add adj hdr";
+    exit(-1);
+  }
+}
 
 static void drop_eth_header(rte_mbuf *m)
 {
@@ -389,7 +396,8 @@ struct cyclone_monitor {
   {
     int accepted = 0;
     rte_mbuf *m;
-    
+    rpc_t *rpc;
+
     memset(chain_size, 0, 2*PKT_BURST);
     for(int i=0;i<available;i++) {
       m = pkt_array[i];
@@ -399,8 +407,11 @@ struct cyclone_monitor {
 	  continue;
 	}
 	adjust_head(m);
+	rpc = pktadj2rpc(m);
       }
-      rpc_t *rpc = pktadj2rpc(m);
+      else {
+	rpc = rte_pktmbuf_mtod(m, rpc_t *);
+      }
       int core = __builtin_ffsl(rpc->core_mask) - 1;
       if(!multicore && is_multicore_rpc(rpc)) {
 	// Received a multi-core operation
@@ -424,6 +435,11 @@ struct cyclone_monitor {
 	  int c = __builtin_ffsl(t) - 1;
 	  quorum_mask |= (1 << core_to_quorum(c));
 	  t = t & ~(1UL << c);
+	}
+	// Delete all headers and enqueue to quorums
+	if(rte_pktmbuf_adj(m, ((char *)rpc) - rte_pktmbuf_mtod(m, char *)) == NULL) {
+	  BOOST_LOG_TRIVIAL(fatal) << "Failed to delete header for multicore";
+	  exit(-1);
 	}
 	while(quorum_mask) {
 	  int q = __builtin_ffsl(quorum_mask) - 1;
@@ -470,6 +486,13 @@ struct cyclone_monitor {
 	}
       }
       /////
+      int msg_size;
+      if(is_multicore_rpc(rpc)) {
+	msg_size = m->data_len;
+      }
+      else {
+	msg_size = pktadj2rpcsz(m);
+      }
       if(rpc->flags & RPC_FLAG_RO) {
 	if(is_leader) {
 	  void *triple[3];
@@ -501,13 +524,15 @@ struct cyclone_monitor {
 	accepted++;
       }
       else if(accepted > 0 && 
-	      (messages[accepted - 1].data.len + pktadj2rpcsz(m)) <= MSG_MAXSIZE &&
+	      (messages[accepted - 1].data.len + msg_size) <= MSG_MAXSIZE &&
 	      messages[accepted - 1].type == RAFT_LOGTYPE_NORMAL &&
 	      chain_size[accepted - 1] < PKT_BURST) {
+
+	if(!is_multicore_rpc(rpc)) {
+	  del_adj_header(m);
+	}
 	rte_mbuf *mhead = (rte_mbuf *)messages[accepted - 1].data.buf;
 	messages[accepted - 1].data.len += pktadj2rpcsz(m);
-	// Wipe out the hdr in the chained packet
-	del_adj_header(m);
 	// Chain to prev packet
 	chain_tail->next = m;
 	chain_tail = m;
@@ -517,10 +542,30 @@ struct cyclone_monitor {
 	//compact(mprev); // debug
       }
       else {
-	messages[accepted].data.buf = (void *)m;
-	messages[accepted].data.len = pktadj2rpcsz(m);
-	messages[accepted].type = RAFT_LOGTYPE_NORMAL;
-	chain_tail = m;
+	if(is_multicore_rpc(rpc)) { // Add a fresh head
+	  rte_mbuf *m_pre = rte_pktmbuf_alloc(global_dpdk_context->mempools
+					      [cyclone_handle->my_q(q_dispatcher)]);
+	  if(m_pre == NULL) {
+	    BOOST_LOG_TRIVIAL(fatal) << "Failed to alloc multicore header pkt";
+	    exit(-1);
+	  }
+	  add_adj_header(m_pre);
+	  m_pre->nb_segs++;
+	  m_pre->pkt_len += m->data_len;
+	  m_pre->next     = m;
+	  messages[accepted].data.buf = (void *)m_pre;
+	  messages[accepted].data.len = msg_size;
+	  messages[accepted].type = RAFT_LOGTYPE_NORMAL;
+	  chain_tail = m;
+	  chain_size[accepted] = 2;
+	}
+	else {
+	  messages[accepted].data.buf = (void *)m;
+	  messages[accepted].data.len = pktadj2rpcsz(m);
+	  messages[accepted].type = RAFT_LOGTYPE_NORMAL;
+	  chain_tail = m;
+	  chain_size[accepted] = 1;
+	}
 	accepted++;
       }
     }
