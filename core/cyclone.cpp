@@ -654,6 +654,7 @@ void* cyclone_setup(const char *config_quorum_path,
   cyclone_t *cyclone_handle;
   std::stringstream key;
   std::stringstream addr;
+  char buffer[100];
   
   cyclone_handle = new cyclone_t();
   quorums[quorum_id] = cyclone_handle;
@@ -682,8 +683,23 @@ void* cyclone_setup(const char *config_quorum_path,
 			  << sizeof(msg_t)
 			  << " sizeof(msg_entry_t) is: "
 			  << sizeof(msg_entry_t);
+  int fd;
+  fd = open("/proc/uptime", O_RDONLY);
+  if(fd == -1) {
+    BOOST_LOG_TRIVIAL(fatal) << "Unable to open /proc/uptime";
+    exit(-1);
+  }
+  if(read(fd, buffer, 100) <= 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "failed to read /proc/uptime";
+    exit(-1);
+  }
+  close(fd);
+  /* rounding errors here would be dwarfed by reboot time */
+  cyclone_handle->nonce_base  = rtc_clock::current_time();
+  cyclone_handle->nonce_base += 1000000*atol(buffer);
+  cyclone_handle->nonce_base *= (rte_get_tsc_hz()/1000000.0);
   /* Note: no support for recovery yet. */
-  int fd = open(path_raft.c_str(), O_CREAT|O_RDWR|O_TRUNC, S_IRWXU);
+  fd = open(path_raft.c_str(), O_CREAT|O_RDWR|O_TRUNC, S_IRWXU);
   if(fd == -1) {
     BOOST_LOG_TRIVIAL(fatal) << "Raft state open failed for file:" << path_raft.c_str();
     exit(-1);

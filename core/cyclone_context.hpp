@@ -128,6 +128,7 @@ typedef struct cyclone_st {
   int me;
   int me_quorum;
   int me_port;
+  unsigned long nonce_base;
   boost::thread *checkpoint_thread;
   int RAFT_LOGENTRIES;
   raft_pstate_t *pop_raft_state;
@@ -425,7 +426,7 @@ struct cyclone_monitor {
 	  exit(-1);
 	}
 	ic_rdv_t *rdv = rpc2rdv(rpc);
-	rdv->rtc_ts = rtc_clock::current_time();
+	rdv->rtc_ts = cyclone_handle->nonce_base + rte_get_tsc_cycles();
 	memcpy(&rdv->mc_id, 
 	       global_dpdk_context->mc_addresses[global_dpdk_context->me],
 	       6);
