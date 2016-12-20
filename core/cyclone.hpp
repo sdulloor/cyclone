@@ -54,10 +54,10 @@ typedef struct rpc_st {
   int flags;
   int payload_sz;
   unsigned long core_mask;
-  wal_entry_t wal;
   int client_id;
   int requestor;
   int client_port;
+  int quorum_term;
   unsigned long channel_seq;
   unsigned long timestamp; // For tracing
 } __attribute__((packed)) rpc_t; // Used for both requests and replies

@@ -46,7 +46,11 @@ static int pkt2rpcsz(rte_mbuf *m)
 
 static rpc_t * pktadj2rpc(rte_mbuf *m)
 {
-  int payload_offset = sizeof(struct ipv4_hdr) + sizeof(msg_t) + sizeof(msg_entry_t);
+  int payload_offset = 
+    sizeof(struct ipv4_hdr) + 
+    sizeof(msg_t) + 
+    sizeof(msg_entry_t) +
+    sizeof(wal_entry_t);
   return rte_pktmbuf_mtod_offset(m, rpc_t *, payload_offset);
 }
 
@@ -56,15 +60,30 @@ static msg_t *pktadj2msg(rte_mbuf *m)
   return rte_pktmbuf_mtod_offset(m, msg_t *, payload_offset);
 }
 
+static wal_entry_t *pktadj2wal(rte_mbuf *m)
+{
+  int payload_offset = 
+    sizeof(struct ipv4_hdr) +
+    sizeof(msg_t) +
+    sizeof(msg_entry_t);
+  return rte_pktmbuf_mtod_offset(m, wal_entry_t *, payload_offset);
+}
+
 static int pktadj2rpcsz(rte_mbuf *m)
 {
-  int payload_offset = sizeof(struct ipv4_hdr) + sizeof(msg_t) + sizeof(msg_entry_t);
+  int payload_offset = 
+    sizeof(struct ipv4_hdr) + 
+    sizeof(msg_t) + 
+    sizeof(msg_entry_t) +
+    sizeof(wal_entry_t);
   return m->data_len - payload_offset; 
 }
 
 static void pktsetrpcsz(rte_mbuf *m, int sz)
 {
-  int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
+  int payload_offset = 
+    sizeof(struct ether_hdr) + 
+    sizeof(struct ipv4_hdr);
   m->data_len = payload_offset + sz;
   m->pkt_len  = m->data_len;
 }
@@ -75,7 +94,9 @@ static void adjust_head(rte_mbuf *m)
     BOOST_LOG_TRIVIAL(fatal) << "Failed to adj ethe hdr";
     exit(-1);
   }
-  msg_t *hdr = (msg_t *)rte_pktmbuf_prepend(m, sizeof(msg_t) + sizeof(msg_entry_t));
+  msg_t *hdr = (msg_t *)rte_pktmbuf_prepend(m, sizeof(msg_t) + 
+					    sizeof(msg_entry_t) +
+					    sizeof(wal_entry_t));
   if(hdr == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Failed to prepend msg_t";
     exit(-1);
@@ -84,14 +105,21 @@ static void adjust_head(rte_mbuf *m)
 
 static void del_adj_header(rte_mbuf *m)
 {
-  if(rte_pktmbuf_adj(m, sizeof(struct ipv4_hdr) + sizeof(msg_t) + sizeof(msg_entry_t)) == NULL) {
+  if(rte_pktmbuf_adj(m, sizeof(struct ipv4_hdr) + 
+		     sizeof(msg_t) + 
+		     sizeof(msg_entry_t) +
+		     sizeof(wal_entry_t)) == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Failed to adj ethe hdr";
     exit(-1);
   }
 }
 static void add_adj_header(rte_mbuf *m) 
 {
-  if(rte_pktmbuf_prepend(m, sizeof(struct ipv4_hdr) + sizeof(msg_t) + sizeof(msg_entry_t)) == NULL) {
+  if(rte_pktmbuf_prepend(m, 
+			 sizeof(struct ipv4_hdr) + 
+			 sizeof(msg_t) + 
+			 sizeof(msg_entry_t) +
+			 sizeof(wal_entry_t)) == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Failed to add adj hdr";
     exit(-1);
   }
@@ -150,7 +178,6 @@ typedef struct cyclone_st {
   int ae_nack_idx;
   unsigned long ae_nack_ts;
 
-  unsigned long completions;
   unsigned long mark;
   
   volatile unsigned int snapshot;
@@ -474,7 +501,7 @@ struct cyclone_monitor {
       }
       // Do term checks
       if(!multicore) {
-	if(rpc->wal.term != raft_get_current_term(cyclone_handle->raft_handle)) {
+	if(rpc->quorum_term != raft_get_current_term(cyclone_handle->raft_handle)) {
 	  rte_pktmbuf_free(m);
 	  continue;
 	} 

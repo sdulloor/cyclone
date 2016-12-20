@@ -203,31 +203,8 @@ static int __applylog(raft_server_t* raft,
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   unsigned char *chunk = (unsigned char *)pktadj2rpc((rte_mbuf *)ety->pkt);
   int delta_node_id;
-  int seg_no = 0;
-  char *pkt_end;
   rte_mbuf *m = (rte_mbuf *)(ety->pkt);
-  while(m != NULL) {
-    rpc_t *rpc;
-    if(seg_no == 0) {
-      rpc = pktadj2rpc(m);
-    }
-    else {
-      rpc = rte_pktmbuf_mtod(m, rpc_t *);
-    }
-    pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
-    char *point = (char *)rpc;
-    while(point < pkt_end) {
-      rpc->wal.rep = REP_SUCCESS;
-      cyclone_handle->completions++;
-      __sync_synchronize();
-      point = point + sizeof(rpc_t);
-      point = point + rpc->payload_sz;
-      rpc = (rpc_t *)point;
-    }
-    m = m->next;
-    seg_no++;
-  }
-  
+  pktadj2wal(m)->rep = REP_SUCCESS;
   if(ety->type == RAFT_LOGTYPE_REMOVE_NODE) {
     cfg_change_t *cfg = (cfg_change_t *)(chunk + sizeof(rpc_t));
     delta_node_id = cfg->node;
@@ -248,14 +225,6 @@ static int __applylog(raft_server_t* raft,
     delta_node_id = cfg->node;
     BOOST_LOG_TRIVIAL(info) << "STARTUP node " << delta_node_id;
   }
-  /*
-  if(cyclone_handle->completions >= 1000000) {
-    BOOST_LOG_TRIVIAL(info) << "Replication rate = "
-			    <<((double)cyclone_handle->completions)/(rtc_clock::current_time() - cyclone_handle->mark);
-    cyclone_handle->completions = 0;
-    cyclone_handle->mark = rtc_clock::current_time();
-  }
-  */
   int checkpoint_idx = -1;
   for(int i=0;i<executor_threads;i++) {
     if(core_to_quorum(i) != cyclone_handle->me_quorum)
@@ -369,6 +338,11 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
     }
     e->id = ety_idx + i;
     rte_mbuf *m = (rte_mbuf *)e->data.buf;
+    wal_entry_t *wal = pktadj2wal(m);
+    wal->rep    = REP_UNKNOWN;
+    wal->leader = is_leader;
+    wal->term   = e->term;
+    wal->idx    = ety_idx + i;
     rte_mbuf *saved_head = m;
     // Stash away a reference. 
     e->pkt = m;
@@ -392,10 +366,6 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
       char *point = (char *)rpc;
       while(point < pkt_end) {
 	handle_cfg_change(cyclone_handle, e, (unsigned char *)rpc);
-	rpc->wal.rep    = REP_UNKNOWN;
-	rpc->wal.leader = is_leader;
-	rpc->wal.term   = e->term;
-	rpc->wal.idx    = ety_idx + i;
 	// Issue unless nodeadd final step
 	if(e->type != RAFT_LOGTYPE_ADD_NODE) { 
 	  unsigned long core_mask = rpc->core_mask;
@@ -406,10 +376,10 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	      continue;
 	    }
 	    //Increment refcount handoff segment for exec 
-	    rte_mbuf_refcnt_update(m, 1);
+	    rte_pktmbuf_refcnt_update(saved_head, 1);
 	    void *triple[3];
 	    triple[0] = (void *)(unsigned long)cyclone_handle->me_quorum;
-	    triple[1] = m;
+	    triple[1] = saved_head;
 	    triple[2] = rpc;
 	    if(rte_ring_mp_enqueue_bulk(to_cores[core], triple, 3) == -ENOBUFS) {
 	      BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full (req rw)";
@@ -452,17 +422,6 @@ static int __raft_logentry_offer(raft_server_t* raft,
 				     1);
 }
 
-static void free_mbuf_chain(rte_mbuf *m)
-{
-  rte_mbuf * tmp;
-  while(m != NULL) {
-    tmp = m;
-    m = m->next;
-    __sync_synchronize(); // Must get next before decrementing refcnt
-    rte_pktmbuf_free_seg(tmp);
-  }
-}
-
 static int __raft_logentry_poll_batch(raft_server_t* raft,
 				      void *udata,
 				      raft_entry_t *entry,
@@ -473,7 +432,7 @@ static int __raft_logentry_poll_batch(raft_server_t* raft,
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   log_poll_batch(cyclone_handle->log, cnt, cyclone_handle->RAFT_LOGENTRIES);
   for(int i=0;i<cnt;i++) {
-    free_mbuf_chain((rte_mbuf *)entry->pkt);
+    rte_pktmbuf_free((rte_mbuf *)entry->pkt);
     entry++;
   }
   return result;
@@ -502,31 +461,9 @@ static int __raft_logentry_pop(raft_server_t* raft,
   int result = 0;
   cyclone_t* cyclone_handle = (cyclone_t *)udata;
   log_pop(cyclone_handle->log, cyclone_handle->RAFT_LOGENTRIES);
-  int seg_no = 0;
-  char *pkt_end;
   rte_mbuf *m = (rte_mbuf *)(entry->pkt);
-  while(m != NULL) {
-    rpc_t *rpc;
-    if(seg_no == 0) {
-      rpc = pktadj2rpc(m);
-    }
-    else {
-      rpc = rte_pktmbuf_mtod(m, rpc_t *);
-    }
-    pkt_end = rte_pktmbuf_mtod_offset(m, char *, m->data_len);
-    char *point = (char *)rpc;
-    while(point < pkt_end) {
-      __sync_synchronize();
-      rpc->wal.rep = REP_FAILED;
-      __sync_synchronize();
-      point = point + sizeof(rpc_t);
-      point = point + rpc->payload_sz;
-      rpc = (rpc_t *)point;
-    }
-    m = m->next;
-    seg_no++;
-  }
-  free_mbuf_chain((rte_mbuf *)entry->pkt);
+  pktadj2wal(m)->rep = REP_FAILED;
+  rte_pktmbuf_free((rte_mbuf *)entry->pkt);
   return result;
 }
 
@@ -672,7 +609,6 @@ void* cyclone_setup(const char *config_quorum_path,
   cyclone_handle->me_port         = quorum_id % global_dpdk_context->ports;
   cyclone_handle->ae_response_cnt = 0;
   cyclone_handle->raft_handle = raft_new();
-  cyclone_handle->completions = 0;
   cyclone_handle->match_indices = (int *)malloc(cyclone_handle->replicas*sizeof(int));
   for(int i=0;i<cyclone_handle->replicas;i++) {
     cyclone_handle->match_indices[i] = -1;

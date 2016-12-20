@@ -72,7 +72,7 @@ typedef struct rpc_client_st {
     if(mb == NULL) {
       BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send to server";
     }
-    pkt->wal.term = terms[quorum_id];
+    pkt->quorum_term = terms[quorum_id];
     cyclone_prep_mbuf_client2server(global_dpdk_context,
 				    quorum_id % server_ports,
 				    router->replica_mc(server),

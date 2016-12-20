@@ -55,10 +55,12 @@ static void client_reply(rpc_t *req,
   }
 }
 
-int init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
+int init_rpc_cookie_info(rpc_cookie_t *cookie, 
+			 rpc_t *rpc,
+			 wal_entry_t *wal)
 {
-  cookie->replication = &(rpc->wal.rep);
-  cookie->log_idx     = rpc->wal.idx;
+  cookie->replication = &(wal->rep);
+  cookie->log_idx     = wal->idx;
   cookie->ret_size    = 0;
   // Multi-core operation ?
   if(is_multicore_rpc(rpc)) {
@@ -89,9 +91,13 @@ int init_rpc_cookie_info(rpc_cookie_t *cookie, rpc_t *rpc)
   return 1;
 }
 
-int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie, core_status_t *cstatus)
+int exec_rpc_internal(rpc_t *rpc, 
+		      wal_entry_t *wal,
+		      int len, 
+		      rpc_cookie_t *cookie, 
+		      core_status_t *cstatus)
 {
-  if(!init_rpc_cookie_info(cookie, rpc)) {
+  if(!init_rpc_cookie_info(cookie, rpc, wal)) {
     return -1;
   }
   const unsigned char * user_data = (const unsigned char *)(rpc + 1);
@@ -102,7 +108,7 @@ int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie, core_status_t *
   int checkpoint_idx = app_callbacks.rpc_callback(user_data,
 						  len,
 						  cookie);
-  if(rpc->wal.rep == REP_SUCCESS) {    
+  if(wal->rep == REP_SUCCESS) {    
     cstatus->checkpoint_idx = checkpoint_idx;
     __sync_synchronize(); // publish core status
     return 0;
@@ -114,9 +120,12 @@ int exec_rpc_internal(rpc_t *rpc, int len, rpc_cookie_t *cookie, core_status_t *
   } 
 }
 
-int exec_rpc_internal_ro(rpc_t *rpc, int len, rpc_cookie_t *cookie)
+int exec_rpc_internal_ro(rpc_t *rpc, 
+			 wal_entry_t *wal,
+			 int len, 
+			 rpc_cookie_t *cookie)
 {
-  if(!init_rpc_cookie_info(cookie, rpc)) {
+  if(!init_rpc_cookie_info(cookie, rpc, wal)) {
     return -1;
   }
   const unsigned char * user_data = (const unsigned char *)(rpc + 1);
@@ -133,6 +142,7 @@ int exec_rpc_internal_ro(rpc_t *rpc, int len, rpc_cookie_t *cookie)
 typedef struct executor_st {
   rte_mbuf *m;
   rpc_t* client_buffer, *resp_buffer;
+  wal_entry_t *wal;
   int sz;
   unsigned long quorum;
   unsigned long tid;
@@ -167,8 +177,8 @@ typedef struct executor_st {
   {
     cookie.core_id   = tid;
     if(client_buffer->code == RPC_REQ_KICKER) {
-      cstatus->exec_term = client_buffer->wal.term;
-      while(client_buffer->wal.rep == REP_UNKNOWN);
+      cstatus->exec_term = wal->term;
+      while(wal->rep == REP_UNKNOWN);
       return;
     }
     else if(client_buffer->code == RPC_REQ_STABLE) {
@@ -183,10 +193,10 @@ typedef struct executor_st {
 		   num_queues*num_quorums + tid);
     }
     else if(client_buffer->flags & RPC_FLAG_RO) {
-      int e = exec_rpc_internal_ro(client_buffer, sz, &cookie);
+      int e = exec_rpc_internal_ro(client_buffer, wal, sz, &cookie);
       int response_core = __builtin_ffsl(client_buffer->core_mask) - 1;
       if(response_core && 
-	 client_buffer->wal.leader && 
+	 wal->leader && 
 	 !e && 
 	 (quorums[quorum]->snapshot&1)) {
 	resp_buffer->code = RPC_REP_OK;
@@ -203,10 +213,10 @@ typedef struct executor_st {
     }
     else if(client_buffer->code == RPC_REQ_NODEDEL || 
 	    client_buffer->code == RPC_REQ_NODEADD) {
-      cstatus->exec_term = client_buffer->wal.term;
-      while(client_buffer->wal.rep == REP_UNKNOWN);
-      if(client_buffer->wal.leader &&
-	 client_buffer->wal.rep == REP_SUCCESS &&
+      cstatus->exec_term = wal->term;
+      while(wal->rep == REP_UNKNOWN);
+      if(wal->leader &&
+	 wal->rep == REP_SUCCESS &&
 	 (quorums[quorum]->snapshot&1)) {
 	resp_buffer->code = RPC_REP_OK;
 	client_reply(client_buffer,
@@ -218,14 +228,14 @@ typedef struct executor_st {
       }
     }
     else {
-      cstatus->exec_term = client_buffer->wal.term;
-      int e = exec_rpc_internal(client_buffer, sz, &cookie, cstatus);
+      cstatus->exec_term = wal->term;
+      int e = exec_rpc_internal(client_buffer, wal, sz, &cookie, cstatus);
       int response_core = __builtin_ffsl(client_buffer->core_mask) - 1;
       if(response_core == tid &&
-	 client_buffer->wal.leader && 
+	 wal->leader && 
 	 !e && 
 	 (quorums[quorum]->snapshot&1)) {
-	await_quorum(client_buffer, client_buffer->wal.idx);
+	await_quorum(client_buffer, wal->idx);
 	resp_buffer->code = RPC_REP_OK;
 	client_reply(client_buffer, 
 		     resp_buffer, 
@@ -251,8 +261,9 @@ typedef struct executor_st {
 	sz = client_buffer->payload_sz;
 	cstatus = &core_status[tid];
 	client_buffer->timestamp = rte_get_tsc_cycles();
+	wal = pktadj2wal(m);
 	exec();
-	rte_pktmbuf_free_seg(m);
+	rte_pktmbuf_free(m);
       }
     }
   }
