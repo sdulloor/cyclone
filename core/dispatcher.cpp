@@ -105,6 +105,10 @@ int exec_rpc_internal(rpc_t *rpc,
   if(wal->rep != REP_SUCCESS) {    
     return -1;
   } 
+  if(wal->rep == REP_SUCCESS && 
+     cstatus->exec_term < wal->term) {
+    cstatus->exec_term = wal->term;
+  }
   if(is_multicore_rpc(rpc)) {
     if(!do_multicore_redezvous(cookie, rpc, wal)) {
       return -1;
@@ -184,8 +188,11 @@ typedef struct executor_st {
   {
     cookie.core_id   = tid;
     if(client_buffer->code == RPC_REQ_KICKER) {
-      cstatus->exec_term = wal->term;
       while(wal->rep == REP_UNKNOWN);
+      if(wal->rep == REP_SUCCESS && 
+	 cstatus->exec_term < wal->term) {
+	cstatus->exec_term = wal->term;
+      }
       return;
     }
     else if(client_buffer->code == RPC_REQ_STABLE) {
@@ -220,8 +227,11 @@ typedef struct executor_st {
     }
     else if(client_buffer->code == RPC_REQ_NODEDEL || 
 	    client_buffer->code == RPC_REQ_NODEADD) {
-      cstatus->exec_term = wal->term;
       while(wal->rep == REP_UNKNOWN);
+      if(wal->rep == REP_SUCCESS && 
+	 cstatus->exec_term < wal->term) {
+	cstatus->exec_term = wal->term;
+      }
       if(wal->leader &&
 	 wal->rep == REP_SUCCESS &&
 	 (quorums[quorum]->snapshot&1)) {
@@ -235,7 +245,6 @@ typedef struct executor_st {
       }
     }
     else {
-      cstatus->exec_term = wal->term;
       int e = exec_rpc_internal(client_buffer, wal, sz, &cookie, cstatus);
       int response_core = __builtin_ffsl(client_buffer->core_mask) - 1;
       if(response_core == tid &&
