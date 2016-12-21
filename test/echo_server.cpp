@@ -56,7 +56,6 @@ int callback(const unsigned char *data,
   cookie->ret_value  = malloc(len);
   cookie->ret_size   = len;
   memcpy(cookie->ret_value, data, len);
-  while(*cookie->replication == REP_UNKNOWN);
   /*
   if((++completions[cookie->core_id]) >= 1000000) {
     BOOST_LOG_TRIVIAL(info) << "Completion rate = "

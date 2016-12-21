@@ -50,7 +50,6 @@ static int core_to_quorum(int core_id)
 typedef struct rpc_cookie_st {
   int core_id;
   int log_idx;
-  volatile int *replication;
   void *ret_value;
   int ret_size;
 } rpc_cookie_t;

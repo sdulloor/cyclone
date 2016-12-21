@@ -55,37 +55,39 @@ static void client_reply(rpc_t *req,
   }
 }
 
-int init_rpc_cookie_info(rpc_cookie_t *cookie, 
-			 rpc_t *rpc,
-			 wal_entry_t *wal)
+void init_rpc_cookie_info(rpc_cookie_t *cookie, 
+			  rpc_t *rpc,
+			  wal_entry_t *wal)
 {
-  cookie->replication = &(wal->rep);
   cookie->log_idx     = wal->idx;
   cookie->ret_size    = 0;
-  // Multi-core operation ?
-  if(is_multicore_rpc(rpc)) {
-    // Need to wait for sync
-    unsigned long mask     = rpc->core_mask;
-    unsigned int *snapshot = (unsigned int *)(rpc + 1);
-    int core_leader = __builtin_ffsl(mask) - 1;
-    core_status_t *cstatus_leader = &core_status[core_leader];
-    if(cookie->core_id == core_leader) {
-      if(!wait_barrier_leader(cstatus_leader, 
+  cookie->ret_value   = NULL;
+}
+
+static int do_multicore_redezvous(rpc_cookie_t *cookie,
+				  rpc_t *rpc, 
+				  wal_entry_t *wal)
+{
+  unsigned long mask     = rpc->core_mask;
+  unsigned int *snapshot = (unsigned int *)(rpc + 1);
+  int core_leader = __builtin_ffsl(mask) - 1;
+  core_status_t *cstatus_leader = &core_status[core_leader];
+  if(cookie->core_id == core_leader) {
+    if(!wait_barrier_leader(cstatus_leader, 
+			    rpc2rdv(rpc),
+			    cookie->core_id,
+			    snapshot,
+			    mask)) {
+      return 0;
+    }
+  }
+  else {
+    if(!wait_barrier_follower(cstatus_leader, 
 			      rpc2rdv(rpc),
 			      cookie->core_id,
-			      snapshot,
+			      snapshot[core_to_quorum(core_leader)],
 			      mask)) {
-	return 0;
-      }
-    }
-    else {
-      if(!wait_barrier_follower(cstatus_leader, 
-				rpc2rdv(rpc),
-				cookie->core_id,
-				snapshot[core_to_quorum(core_leader)],
-				mask)) {
-	return 0;
-      }
+      return 0;
     }
   }
   return 1;
@@ -97,9 +99,18 @@ int exec_rpc_internal(rpc_t *rpc,
 		      rpc_cookie_t *cookie, 
 		      core_status_t *cstatus)
 {
-  if(!init_rpc_cookie_info(cookie, rpc, wal)) {
+  
+  init_rpc_cookie_info(cookie, rpc, wal);
+  while(wal->rep == REP_UNKNOWN);
+  if(wal->rep != REP_SUCCESS) {    
     return -1;
+  } 
+  if(is_multicore_rpc(rpc)) {
+    if(!do_multicore_redezvous(cookie, rpc, wal)) {
+      return -1;
+    }
   }
+
   const unsigned char * user_data = (const unsigned char *)(rpc + 1);
   if(is_multicore_rpc(rpc)) {
     user_data += num_quorums*sizeof(unsigned int) + sizeof(ic_rdv_t);
@@ -108,16 +119,9 @@ int exec_rpc_internal(rpc_t *rpc,
   int checkpoint_idx = app_callbacks.rpc_callback(user_data,
 						  len,
 						  cookie);
-  if(wal->rep == REP_SUCCESS) {    
-    cstatus->checkpoint_idx = checkpoint_idx;
-    __sync_synchronize(); // publish core status
-    return 0;
-  }
-  else {
-    __sync_synchronize(); // publish core status
-    app_callbacks.gc_callback(cookie);
-    return -1;
-  } 
+  cstatus->checkpoint_idx = checkpoint_idx;
+  __sync_synchronize(); // publish core status
+  return 0;
 }
 
 int exec_rpc_internal_ro(rpc_t *rpc, 
@@ -125,8 +129,11 @@ int exec_rpc_internal_ro(rpc_t *rpc,
 			 int len, 
 			 rpc_cookie_t *cookie)
 {
-  if(!init_rpc_cookie_info(cookie, rpc, wal)) {
-    return -1;
+  init_rpc_cookie_info(cookie, rpc, wal);
+  if(is_multicore_rpc(rpc)) {
+    if(!do_multicore_redezvous(cookie, rpc, wal)) {
+      return -1;
+    }
   }
   const unsigned char * user_data = (const unsigned char *)(rpc + 1);
   if(is_multicore_rpc(rpc)) {
