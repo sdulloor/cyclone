@@ -100,9 +100,11 @@ int driver(void *arg)
     //rpc_flags = RPC_FLAG_RO;
     //    my_core = dargs->me % executor_threads;
     unsigned long core_mask = 0;
-    for(int i=0;i<executor_threads;i++) {
-      if(rand() %2)
-	core_mask = core_mask | (1UL << i);
+    while(core_mask == 0) {
+      for(int i=0;i<executor_threads;i++) {
+	if(rand() %2)
+	  core_mask = core_mask | (1UL << i);
+      }
     }
     sz = make_rpc(handles[partition],
 		  buffer,
