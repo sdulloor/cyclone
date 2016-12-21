@@ -72,7 +72,7 @@ static ic_rdv_t *rpc2rdv(rpc_t *rpc)
 {
   unsigned char *ptr = (unsigned char *)rpc;
   ptr = ptr + sizeof(rpc_t);
-  ptr = ptr + num_quorums*sizeof(unsigned long);
+  ptr = ptr + num_quorums*sizeof(unsigned int);
   return (ic_rdv_t *)ptr;
 }
 
