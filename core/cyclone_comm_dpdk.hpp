@@ -209,6 +209,7 @@ static void initialize_ipv4_header(rte_mbuf *m,
   */
 }
 
+
 static void cyclone_prep_mbuf(dpdk_context_t *context,
 			      int dst,
 			      int dst_q,
@@ -529,16 +530,23 @@ static void dpdk_context_init(dpdk_context_t *context,
 
     BOOST_LOG_TRIVIAL(info) << "Init mempool max pktsize = " << max_pktsize;
     BOOST_LOG_TRIVIAL(info) << "Init mempool max reqsize = " << max_req_size;
+    int my_port = queue2port(i, context->ports);
 
-    bool is_raft_pool = (i < num_queues*num_quorums) && (i % num_queues == q_raft);
-    bool is_disp_pool = (i < num_queues*num_quorums) && (i % num_queues == q_dispatcher);
+    bool is_raft_pool =
+      (i >= context->ports) &&
+      (i < (context->ports + num_queues*num_quorums)) && 
+      ((i - context->ports) % num_queues == q_raft);
+    bool is_disp_pool = 
+      (i >= context->ports) &&
+      (i < (context->ports + num_queues*num_quorums)) &&
+      ((i - context->ports) % num_queues == q_dispatcher);
     if(is_disp_pool) {
       context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
 						     Q_BUFS*pack_ratio,
 						     32,
 						     0,
 						     RTE_PKTMBUF_HEADROOM + max_req_size,
-						     rte_socket_id());
+						     rte_eth_dev_socket_id(my_port));
     }
     else if(is_raft_pool) {
       context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
@@ -546,7 +554,7 @@ static void dpdk_context_init(dpdk_context_t *context,
 						     32,
 						     0,
 						     RTE_PKTMBUF_HEADROOM + max_pktsize,
-						     rte_socket_id());
+						     rte_eth_dev_socket_id(my_port));
     }
     else {
       context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
@@ -554,26 +562,25 @@ static void dpdk_context_init(dpdk_context_t *context,
 						     32,
 						     0,
 						     RTE_PKTMBUF_HEADROOM + max_req_size,
-						     rte_socket_id());
+						     rte_eth_dev_socket_id(my_port));
     }
     if (context->mempools[i] == NULL)
       rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
 
     if(is_raft_pool) {
       sprintf(pool_name, "extra_%d", i);
-      context->extra_pools[i/num_queues] = rte_pktmbuf_pool_create(pool_name,
+      context->extra_pools[(i - context->ports)/num_queues] = rte_pktmbuf_pool_create(pool_name,
 								  Q_BUFS,
 								  4*PKT_BURST,
 								  0,
 								  RTE_PKTMBUF_HEADROOM + sizeof(struct ether_hdr),
-								  rte_socket_id());
+								  rte_eth_dev_socket_id(my_port));
       
-      if (context->extra_pools[i/num_queues] == NULL)
+      if (context->extra_pools[(i - context->ports)/num_queues] == NULL)
 	rte_exit(EXIT_FAILURE, "Cannot init mbuf extra pool\n");
       
     }
 
-    int my_port = queue2port(i, context->ports);
     //tx queue
     rte_eth_dev_info_get(my_port, &dev_info);
     txconf = &dev_info.default_txconf;
@@ -592,10 +599,10 @@ static void dpdk_context_init(dpdk_context_t *context,
       rte_zmalloc_socket("tx_buffer",
 			 RTE_ETH_TX_BUFFER_SIZE(PKT_BURST), 
 			 0,
-			 rte_eth_dev_socket_id(0));
+			 rte_eth_dev_socket_id(my_port));
     if (context->buffers[i] == NULL)
       rte_exit(EXIT_FAILURE, "Cannot allocate buffer for tx on port %u\n",
-	       (unsigned) 0);
+	       (unsigned) my_port);
 
     
     rte_eth_tx_buffer_init(context->buffers[i], PKT_BURST);
