@@ -155,7 +155,6 @@ typedef struct cyclone_st {
   int replicas;
   int me;
   int me_quorum;
-  int me_port;
   unsigned long nonce_base;
   boost::thread *checkpoint_thread;
   int RAFT_LOGENTRIES;
@@ -194,13 +193,12 @@ typedef struct cyclone_st {
       BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send mesg";
     }
     cyclone_prep_mbuf(global_dpdk_context, 
-		      me_port,
 		      router->replica_mc(dst_replica), 
 		      my_q(q_raft), 
 		      m, 
 		      msg, 
 		      sizeof(msg_t));
-    cyclone_tx(global_dpdk_context, me_port, m, my_q(q_raft));
+    cyclone_tx(global_dpdk_context, m, my_q(q_raft));
   }
   
   void send_ae_responses()
@@ -630,10 +628,11 @@ struct cyclone_monitor {
  
     while(!terminate) {
       // Handle any outstanding requests
-      available = rte_eth_rx_burst(cyclone_handle->me_port,
-				   cyclone_handle->my_q(q_raft),
-				   &pkt_array[0],
-				   PKT_BURST);
+      available = rte_eth_rx_burst
+	(queue2port(cyclone_handle->my_q(q_raft), global_dpdk_context->ports),
+	 queue_index_at_port(cyclone_handle->my_q(q_raft), global_dpdk_context->ports),
+	 &pkt_array[0],
+	 PKT_BURST);
       cyclone_handle->ae_response_cnt = 0;
       for(int i=0;i<available;i++) {
 	m = pkt_array[i];
@@ -693,8 +692,8 @@ struct cyclone_monitor {
 	}
       }
       // Check for requests on the network
-      available = rte_eth_rx_burst(cyclone_handle->me_port,
-				   cyclone_handle->my_q(q_dispatcher),
+      available = rte_eth_rx_burst(queue2port(cyclone_handle->my_q(q_dispatcher), global_dpdk_context->ports),
+				   queue_index_at_port(cyclone_handle->my_q(q_dispatcher), global_dpdk_context->ports),
 				   &pkt_array[0],
 				   PKT_BURST);
       if(available) {

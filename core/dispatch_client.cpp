@@ -74,13 +74,13 @@ typedef struct rpc_client_st {
     }
     pkt->quorum_term = terms[quorum_id];
     cyclone_prep_mbuf_client2server(global_dpdk_context,
-				    quorum_id % server_ports,
+				    queue2port(quorum_q(quorum_id, q_dispatcher), server_ports),
 				    router->replica_mc(server),
-				    quorum_q(quorum_id, q_dispatcher),
+				    queue_index_at_port(quorum_q(quorum_id, q_dispatcher), server_ports),
 				    mb,
 				    pkt,
 				    sz);
-    int e = cyclone_tx(global_dpdk_context, 0, mb, me_queue);
+    int e = cyclone_tx(global_dpdk_context, mb, me_queue);
     if(e) {
       BOOST_LOG_TRIVIAL(warning) << "Client failed to send to server";
     }

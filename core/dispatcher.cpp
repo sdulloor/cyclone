@@ -29,10 +29,10 @@ static void client_reply(rpc_t *req,
 			 rpc_t *rep,
 			 void *payload,
 			 int sz,
-			 int port,
 			 int q)
 {
   rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[q]);
+  int port = queue2port(q, global_dpdk_context->ports);
   if(m == NULL) {
     BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for client response";
     exit(-1);
@@ -49,7 +49,9 @@ static void client_reply(rpc_t *req,
 				  rep,
 				  sizeof(rpc_t) + sz);
   
-  int e = cyclone_tx(global_dpdk_context, port, m, q);
+  int e = cyclone_tx(global_dpdk_context, 
+		     m, 
+		     q);
   if(e) {
     BOOST_LOG_TRIVIAL(warning) << "Failed to send response to client";
   }
@@ -203,7 +205,6 @@ typedef struct executor_st {
 		   resp_buffer, 
 		   cookie.ret_value, 
 		   cookie.ret_size,
-		   port_id,
 		   num_queues*num_quorums + tid);
     }
     else if(client_buffer->flags & RPC_FLAG_RO) {
@@ -218,7 +219,6 @@ typedef struct executor_st {
 		     resp_buffer, 
 		     cookie.ret_value, 
 		     cookie.ret_size,
-		     port_id,
 		     num_queues*num_quorums + tid);
       }
       if(!e) {
@@ -240,7 +240,6 @@ typedef struct executor_st {
 		     resp_buffer,
 		     NULL,
 		     0,
-		     port_id,
 		     num_queues*num_quorums + tid);
       }
     }
@@ -257,7 +256,6 @@ typedef struct executor_st {
 		     resp_buffer, 
 		     cookie.ret_value, 
 		     cookie.ret_size,
-		     port_id,
 		     num_queues*num_quorums + tid);
       }
       if(!e) {
@@ -457,7 +455,6 @@ void dispatcher_start(const char* config_cluster_path,
   for(int i=0;i < executor_threads;i++) {
     executor_t *ex = new executor_t();
     ex->tid = i;
-    ex->port_id = i % global_dpdk_context->ports; 
     ex->replicas =  pt_quorum.get<int>("active.replicas");
     ex->QUORUM_TO = QUORUM_TO;
     int e = rte_eal_remote_launch(dpdk_executor, (void *)ex, 1 + num_quorums + i);
