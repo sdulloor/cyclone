@@ -297,10 +297,12 @@ static void add_head(void *pkt,
 {
   rte_mbuf *m = (rte_mbuf *)pkt;
   struct ipv4_hdr *ip = rte_pktmbuf_mtod(m, struct ipv4_hdr *);
+  int dst_qindex = queue_index_at_port(cyclone_handle->my_q(q_raft), 
+				       global_dpdk_context->ports);
   initialize_ipv4_header(m,
 			 ip,
 			 magic_src_ip, 
-			 cyclone_handle->my_q(q_raft),
+			 dst_qindex,
 			 m->pkt_len - sizeof(struct ipv4_hdr));
   msg_t *hdr = pktadj2msg(m);
   hdr->msg_type         = MSG_APPENDENTRIES;
@@ -555,7 +557,7 @@ raft_cbs_t raft_funcs = {
   __raft_logentry_poll_batch,
   __raft_logentry_pop,
   __raft_has_sufficient_logs,
-  NULL,//__raft_log,
+  NULL,//__raft_log
   NULL//__raft_log_election
 };
 
