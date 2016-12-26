@@ -274,9 +274,15 @@ typedef struct executor_st {
 	while(rte_ring_sc_dequeue(to_cores[tid], (void **)&client_buffer) != 0);
 	sz = client_buffer->payload_sz;
 	cstatus = &core_status[tid];
-	client_buffer->timestamp = rte_get_tsc_cycles();
+	//client_buffer->timestamp = rte_get_tsc_cycles();
 	wal = pktadj2wal(m);
 	exec();
+	if(!is_multicore_rpc(client_buffer)) {
+	  quorums[quorum]->remove_inflight(client_buffer->client_id);
+	}
+	else if(tid == (__builtin_ffsl(client_buffer->core_mask) - 1)){
+	  quorums[0]->remove_inflight(client_buffer->client_id);
+	}
 	rte_pktmbuf_free(m);
       }
     }

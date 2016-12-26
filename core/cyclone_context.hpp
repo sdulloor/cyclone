@@ -167,6 +167,7 @@ typedef struct cyclone_st {
   cyclone_monitor *monitor_obj;
   volatile int sending_checkpoints;
   volatile int *match_indices;
+  volatile char *client_inflight;
 
   msg_t ae_responses[PKT_BURST];
   int ae_response_sources[PKT_BURST];
@@ -180,6 +181,22 @@ typedef struct cyclone_st {
   unsigned long mark;
   
   volatile unsigned int snapshot;
+
+  char current_inflight(int client)
+  {
+    return client_inflight[client];
+  }
+
+  void add_inflight(int client)
+  {
+    __sync_fetch_and_add(&client_inflight[client], 1);
+  }
+
+  void remove_inflight(int client)
+  {
+    __sync_fetch_and_sub(&client_inflight[client], 1);
+  }
+  
 
   int my_q(int q)
   {
@@ -439,6 +456,13 @@ struct cyclone_monitor {
 	rpc = rte_pktmbuf_mtod(m, rpc_t *);
       }
       int core = __builtin_ffsl(rpc->core_mask) - 1;
+      // Admission control
+      if(!multicore) {
+	if(cyclone_handle->current_inflight(rpc->client_id) >= MAX_INFLIGHT) {
+	  rte_pktmbuf_free(m);
+	  continue;
+	}
+      }
       if(!multicore && is_multicore_rpc(rpc)) {
 	// Received a multi-core operation
 	// Check that I am quorum 0
@@ -487,6 +511,7 @@ struct cyclone_monitor {
 	  triple[0] = (void *)(unsigned long)cyclone_handle->me_quorum;
 	  triple[1] = m;
 	  triple[2] = rpc;
+	  cyclone_handle->add_inflight(rpc->client_id);
 	  if(rte_ring_mp_enqueue_bulk(to_cores[core], triple, 3) == -ENOBUFS) {
 	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full (req stable)";
 	    exit(-1);
@@ -525,6 +550,7 @@ struct cyclone_monitor {
 	  triple[0] = (void *)(unsigned long)cyclone_handle->me_quorum;
 	  triple[1] = m;
 	  triple[2] = rpc;
+	  cyclone_handle->add_inflight(rpc->client_id);
 	  if(rte_ring_mp_enqueue_bulk(to_cores[core], triple, 3) == -ENOBUFS) {
 	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full (req ro)";
 	    exit(-1);

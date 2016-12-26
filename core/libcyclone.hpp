@@ -38,6 +38,10 @@ static const int num_quorums  = 8;
 static const int Q_BUFS = 8191;
 static const int R_BUFS = 1023;
 
+// Maximum clients (1 million)
+static const unsigned int MAX_CLIENTS = 1024U*1024U;
+static const char MAX_INFLIGHT = 1;
+
 static int core_to_quorum(int core_id)
 {
   return core_id % num_quorums;
@@ -84,7 +88,8 @@ void dispatcher_start(const char* config_cluster_path,
 		      int clients);
 
 ////// RPC client side interface
-void* cyclone_client_init(int client_mc,
+void* cyclone_client_init(int client_id,
+			  int client_mc,
 			  int client_queue,
 			  const char *config_cluster_path,
 			  int server_ports,

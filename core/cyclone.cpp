@@ -382,8 +382,15 @@ static int __raft_logentry_offer_batch(raft_server_t* raft,
 	    if(core_to_quorum(core) != cyclone_handle->me_quorum) {
 	      continue;
 	    }
-	    //Increment refcount handoff segment for exec 
+	    //Increment refcount and admission control counters
+	    // and handoff segment for exec 
 	    rte_pktmbuf_refcnt_update(saved_head, 1);
+	    if(!is_multicore_rpc(rpc)) {
+	      cyclone_handle->add_inflight(rpc->client_id);
+	    }
+	    else if(core == (__builtin_ffsl(rpc->core_mask) - 1)) {
+	      quorums[0]->add_inflight(rpc->client_id);
+	    }
 	    void *triple[3];
 	    triple[0] = (void *)(unsigned long)cyclone_handle->me_quorum;
 	    triple[1] = saved_head;
@@ -616,6 +623,8 @@ void* cyclone_setup(const char *config_quorum_path,
   cyclone_handle->ae_response_cnt = 0;
   cyclone_handle->raft_handle = raft_new();
   cyclone_handle->match_indices = (int *)malloc(cyclone_handle->replicas*sizeof(int));
+  cyclone_handle->client_inflight = (char *)malloc(MAX_CLIENTS*sizeof(char));
+
   for(int i=0;i<cyclone_handle->replicas;i++) {
     cyclone_handle->match_indices[i] = -1;
   }

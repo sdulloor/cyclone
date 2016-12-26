@@ -168,7 +168,8 @@ int main(int argc, const char *argv[]) {
     for(int i=0;i<dargs->partitions;i++) {
       sprintf(fname_server, "%s", argv[7]);
       sprintf(fname_client, "%s%d.ini", argv[8], i);
-      dargs->handles[i] = cyclone_client_init(dargs->mc,
+      dargs->handles[i] = cyclone_client_init(dargs->me,
+					      dargs->mc,
 					      1 + me - client_id_start,
 					      fname_server,
 					      atoi(argv[9]),

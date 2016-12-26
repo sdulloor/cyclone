@@ -12,6 +12,7 @@
 
 extern dpdk_context_t *global_dpdk_context;
 typedef struct rpc_client_st {
+  int me;
   int me_mc;
   int me_queue;
   quorum_switch *router;
@@ -95,6 +96,7 @@ typedef struct rpc_client_st {
     packet_out_aux->core_mask   = 1; // Always core 0
     packet_out_aux->client_port = me_queue;
     packet_out_aux->channel_seq = channel_seq++;
+    packet_out_aux->client_id   = me;
     packet_out_aux->requestor   = me_mc;
     packet_out_aux->payload_sz  = 0;
     send_to_server(packet_out_aux, sizeof(rpc_t), 0); // always quorum 0
@@ -136,6 +138,7 @@ typedef struct rpc_client_st {
       packet_out->core_mask   = core_mask;
       packet_out->client_port = me_queue;
       packet_out->channel_seq = channel_seq++;
+      packet_out->client_id   = me;
       packet_out->requestor   = me_mc;
       packet_out->payload_sz  = sizeof(cfg_change_t);
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
@@ -165,6 +168,7 @@ typedef struct rpc_client_st {
       packet_out->core_mask     = core_mask;
       packet_out->client_port = me_queue;
       packet_out->channel_seq = channel_seq++;
+      packet_out->client_id   = me;
       packet_out->requestor   = me_mc;
       packet_out->payload_sz  = sizeof(cfg_change_t);
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
@@ -195,6 +199,7 @@ typedef struct rpc_client_st {
       packet_out->core_mask   = core_mask;
       packet_out->client_port = me_queue;
       packet_out->channel_seq = channel_seq++;
+      packet_out->client_id   = me;
       packet_out->requestor   = me_mc;
       if((core_mask & (core_mask - 1)) != 0) {
 	char *user_data = (char *)(packet_out + 1);
@@ -233,7 +238,8 @@ typedef struct rpc_client_st {
 } rpc_client_t;
 
 
-void* cyclone_client_init(int client_mc,
+void* cyclone_client_init(int client_id,
+			  int client_mc,
 			  int client_queue,
 			  const char *config_cluster,
 			  int server_ports,
@@ -246,6 +252,7 @@ void* cyclone_client_init(int client_mc,
   boost::property_tree::read_ini(config_quorum, pt_quorum);
   std::stringstream key;
   std::stringstream addr;
+  client->me     = client_id;
   client->router = new quorum_switch(&pt_cluster, &pt_quorum);
   client->terms  = (unsigned int *)malloc(num_quorums*sizeof(unsigned int));
   client->me_mc = client_mc;
