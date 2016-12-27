@@ -696,6 +696,7 @@ struct cyclone_monitor {
 	  k_rpc->flags      = 0;
 	  k_rpc->payload_sz = 0;
 	  k_rpc->core_mask  = 0;
+	  k_rpc->client_id  = MAX_CLIENTS - 1; // Really don't care
 	  for(int i = 0;i<executor_threads;i++) {
 	    if(core_to_quorum(i) == cyclone_handle->me_quorum) {
 	      k_rpc->core_mask |= (1UL << i);
