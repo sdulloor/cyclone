@@ -584,7 +584,7 @@ struct cyclone_monitor {
 	  del_adj_header(m);
 	}
 	rte_mbuf *mhead = (rte_mbuf *)messages[accepted - 1].data.buf;
-	messages[accepted - 1].data.len += pktadj2rpcsz(m);
+	messages[accepted - 1].data.len += msg_size;
 	// Chain to prev packet
 	chain_tail->next = m;
 	chain_tail = m;
@@ -724,18 +724,24 @@ struct cyclone_monitor {
 	accept(available, 0);
       }
       // Check for transactions
-      while(rte_ring_sc_dequeue(to_quorums[cyclone_handle->me_quorum], (void **)&m) == 0) {
-	pkt_array[0] = rte_pktmbuf_clone(m, 
-					 global_dpdk_context->mempools
-					 [cyclone_handle->my_q(q_dispatcher)]);
-	if(pkt_array[0] == NULL) {
-	  BOOST_LOG_TRIVIAL(fatal) << "Failed to clone tx packet";
-	  exit(-1);
+      available = 0;
+      while(available < PKT_BURST) {
+	if(rte_ring_sc_dequeue(to_quorums[cyclone_handle->me_quorum], (void **)&m) == 0) {
+	  pkt_array[available] = rte_pktmbuf_clone(m, 
+						  global_dpdk_context->mempools
+						  [cyclone_handle->my_q(q_dispatcher)]);
+	  if(pkt_array[available] == NULL) {
+	    BOOST_LOG_TRIVIAL(fatal) << "Failed to clone tx packet";
+	    exit(-1);
+	  }
+	  rte_pktmbuf_free(m);
+	  available++;
 	}
-	rte_pktmbuf_free(m);
-	accept(1, 1);
+	else {
+	  break;
+	}
       }
-      
+      accept(available, 1);
       // Set preferred leader
       
       if(cyclone_handle->me_quorum > 0 && (quorums[0]->snapshot & 1)) {
