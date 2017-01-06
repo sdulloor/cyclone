@@ -36,7 +36,7 @@ def launch_cmds_client_gen(f, m, c, quorums, replicas, clients, machines, ports)
                 cmd=cmd + 'CC_TX=' + os.environ.get('CC_TX') + ' '    
             if os.environ.has_key('QUORUMS_ACTIVE'):
                 cmd=cmd + 'QUORUMS_ACTIVE=' + os.environ.get('QUORUMS_ACTIVE') + ' '    
-            cmd=cmd + 'echo_client '
+            cmd=cmd + 'echo_client_multicore '
             cmd=cmd + str(c_start) + ' '
             cmd=cmd + str(c_stop) + ' '
             cmd=cmd + str(m) + ' '
@@ -53,3 +53,4 @@ def killall_cmds_gen(f):
     f.write('killall -9 counter_coordinator\n')
     f.write('killall -9 counter_driver_mt\n')
     f.write('killall -9 echo_client\n')
+    f.write('killall -9 echo_client_multicore\n')
