@@ -46,6 +46,7 @@ raftpath=config.get('meta','raftpath') + ".cyclone"
 filepath=config.get('meta','filepath') + ".cyclone"
 logsize=config.getint('meta','logsize')
 heapsize=config.getint('meta','heapsize')
+ports=config.getint('meta', 'ports')
 
 #read inactive list
 inactive_list    = {}
@@ -82,10 +83,10 @@ for i in range(machines):
     f.close()
     for c in range(0, clients):
         f=open(dname + '/' + 'launch_preload', 'a')
-        launch_cmds_preload_gen(f, i, c, quorums, replicas, clients, machines)
+        launch_cmds_preload_gen(f, i, c, quorums, replicas, clients, machines, ports)
         f.close()
         f=open(dname + '/' + 'launch_clients', 'a')
-        launch_cmds_client_gen(f, i, c, quorums, replicas, clients, machines)
+        launch_cmds_client_gen(f, i, c, quorums, replicas, clients, machines, ports)
         f.close()
     
 
@@ -130,7 +131,7 @@ for q in range(0, quorums):
         shutil.copy(sys.argv[1],  dname + '/config_cluster.ini')
         if os.environ.has_key('CLIENT_ASSIST'):
             f.write('export CLIENT_ASSIST=1\n')
-        launch_cmds_server_gen(f, q, r, mc, quorums, replicas, clients)
+        launch_cmds_server_gen(f, q, r, mc, quorums, replicas, clients, ports)
         f.close()
 
 #Copy configs to all directories
