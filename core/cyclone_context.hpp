@@ -656,7 +656,7 @@ struct cyclone_monitor {
       // Handle any outstanding requests
       int monitor_port  = queue2port(cyclone_handle->my_q(q_raft), global_dpdk_context->ports);
       int monitor_queue = queue_index_at_port(cyclone_handle->my_q(q_raft), global_dpdk_context->ports);
-      available = rte_eth_rx_burst(monitor_port, monitor_queue,	&pkt_array[0], PKT_BURST);
+      available = cyclone_rx_burst(monitor_port, monitor_queue,	&pkt_array[0], PKT_BURST);
       cyclone_handle->ae_response_cnt = 0;
       for(int i=0;i<available;i++) {
 	m = pkt_array[i];
@@ -719,7 +719,7 @@ struct cyclone_monitor {
       // Check for requests on the network
       monitor_port  = queue2port(cyclone_handle->my_q(q_dispatcher), global_dpdk_context->ports);
       monitor_queue = queue_index_at_port(cyclone_handle->my_q(q_dispatcher), global_dpdk_context->ports);
-      available = rte_eth_rx_burst(monitor_port, monitor_queue, &pkt_array[0], PKT_BURST);
+      available = cyclone_rx_burst(monitor_port, monitor_queue, &pkt_array[0], PKT_BURST);
       if(available) {
 	accept(available, 0);
       }

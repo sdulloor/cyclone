@@ -339,6 +339,14 @@ static int cyclone_flush_buffer(dpdk_context_t *context, int port, int q)
   return rte_eth_tx_buffer_flush(port, qindex, context->buffers[q]);
 }
 
+static int cyclone_rx_burst(int port, 
+			    int q, 
+			    rte_mbuf *buffers[],
+			    int burst_size)
+{
+  return rte_eth_rx_burst(port, q, buffers, burst_size);
+}
+
 // Best effort
 static int cyclone_rx_buffered(dpdk_context_t *context,
 			       int port,
@@ -351,7 +359,7 @@ static int cyclone_rx_buffered(dpdk_context_t *context,
   rte_mbuf *m;
   if(buf->buffered == buf->consumed) {
     buf->consumed = 0;
-    buf->buffered = rte_eth_rx_burst(port, 
+    buf->buffered = cyclone_rx_burst(port, 
 				     q,
 				     &buf->burst[0], 
 				     PKT_BURST);
@@ -394,7 +402,6 @@ static int cyclone_rx_buffered(dpdk_context_t *context,
     return -1;
   }
 }
-
 
 // Block till data available or timeout
 static int cyclone_rx_timeout(dpdk_context_t *context,
