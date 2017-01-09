@@ -341,7 +341,7 @@ static int cyclone_flush_buffer(dpdk_context_t *context, int port, int q)
 
 static int cyclone_rx_burst(int port, 
 			    int q, 
-			    rte_mbuf *buffers[],
+			    rte_mbuf **buffers,
 			    int burst_size)
 {
   return rte_eth_rx_burst(port, q, buffers, burst_size);
