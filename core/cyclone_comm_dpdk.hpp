@@ -427,34 +427,33 @@ static int cyclone_rx_timeout(dpdk_context_t *context,
 }
 
 
-static struct rte_eth_ntuple_filter filter_clean;
-
-
-static void init_filter_clean()
+static void init_filter_clean(struct rte_eth_ntuple_filter *filter)
 {
-  filter_clean.flags = RTE_5TUPLE_FLAGS;
-  filter_clean.dst_ip = 0; // To be set
-  filter_clean.dst_ip_mask = UINT32_MAX; /* Enable */
-  filter_clean.src_ip = 0;
-  filter_clean.src_ip_mask = 0; /* Disable */
-  filter_clean.dst_port = 0;
-  filter_clean.dst_port_mask = 0; /* Disable */
-  filter_clean.src_port = 0;
-  filter_clean.src_port_mask = 0; /* Disable */
-  filter_clean.proto = 0;
-  filter_clean.proto_mask = 0; /* Disable */
-  filter_clean.tcp_flags = 0;
-  filter_clean.priority = 7; /* Highest */
-  filter_clean.queue = 0; // To be set
+  filter->flags = RTE_5TUPLE_FLAGS;
+  filter->dst_ip = 0; // To be set
+  filter->dst_ip_mask = UINT32_MAX; /* Enable */
+  filter->src_ip = magic_src_ip;
+  filter->src_ip_mask = UINT32_MAX; /* Disable */
+  filter->dst_port = 0;
+  filter->dst_port_mask = 0; /* Disable */
+  filter->src_port = 0;
+  filter->src_port_mask = 0; /* Disable */
+  filter->proto = 0;
+  filter->proto_mask = 0; /* Disable */
+  filter->tcp_flags = 0;
+  filter->priority = 7; /* Highest */
+  filter->queue = 0; // To be set
 }
 
 static void install_eth_filters(int port, int queues)
 {
   struct rte_eth_ntuple_filter filter;
-  init_filter_clean();
+  struct rte_eth_ntuple_filter filter_clean;
+  init_filter_clean(&filter_clean);
   if(rte_eth_dev_filter_supported(port, RTE_ETH_FILTER_NTUPLE) != 0) {
     rte_exit(EXIT_FAILURE, "rte_eth_dev does not support ntuple filter");
   }
+
   for(int i=0;i < queues;i++) {
     memcpy(&filter, &filter_clean, sizeof(rte_eth_ntuple_filter));
     filter.dst_ip = i;
