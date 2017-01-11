@@ -3,12 +3,9 @@ all: libcyclone.a
 CXXFLAGS = -O3 -fPIC -DBOOST_LOG_DYN_LINK
 #CXXFLAGS = -O1 -fno-omit-frame-pointer -g -fPIC -DBOOST_LOG_DYN_LINK 
 
-#Choose your network stack
+#Hardware Workaround
+CXXFLAGS += -DWORKAROUND0
 
-#Option 1: TCP/IP + ZeroMQ
-#CXXFLAGS += -DZMQ_STACK
-
-#Option 2: DPDK
 CXXFLAGS += -DDPDK_STACK -std=gnu++0x
 RTE_SDK?=/root/dpdk-stable-16.07.2
 CXXFLAGS += -march=native -DRTE_MACHINE_CPUFLAG_SSE -DRTE_MACHINE_CPUFLAG_SSE2 -DRTE_MACHINE_CPUFLAG_SSE3 -DRTE_MACHINE_CPUFLAG_SSSE3 -DRTE_MACHINE_CPUFLAG_SSE4_1 -DRTE_MACHINE_CPUFLAG_SSE4_2 -DRTE_MACHINE_CPUFLAG_AES -DRTE_MACHINE_CPUFLAG_PCLMULQDQ -DRTE_MACHINE_CPUFLAG_AVX  -I/root/build/include -I${RTE_SDK}/x86_64-native-linuxapp-gcc/include -include ${RTE_SDK}/x86_64-native-linuxapp-gcc/include/rte_config.h

@@ -653,6 +653,19 @@ struct cyclone_monitor {
     cyclone_handle->ae_nack_term = -1;
  
     while(!terminate) {
+
+#ifdef WORKAROUND0
+      // Clean queue 0
+      for(int i=0;i < global_dpdk_context->ports;i++) {
+	if(i % num_quorums == cyclone_handle->me_quorum) {
+	  int junk = cyclone_rx_burst(i, 0, &pkt_array[0], PKT_BURST);
+	  for(int j=0; j < junk;j++) {
+	    rte_pktmbuf_free(pkt_array[j]);
+	  }
+	}
+      }
+#endif
+
       // Handle any outstanding requests
       int monitor_port  = queue2port(cyclone_handle->my_q(q_raft), global_dpdk_context->ports);
       int monitor_queue = queue_index_at_port(cyclone_handle->my_q(q_raft), global_dpdk_context->ports);

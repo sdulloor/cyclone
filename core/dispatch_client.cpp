@@ -45,6 +45,16 @@ typedef struct rpc_client_st {
   int common_receive_loop(int blob_sz)
   {
     int resp_sz;
+    rte_mbuf *junk[PKT_BURST];
+#ifdef WORKAROUND0
+    // Clean out junk
+    if(me_queue == 1) {
+      int junk_cnt = cyclone_rx_burst(0, 0, &junk[0], PKT_BURST);
+      for(int i=0;i<junk_cnt;i++) {
+	rte_pktmbuf_free(junk[i]);
+      }
+    }
+#endif
     while(true) {
       resp_sz = cyclone_rx_timeout(global_dpdk_context,
 				   0,
