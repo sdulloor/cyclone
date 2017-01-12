@@ -4,7 +4,7 @@ CXXFLAGS = -O3 -fPIC -DBOOST_LOG_DYN_LINK
 #CXXFLAGS = -O1 -fno-omit-frame-pointer -g -fPIC -DBOOST_LOG_DYN_LINK 
 
 #Hardware Workaround
-CXXFLAGS += -DWORKAROUND0
+#CXXFLAGS += -DWORKAROUND0
 
 CXXFLAGS += -DDPDK_STACK -std=gnu++0x
 RTE_SDK?=/root/dpdk-stable-16.07.2

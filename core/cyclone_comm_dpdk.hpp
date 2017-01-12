@@ -455,20 +455,29 @@ static void install_eth_filters(int port, int queues)
   }
 
   for(int i=0;i < queues;i++) {
-    memcpy(&filter, &filter_clean, sizeof(rte_eth_ntuple_filter));
-    filter.dst_ip = i;
-    filter.queue  = i;
-    int ret = rte_eth_dev_filter_ctrl(port,
-				      RTE_ETH_FILTER_NTUPLE,
-				      RTE_ETH_FILTER_ADD,
-				      &filter);
-    
-    if (ret != 0)
-      rte_exit(EXIT_FAILURE, "rte_eth_dev_filter_ctrl:err=%d, port=%u\n",
-	       ret, (unsigned) port);
-    else
-      BOOST_LOG_TRIVIAL(info) << "Added filter for rxq " << i;
-    
+    if(i > 0) {
+      memcpy(&filter, &filter_clean, sizeof(rte_eth_ntuple_filter));
+      filter.dst_ip = i;
+      filter.queue  = i;
+      int ret = rte_eth_dev_filter_ctrl(port,
+					RTE_ETH_FILTER_NTUPLE,
+					RTE_ETH_FILTER_ADD,
+					&filter);
+      
+      if (ret != 0)
+	rte_exit(EXIT_FAILURE, "rte_eth_dev_filter_ctrl:err=%d, port=%u\n",
+		 ret, (unsigned) port);
+      else
+	BOOST_LOG_TRIVIAL(info) << "Added filter for rxq " << i;
+    }
+    else { // stop the queue to drop unwanted packets
+      int ret = rte_eth_dev_rx_queue_stop(port, 0);
+      if(ret != 0)
+	rte_exit(EXIT_FAILURE, "rte_eth_dev_queue_stop:err=%d, port=%u\n",
+		 ret, (unsigned) port);
+      else
+	BOOST_LOG_TRIVIAL(info) << "Stopped rxq 0 on port" << port;
+    }
   }
 }
 
@@ -599,7 +608,6 @@ static void dpdk_context_init(dpdk_context_t *context,
     if (ret < 0)
       rte_exit(EXIT_FAILURE, "rte_eth_tx_queue_setup:err=%d, port=%u\n",
 	       ret, (unsigned) my_port);
-    
     
     context->buffers[i] = (rte_eth_dev_tx_buffer *)
       rte_zmalloc_socket("tx_buffer",
