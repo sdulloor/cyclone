@@ -433,7 +433,7 @@ static void init_filter_clean(struct rte_eth_ntuple_filter *filter)
   filter->dst_ip = 0; // To be set
   filter->dst_ip_mask = UINT32_MAX; /* Enable */
   filter->src_ip = magic_src_ip;
-  filter->src_ip_mask = UINT32_MAX; /* Disable */
+  filter->src_ip_mask = UINT32_MAX; /* Enable */
   filter->dst_port = 0;
   filter->dst_port_mask = 0; /* Disable */
   filter->src_port = 0;
