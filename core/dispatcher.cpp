@@ -18,6 +18,7 @@
 #include<libpmemobj.h>
 #include "checkpoint.hpp"
 #include "cyclone_context.hpp"
+#include "tcp_tunnel.hpp"
 
 dpdk_context_t * global_dpdk_context = NULL;
 extern struct rte_ring ** to_cores;
@@ -49,12 +50,16 @@ static void client_reply(rpc_t *req,
 				  rep,
 				  sizeof(rpc_t) + sz);
   
+  /*
   int e = cyclone_tx(global_dpdk_context, 
 		     m, 
 		     q);
   if(e) {
     BOOST_LOG_TRIVIAL(warning) << "Failed to send response to client";
   }
+  */
+  tunnel_t *tun = client_endp2tunnel(req->client_id);
+  tun->send(m);
 }
 
 void init_rpc_cookie_info(rpc_cookie_t *cookie, 

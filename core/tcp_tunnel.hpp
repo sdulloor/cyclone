@@ -2,6 +2,10 @@
 #ifndef TCP_TUNNEL
 #define TCP_TUNNEL
 #include "logging.hpp"
+#include <rte_mbuf.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+
 
 // Settings
 const int MSG_MAX = 4096;
@@ -39,7 +43,7 @@ typedef struct tunnel_st {
     msg_sz = 0;
   }
   
-  int recv()
+  int receive()
   {
     if(ready()) {
       return 1;
@@ -49,9 +53,8 @@ typedef struct tunnel_st {
 		     MSG_MAX,
 		     MSG_DONTWAIT);
     if(bytes > 0) {
-      memcpy(msg + msg_sz, fragment, fragment_sz);
-      msg_sz += fragment_sz;
-      fragment_sz = 0;
+      memcpy(msg + msg_sz, fragment, bytes);
+      msg_sz += bytes;
     }
     return ready();
   }
@@ -66,20 +69,34 @@ typedef struct tunnel_st {
     return bytes;
   }
 
-  void send(void *buffer, int sz)
+  void send(rte_mbuf *pkt)
   {
-    int bytes  = sz + sizeof(int);
-    *(int *)fragment = sz;
-    memcpy(fragment + sizeof(int), buffer, sz);
+    int bytes = sizeof(int);
+    while(pkt) {
+      memcpy(fragment + bytes, 
+	     rte_pktmbuf_mtod(pkt, void*),
+	     pkt->data_len);
+      bytes += pkt->data_len;
+      pkt    = pkt->next;
+    }
+
+    *(int *)fragment = bytes;
     char * buf =fragment;
     while(bytes) {
-      int bytes_sent = send(socket, buf, bytes, 0);
+      int bytes_sent = ::send(socket, buf, bytes, 0);
       if(bytes_sent > 0) {
 	bytes -= bytes_sent;
+	buf   += bytes_sent;
       }
     }
   }
 }tunnel_t;
+
+extern tunnel_t *client_tunnels;
+extern tunnel_t *server_tunnels;
+
+extern tunnel_t* server_endp2tunnel(int server, int quorum);
+extern tunnel_t* client_endp2tunnel(int client);
 
 
 int client_connect(int client_main_socket)
