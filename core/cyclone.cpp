@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include "tcp_tunnel.hpp"
 
 extern dpdk_context_t * global_dpdk_context;
 extern cyclone_t ** quorums;
@@ -40,7 +41,10 @@ static int __send_requestvote(raft_server_t* raft,
 		    mb,
 		    &msg,
 		    sizeof(msg_t));
-  cyclone_tx(global_dpdk_context, mb, my_raft_q);
+  
+  //cyclone_tx(global_dpdk_context, mb, my_raft_q);
+  tunnel_t *tun = server_endp2tunnel((int)(unsigned long)socket, my_raft_q);
+  tun->send(mb);
   return 0;
 }
 
@@ -67,7 +71,9 @@ static void __send_appendentries_response(void *udata,
 		    m,
 		    &resp,
 		    sizeof(msg_t));
-  cyclone_tx(global_dpdk_context, m, my_raft_q);
+  //cyclone_tx(global_dpdk_context, m, my_raft_q);
+  tunnel_t *tun = server_endp2tunnel((int)(unsigned long)socket, my_raft_q);
+  tun->send(m);
 }
 
 /** Raft callback for sending appendentries message */
@@ -100,9 +106,13 @@ static int __send_appendentries(raft_server_t* raft,
 		    msg,
 		    ptr - cyclone_handle->cyclone_buffer_out);
   
+  /*
   if(cyclone_tx(global_dpdk_context, mb, my_raft_q)) {
     BOOST_LOG_TRIVIAL(warning) << "Send appendentries (empty) fail";
   }
+  */
+  tunnel_t *tun = server_endp2tunnel((int)(unsigned long)socket, my_raft_q);
+  tun->send(mb);
   return m->n_entries;
 }
 
@@ -157,17 +167,24 @@ static int __send_appendentries_opt(raft_server_t* raft,
 		     (int)(unsigned long)socket, 
 		     eth);
     //rte_mbuf_sanity_check(e, 1);
+    /*
     tx += cyclone_buffer_pkt(global_dpdk_context, 
 			     queue2port(my_raft_q, global_dpdk_context->ports), 
 			     e, 
 			     my_raft_q);
+    */
+    tunnel_t *tun = server_endp2tunnel((int)(unsigned long)socket, my_raft_q);
+    tun->send(e);
+    tx++;
   }
+  /*
   tx += cyclone_flush_buffer(global_dpdk_context, 
 			     queue2port(my_raft_q, global_dpdk_context->ports),
 			     my_raft_q);
   if(tx < pkts_out) {
     BOOST_LOG_TRIVIAL(warning) << "Send appendentries fail";
   }
+  */
   return tx;
 }
 
