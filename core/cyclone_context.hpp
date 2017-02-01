@@ -16,6 +16,7 @@ extern "C" {
 #include "cyclone_comm.hpp"
 #include "cyclone.hpp"
 #include <rte_cycles.h>
+#include "tcp_tunnel.hpp"
 
 /* Message format */
 
@@ -215,7 +216,12 @@ typedef struct cyclone_st {
 		      m, 
 		      msg, 
 		      sizeof(msg_t));
-    cyclone_tx(global_dpdk_context, m, my_q(q_raft));
+    /*
+      cyclone_tx(global_dpdk_context, m, my_q(q_raft));
+    */
+    //cyclone_tx(global_dpdk_context, mb, my_raft_q);
+    tunnel_t *tun = server_endp2tunnel(router->replica_mc(dst_replica), my_q(q_raft));
+    tun->send(m);
   }
   
   void send_ae_responses()
@@ -665,11 +671,29 @@ struct cyclone_monitor {
 	}
       }
 #endif
-
       // Handle any outstanding requests
+      /*
       int monitor_port  = queue2port(cyclone_handle->my_q(q_raft), global_dpdk_context->ports);
       int monitor_queue = queue_index_at_port(cyclone_handle->my_q(q_raft), global_dpdk_context->ports);
       available = cyclone_rx_burst(monitor_port, monitor_queue,	&pkt_array[0], PKT_BURST);
+      */
+      int monitor_queue = queue_index_at_port(cyclone_handle->my_q(q_raft), global_dpdk_context->ports);
+      available = 0;
+      for(int i=0;i<cyclone_handle->replicas;i++) {
+	if(i == cyclone_handle->me)
+	  continue;
+	tunnel_t *tun = server_endp2tunnel(i, cyclone_handle->me);
+	if(tun->receive()) {
+	  cyclone_handle->ae_response_cnt = 0;
+	  rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[monitor_queue]);
+	  if(mb == NULL) {
+	    BOOST_LOG_TRIVIAL(fatal) << "no mbufs for rcv q_dispatcher";
+	    exit(-1);
+	  }
+	  tun->copy_out(mb);
+	  pkt_array[available++] = mb;
+	}
+      }
       cyclone_handle->ae_response_cnt = 0;
       for(int i=0;i<available;i++) {
 	m = pkt_array[i];
@@ -730,12 +754,28 @@ struct cyclone_monitor {
 	}
       }
       // Check for requests on the network
+      /*
       monitor_port  = queue2port(cyclone_handle->my_q(q_dispatcher), global_dpdk_context->ports);
       monitor_queue = queue_index_at_port(cyclone_handle->my_q(q_dispatcher), global_dpdk_context->ports);
       available = cyclone_rx_burst(monitor_port, monitor_queue, &pkt_array[0], PKT_BURST);
-      if(available) {
-	accept(available, 0);
+      */
+      available = 0;
+      monitor_queue = queue_index_at_port(cyclone_handle->my_q(q_dispatcher), global_dpdk_context->ports);
+      for(int i=0;i<cyclone_handle->replicas;i++) {
+	if(i == cyclone_handle->me)
+	  continue;
+	tunnel_t *tun = server_endp2tunnel(i, cyclone_handle->me);
+	if(tun->receive()) {
+	  rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[monitor_queue]);
+	  if(mb == NULL) {
+	    BOOST_LOG_TRIVIAL(fatal) << "no mbufs for rcv q_dispatcher";
+	    exit(-1);
+	  }
+	  tun->copy_out(mb);
+	  pkt_array[available++] = mb;
+	}
       }
+      accept(available, 0);
       // Check for transactions
       available = 0;
       while(available < PKT_BURST) {
