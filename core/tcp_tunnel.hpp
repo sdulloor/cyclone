@@ -59,14 +59,23 @@ typedef struct tunnel_st {
     return ready();
   }
   
-  int copy_out(void *buffer)
+  // Note: must only call when ready
+  void copy_out(rte_mbuf *pkt)
   {
-    if(!ready())
-      return 0;
     int bytes = msg_sz - sizeof(int);
-    memcpy(buffer, msg + sizeof(int), bytes);
-    msg_sz = 0;
-    return bytes;
+    memcpy(rte_pktmbuf_mtod_offset(pkt, 
+				   void *,
+				   sizeof(struct ether_hdr) +
+				   sizeof(struct ipv4_hdr)),
+	   msg + sizeof(int), 
+	   bytes);
+    
+   pkt->pkt_len = 
+     sizeof(struct ether_hdr) + 
+     sizeof(struct ipv4_hdr)  + 
+     bytes;
+   pkt->data_len = pkt->pkt_len;
+   msg_sz = 0;
   }
 
   void send(rte_mbuf *pkt)
