@@ -220,7 +220,9 @@ typedef struct cyclone_st {
       cyclone_tx(global_dpdk_context, m, my_q(q_raft));
     */
     //cyclone_tx(global_dpdk_context, mb, my_raft_q);
-    tunnel_t *tun = server_endp2tunnel(router->replica_mc(dst_replica), my_q(q_raft));
+    tunnel_t *tun = server_endp2tunnel(router->replica_mc(dst_replica),
+				       me_quorum,
+				       my_q(q_raft));
     tun->send(m);
   }
   
@@ -682,7 +684,9 @@ struct cyclone_monitor {
       for(int i=0;i<cyclone_handle->replicas;i++) {
 	if(i == cyclone_handle->me)
 	  continue;
-	tunnel_t *tun = server_endp2tunnel(i, cyclone_handle->me);
+	tunnel_t *tun = server_endp2tunnel(i, 
+					   cyclone_handle->me_quorum,
+					   monitor_queue);
 	if(tun->receive()) {
 	  cyclone_handle->ae_response_cnt = 0;
 	  rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[monitor_queue]);
@@ -764,7 +768,9 @@ struct cyclone_monitor {
       for(int i=0;i<cyclone_handle->replicas;i++) {
 	if(i == cyclone_handle->me)
 	  continue;
-	tunnel_t *tun = server_endp2tunnel(i, cyclone_handle->me);
+	tunnel_t *tun = server_endp2tunnel(i, 
+					   cyclone_handle->me_quorum,
+					   monitor_queue);
 	if(tun->receive()) {
 	  rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[monitor_queue]);
 	  if(mb == NULL) {
