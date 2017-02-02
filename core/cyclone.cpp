@@ -43,7 +43,9 @@ static int __send_requestvote(raft_server_t* raft,
 		    sizeof(msg_t));
   
   //cyclone_tx(global_dpdk_context, mb, my_raft_q);
-  tunnel_t *tun = server_endp2tunnel((int)(unsigned long)socket, my_raft_q);
+  tunnel_t *tun = server_endp2tunnel((int)(unsigned long)socket,
+				     cyclone_handle->me_quorum,
+				     my_raft_q);
   tun->send(mb);
   return 0;
 }
@@ -72,7 +74,9 @@ static void __send_appendentries_response(void *udata,
 		    &resp,
 		    sizeof(msg_t));
   //cyclone_tx(global_dpdk_context, m, my_raft_q);
-  tunnel_t *tun = server_endp2tunnel((int)(unsigned long)socket, my_raft_q);
+  tunnel_t *tun = server_endp2tunnel((int)(unsigned long)socket,
+				     cyclone_handle->me_quorum,
+				     my_raft_q);
   tun->send(m);
 }
 
@@ -111,7 +115,9 @@ static int __send_appendentries(raft_server_t* raft,
     BOOST_LOG_TRIVIAL(warning) << "Send appendentries (empty) fail";
   }
   */
-  tunnel_t *tun = server_endp2tunnel((int)(unsigned long)socket, my_raft_q);
+  tunnel_t *tun = server_endp2tunnel((int)(unsigned long)socket,
+				     cyclone_handle->me_quorum,
+				     my_raft_q);
   tun->send(mb);
   return m->n_entries;
 }
@@ -173,7 +179,9 @@ static int __send_appendentries_opt(raft_server_t* raft,
 			     e, 
 			     my_raft_q);
     */
-    tunnel_t *tun = server_endp2tunnel((int)(unsigned long)socket, my_raft_q);
+    tunnel_t *tun = server_endp2tunnel((int)(unsigned long)socket, 
+				       cyclone_handle->me_quorum,
+				       my_raft_q);
     tun->send(e);
     tx++;
   }

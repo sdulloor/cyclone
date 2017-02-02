@@ -3,6 +3,8 @@
 #define TCP_TUNNEL
 #include "logging.hpp"
 #include <rte_mbuf.h>
+#include <rte_ether.h>
+#include <rte_ip.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 
@@ -101,14 +103,13 @@ typedef struct tunnel_st {
   }
 }tunnel_t;
 
-extern tunnel_t *client_tunnels;
-extern tunnel_t *server_tunnels;
-
-extern tunnel_t* server_endp2tunnel(int server, int quorum);
+extern tunnel_t* server_endp2tunnel(int server, 
+				    int quorum,
+				    int queue);
 extern tunnel_t* client_endp2tunnel(int client);
 
 
-int client_connect(int client_main_socket)
+static int client_connect(int client_main_socket)
 {
   sockaddr sock_addr;
   socklen_t socket_len;
