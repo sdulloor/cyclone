@@ -16,7 +16,8 @@ typedef struct tunnel_st {
   int msg_sz;
   char *msg;
   char *fragment;
-  int socket;
+  int socket_snd;
+  int socket_rcv;
 
   int ready()
   {
@@ -48,7 +49,7 @@ typedef struct tunnel_st {
     if(ready()) {
       return 1;
     }
-    int bytes = recv(socket, 
+    int bytes = recv(socket_rcv, 
 		     fragment, 
 		     MSG_MAX,
 		     MSG_DONTWAIT);
@@ -92,7 +93,7 @@ typedef struct tunnel_st {
     *(int *)fragment = bytes;
     char * buf =fragment;
     while(bytes) {
-      int bytes_sent = ::send(socket, buf, bytes, 0);
+      int bytes_sent = ::send(socket_snd, buf, bytes, 0);
       if(bytes_sent > 0) {
 	bytes -= bytes_sent;
 	buf   += bytes_sent;
@@ -101,11 +102,8 @@ typedef struct tunnel_st {
   }
 }tunnel_t;
 
-extern tunnel_t* server2server_tunnel(int server, 
-				      int quorum,
-				      int queue);
-extern tunnel_t* server2client_tunnel(int client, 
-				      int tid);
+extern tunnel_t* server2server_tunnel(int server, int quorum);
+extern tunnel_t* server2client_tunnel(int client, int tid); 
 extern tunnel_t* client2server_tunnel(int server);
 
 #endif

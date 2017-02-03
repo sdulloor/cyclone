@@ -44,8 +44,7 @@ static int __send_requestvote(raft_server_t* raft,
   
   //cyclone_tx(global_dpdk_context, mb, my_raft_q);
   tunnel_t *tun = server2server_tunnel((int)(unsigned long)socket,
-				     cyclone_handle->me_quorum,
-				     my_raft_q);
+				       cyclone_handle->me_quorum);
   tun->send(mb);
   return 0;
 }
@@ -75,8 +74,7 @@ static void __send_appendentries_response(void *udata,
 		    sizeof(msg_t));
   //cyclone_tx(global_dpdk_context, m, my_raft_q);
   tunnel_t *tun = server2server_tunnel((int)(unsigned long)socket,
-				     cyclone_handle->me_quorum,
-				     my_raft_q);
+				       cyclone_handle->me_quorum);
   tun->send(m);
 }
 
@@ -116,8 +114,7 @@ static int __send_appendentries(raft_server_t* raft,
   }
   */
   tunnel_t *tun = server2server_tunnel((int)(unsigned long)socket,
-				     cyclone_handle->me_quorum,
-				     my_raft_q);
+				       cyclone_handle->me_quorum);
   tun->send(mb);
   return m->n_entries;
 }
@@ -180,8 +177,7 @@ static int __send_appendentries_opt(raft_server_t* raft,
 			     my_raft_q);
     */
     tunnel_t *tun = server2server_tunnel((int)(unsigned long)socket, 
-				       cyclone_handle->me_quorum,
-				       my_raft_q);
+					 cyclone_handle->me_quorum);
     tun->send(e);
     tx++;
   }
