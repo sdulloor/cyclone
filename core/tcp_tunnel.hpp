@@ -11,8 +11,6 @@
 
 // Settings
 const int MSG_MAX = 4096;
-const int CLIENTS = 100;
-
 
 typedef struct tunnel_st {
   int msg_sz;
@@ -103,26 +101,11 @@ typedef struct tunnel_st {
   }
 }tunnel_t;
 
-extern tunnel_t* server_endp2tunnel(int server, 
-				    int quorum,
-				    int queue);
-extern tunnel_t* client_endp2tunnel(int client);
-
-
-static int client_connect(int client_main_socket)
-{
-  sockaddr sock_addr;
-  socklen_t socket_len;
-  int id;
-  int e = accept(client_main_socket,
-		 &sock_addr,
-		 &socket_len);
-  if(e >= 0) {
-    return e;
-  }
-  else {
-    return 0;
-  }
-}
+extern tunnel_t* server2server_tunnel(int server, 
+				      int quorum,
+				      int queue);
+extern tunnel_t* server2client_tunnel(int client, 
+				      int tid);
+extern tunnel_t* client2server_tunnel(int server);
 
 #endif

@@ -38,6 +38,9 @@ static const int num_quorums  = 8;
 static const int Q_BUFS = 8191;
 static const int R_BUFS = 1023;
 
+// Static client setting for tunnel tests
+static int num_clients = 1;
+
 // Maximum clients (1 million)
 static const unsigned int MAX_CLIENTS = 1024U*1024U;
 static const char MAX_INFLIGHT = 1;
