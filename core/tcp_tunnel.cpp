@@ -1,17 +1,27 @@
 #include "libcyclone.hpp"
 #include "tcp_tunnel.hpp"
-static tunnel_t *client_tunnels;
-static tunnel_t *server_tunnels;
+static tunnel_t *client2server_tunnels;
+static tunnel_t *server2server_tunnels;
+static tunnel_t *server2client_tunnels;
 
-tunnel_t* server_endp2tunnel(int server, 
-			     int quorum,
-			     int queue)
+tunnel_t* server2server_tunnel(int server, 
+			       int quorum,
+			       int queue)
 {
-  return &server_tunnels[server*num_quorums*num_queues + quorum*num_queues];
+  return &server2server_tunnels[server*num_quorums*num_queues + quorum*num_queues];
 }
  
-tunnel_t* client_endp2tunnel(int client)
+tunnel_t* server2client_tunnel(int client,
+			       int tid)
 {
-  return &client_tunnels[client];
+  return &server2client_tunnels[num_clients*tid + client];
 }
+
+tunnel_t* client2server_tunnel(int server)
+{
+  return &client2server_tunnels[server];
+}
+
+
+
 

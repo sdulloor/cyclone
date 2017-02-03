@@ -30,7 +30,8 @@ static void client_reply(rpc_t *req,
 			 rpc_t *rep,
 			 void *payload,
 			 int sz,
-			 int q)
+			 int q,
+			 int tid)
 {
   rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[q]);
   int port = queue2port(q, global_dpdk_context->ports);
@@ -58,7 +59,7 @@ static void client_reply(rpc_t *req,
     BOOST_LOG_TRIVIAL(warning) << "Failed to send response to client";
   }
   */
-  tunnel_t *tun = client_endp2tunnel(req->client_id);
+  tunnel_t *tun = server2client_tunnel(req->client_id, num_quorums + tid);
   tun->send(m);
 }
 
@@ -210,7 +211,8 @@ typedef struct executor_st {
 		   resp_buffer, 
 		   cookie.ret_value, 
 		   cookie.ret_size,
-		   global_dpdk_context->ports + num_queues*num_quorums + tid);
+		   global_dpdk_context->ports + num_queues*num_quorums + tid,
+		   tid);
     }
     else if(client_buffer->flags & RPC_FLAG_RO) {
       int e = exec_rpc_internal_ro(client_buffer, wal, sz, &cookie);
@@ -224,7 +226,8 @@ typedef struct executor_st {
 		     resp_buffer, 
 		     cookie.ret_value, 
 		     cookie.ret_size,
-		     global_dpdk_context->ports +num_queues*num_quorums + tid);
+		     global_dpdk_context->ports +num_queues*num_quorums + tid,
+		     tid);
       }
       if(!e) {
 	app_callbacks.gc_callback(&cookie);
@@ -245,7 +248,8 @@ typedef struct executor_st {
 		     resp_buffer,
 		     NULL,
 		     0,
-		     global_dpdk_context->ports +num_queues*num_quorums + tid);
+		     global_dpdk_context->ports +num_queues*num_quorums + tid,
+		     tid);
       }
     }
     else {
@@ -261,7 +265,8 @@ typedef struct executor_st {
 		     resp_buffer, 
 		     cookie.ret_value, 
 		     cookie.ret_size,
-		     global_dpdk_context->ports +num_queues*num_quorums + tid);
+		     global_dpdk_context->ports +num_queues*num_quorums + tid,
+		     tid);
       }
       if(!e) {
 	app_callbacks.gc_callback(&cookie);
