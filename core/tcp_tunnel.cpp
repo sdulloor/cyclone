@@ -1,8 +1,14 @@
 #include "libcyclone.hpp"
 #include "tcp_tunnel.hpp"
+#include<netinet/in.h>
 static tunnel_t *client2server_tunnels;
 static tunnel_t *server2server_tunnels;
 static tunnel_t *server2client_tunnels;
+
+sockaddr_in *server_addresses;
+int *sockets_raft;
+
+static sockaddr_in **client_addresses;
 
 tunnel_t* server2server_tunnel(int server, int quorum)
 {
@@ -14,14 +20,12 @@ tunnel_t* server2client_tunnel(int client, int tid)
   return &server2client_tunnels[num_clients*tid + client];
 }
 
-tunnel_t* client2server_tunnel(int server)
+tunnel_t* client2server_tunnel(int server, int quorum)
 {
-  return &client2server_tunnels[server];
+  return &client2server_tunnels[server*num_quorums + quorum];
 }
 
-void server_connect_server(int quorum,
-			   int replicas, 
-			   char *addresses[])
+void server_connect_server(int quorum, int replicas)
 {
   for(int i=0;i<replicas;i++) {
     tunnel_t *tun = server2server_tunnel(i, quorum);
@@ -29,21 +33,85 @@ void server_connect_server(int quorum,
   }
 }
 
-void server_accept_server(int quorum, int replicas)
+void client_connect_server(int replicas)
 {
   for(int i=0;i<replicas;i++) {
-    tunnel_t *tun = server2server_tunnel(i, quorum);
-    // TBD
+    for(int j=0;j<num_quorums;j++) {
+      tunnel_t *tun = client2server_tunnel(i, j);
+      // TBD
+    }
   }
-
 }
 
-void server_accept_client()
+void server_open_ports(int me, int quorum)
+{
+  struct sockaddr_in iface;
+  sockets_raft[quorum] = socket(AF_INET, SOCK_STREAM, 0);
+  if(sockets_raft[quorum] < 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "Unable to get socket for quorum " 
+			     << quorum;
+    exit(-1);
+  }
+  iface.sin_family = AF_INET;
+  iface.sin_port   = htons(PORT_SERVER_BASE + quorum*num_queues);
+  iface.sin_addr = server_addresses[me].sin_addr;
+  //iface.sin_addr.s_addr = INADDR_ANY;
+  if(bind(sockets_raft[quorum], (struct sockaddr *)&iface, sizeof(iface)) < 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "Unable to bind raft socket "
+			     << " quorum =  " << quorum
+			     << " address = " << iface.sin_addr.s_addr
+			     << " port = " << iface.sin_port;
+    exit(-1);
+  }
+  if(listen(sockets_raft[quorum], 100) < 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "Unable to set listen state for raft socket "
+			     << " quorum =  " << quorum;
+    exit(-1);
+  }
+}
+
+void server_accept_server(int socket,
+			  int quorum, 
+			  int replicas)
+{
+  struct sockaddr_in sockaddr;
+  socklen_t socklen;
+  int sock_rcv;
+  tunnel_t *tun;
+  for(int i=1;i<replicas;i++) {
+    sock_rcv = accept(socket, (struct sockaddr *)&sockaddr, &socklen);
+    // Figure out who it is.
+    tun = NULL;
+    for(int j=0;j<replicas;j++) {
+      if(memcmp(&server_addresses[j].sin_addr, 
+		&sockaddr.sin_addr, 
+		sizeof(struct in_addr)) == 0){
+	tun = server2server_tunnel(j, quorum);
+	break;
+      }
+    }
+    if(tun == NULL) {
+      BOOST_LOG_TRIVIAL(fatal) << "recvd connect from unknown server.";
+      exit(-1);
+    }
+    if(tun->socket_rcv < 0) {
+      BOOST_LOG_TRIVIAL(fatal) << "Server accept server call failed";
+      exit(-1);
+    }
+    tun->socket_rcv = sock_rcv;
+  }
+}
+
+void server_accept_client(int socket)
 {
   for(int i=0;i<num_clients;i++) {
     for(int j=0;j<executor_threads;j++) {
       tunnel_t *tun = server2client_tunnel(i, j);
-      // TBD
+      tun->socket_rcv = accept(socket, NULL, NULL);
+      if(tun->socket_rcv < 0) {
+	BOOST_LOG_TRIVIAL(fatal) << "Server accept client call failed";
+	exit(-1);
+      }
     }
   }
 }

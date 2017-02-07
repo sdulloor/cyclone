@@ -350,6 +350,22 @@ void cyclone_network_init(const char *config_cluster_path,
 		    MSG_MAXSIZE,
 		    (MSG_MAXSIZE + sizeof(rpc_t) - 1)/sizeof(rpc_t),
 		    queues);
+
+  server_addresses = (struct sockaddr_in *)malloc(3*sizeof(struct sockaddr_in));
+  /* server addresses for tunnel */
+  for(int i=0;i<3;i++) {
+    sprintf(key, "machines.ipaddr%d", i);
+    std::string s = pt_cluster.get<std::string>(key);
+    BOOST_LOG_TRIVIAL(info) << "Setting address " 
+			    << i 
+			    << " to " 
+			    << s;
+    if(inet_aton(s.c_str(), &server_addresses[i].sin_addr) == 0) {
+      BOOST_LOG_TRIVIAL(fatal) << "Unable to convert "
+			       << s;
+      exit(-1);
+    }
+  }
 }
 
 void dispatcher_start(const char* config_cluster_path,

@@ -742,6 +742,10 @@ void* cyclone_setup(const char *config_quorum_path,
 
 void cyclone_boot()
 {
+  sockets_raft = (int *)malloc(num_quorums*sizeof(int));
+  for(int i=0;i<num_quorums;i++) {
+    server_open_ports(quorums[i]->me, i);
+  }
   for(int i=0;i<num_quorums;i++) {
     int e = rte_eal_remote_launch(dpdk_raft_monitor, 
 				  (void *)quorums[i]->monitor_obj, 
@@ -750,6 +754,10 @@ void cyclone_boot()
       BOOST_LOG_TRIVIAL(fatal) << "Failed to launch raft monitor on remote lcore";
       exit(-1);
     }
+  }
+  // Do accept loop for server sockets
+  for(int i=0;i<num_quorums;i++) {
+    server_accept_server(sockets_raft[i], i, quorums[i]->replicas);
   }
 }
 
