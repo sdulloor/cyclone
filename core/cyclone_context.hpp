@@ -659,6 +659,9 @@ struct cyclone_monitor {
     cyclone_handle->snapshot = ~1L;
     cyclone_handle->ae_nack_term = -1;
  
+    // debug ... pause
+    while(true);
+
     while(!terminate) {
 
 #ifdef WORKAROUND0

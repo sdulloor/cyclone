@@ -71,11 +71,11 @@ typedef struct tunnel_st {
 	   msg + sizeof(int), 
 	   bytes);
     
-   pkt->pkt_len = 
-     sizeof(struct ether_hdr) + 
-     sizeof(struct ipv4_hdr)  + 
-     bytes;
-   pkt->data_len = pkt->pkt_len;
+    pkt->pkt_len = 
+      sizeof(struct ether_hdr) + 
+      sizeof(struct ipv4_hdr)  + 
+      bytes;
+    pkt->data_len = pkt->pkt_len;
    msg_sz = 0;
   }
 
@@ -105,5 +105,14 @@ typedef struct tunnel_st {
 extern tunnel_t* server2server_tunnel(int server, int quorum);
 extern tunnel_t* server2client_tunnel(int client, int tid); 
 extern tunnel_t* client2server_tunnel(int server);
+extern void server_open_ports(int me, int quorum);
+extern void server_accept_server(int socket,
+				 int quorum, 
+				 int replicas);
+
+extern sockaddr_in *server_addresses;
+extern int *sockets_raft;
+// Random fixed port numbers
+const int PORT_SERVER_BASE = 0xf16;
 
 #endif
