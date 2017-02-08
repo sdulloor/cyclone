@@ -2,7 +2,7 @@
 #include "tcp_tunnel.hpp"
 #include<netinet/in.h>
 static tunnel_t *client2server_tunnels;
-static tunnel_t *server2server_tunnels;
+tunnel_t *server2server_tunnels;
 static tunnel_t *server2client_tunnels;
 
 sockaddr_in *server_addresses;
@@ -25,12 +25,44 @@ tunnel_t* client2server_tunnel(int server, int quorum)
   return &client2server_tunnels[server*num_quorums + quorum];
 }
 
-void server_connect_server(int quorum, int replicas)
+void server_connect_server(int quorum,
+			   int me,
+			   int replicas)
 {
+  struct sockaddr_in serv_addr;
   for(int i=0;i<replicas;i++) {
+    if(i == me) {
+      continue;
+    }
     tunnel_t *tun = server2server_tunnel(i, quorum);
-    // TBD
+    tun->socket_snd = socket(AF_INET, SOCK_STREAM, 0); 
+    if(tun->socket_snd < 0) {
+      BOOST_LOG_TRIVIAL(fatal) 
+	<< "Unable to create server 2 server send socket"
+	<< " for quorum = " << quorum;
+      exit(-1);
+    }
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port   = htons(PORT_SERVER_BASE + quorum*num_queues);
+    serv_addr.sin_addr   = server_addresses[i].sin_addr;
+    int e = connect(tun->socket_snd, 
+		    (struct sockaddr *) &serv_addr,
+		    sizeof(serv_addr));
+    if (e < 0) {
+      BOOST_LOG_TRIVIAL(fatal) << "Unable to connect to replica address "
+			       << serv_addr.sin_addr.s_addr
+			       <<" port "
+			       << serv_addr.sin_port
+			       <<" error = "
+			       << errno;
+      exit(-1);
+    }
+    BOOST_LOG_TRIVIAL(info) << "Quorum = " << quorum
+			    <<" connected to replica "
+			    << i;
   }
+  BOOST_LOG_TRIVIAL(info) << "Quorum = " << quorum
+			  <<" connections complete";
 }
 
 void client_connect_server(int replicas)
@@ -75,7 +107,7 @@ void server_accept_server(int socket,
 			  int replicas)
 {
   struct sockaddr_in sockaddr;
-  socklen_t socklen;
+  socklen_t socklen = sizeof(sockaddr_in);
   int sock_rcv;
   tunnel_t *tun;
   for(int i=1;i<replicas;i++) {
@@ -87,11 +119,16 @@ void server_accept_server(int socket,
 		&sockaddr.sin_addr, 
 		sizeof(struct in_addr)) == 0){
 	tun = server2server_tunnel(j, quorum);
+	BOOST_LOG_TRIVIAL(info) << "Quorum = "
+				<< quorum
+				<< " received connect from " 
+				<<j;
 	break;
       }
     }
     if(tun == NULL) {
-      BOOST_LOG_TRIVIAL(fatal) << "recvd connect from unknown server.";
+      BOOST_LOG_TRIVIAL(fatal) << "recvd connect from unknown server: "
+			       << sockaddr.sin_addr.s_addr;
       exit(-1);
     }
     if(tun->socket_rcv < 0) {

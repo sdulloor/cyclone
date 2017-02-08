@@ -658,7 +658,9 @@ struct cyclone_monitor {
     snapshot = (unsigned int *)malloc(num_quorums*sizeof(unsigned int));
     cyclone_handle->snapshot = ~1L;
     cyclone_handle->ae_nack_term = -1;
- 
+    server_connect_server(cyclone_handle->me_quorum, 
+			  cyclone_handle->me,
+			  cyclone_handle->replicas);
     // debug ... pause
     while(true);
 
