@@ -21,7 +21,8 @@ typedef struct tunnel_st {
 
   int ready()
   {
-    if(msg_sz > 0 && *(int *)msg == msg_sz) {
+    int cur_msg_size = *(int *)msg;
+    if(msg_sz > 0 && cur_msg_size <= msg_sz) {
       return 1;
     }
     else {
@@ -51,7 +52,7 @@ typedef struct tunnel_st {
     }
     int bytes = recv(socket_rcv, 
 		     fragment, 
-		     MSG_MAX,
+		     MSG_MAX/2,
 		     MSG_DONTWAIT);
     if(bytes > 0) {
       memcpy(msg + msg_sz, fragment, bytes);
@@ -63,25 +64,26 @@ typedef struct tunnel_st {
   // Note: must only call when ready
   void copy_out(rte_mbuf *pkt)
   {
-    int bytes = msg_sz - sizeof(int);
-    memcpy(rte_pktmbuf_mtod_offset(pkt, 
-				   void *,
-				   sizeof(struct ether_hdr) +
-				   sizeof(struct ipv4_hdr)),
+    int bytes = *(int *)msg - sizeof(int);
+    memcpy(rte_pktmbuf_mtod(pkt, void *),
 	   msg + sizeof(int), 
 	   bytes);
-    
-    pkt->pkt_len = 
-      sizeof(struct ether_hdr) + 
-      sizeof(struct ipv4_hdr)  + 
-      bytes;
+    pkt->pkt_len = bytes;
     pkt->data_len = pkt->pkt_len;
-   msg_sz = 0;
+    int cur_msg_size = *(int *)msg;
+    if(msg_sz > cur_msg_size) {
+      memcpy(msg, msg + cur_msg_size, msg_sz - cur_msg_size);
+      msg_sz -= cur_msg_size;
+    }
+    else {
+      msg_sz = 0;
+    }
   }
 
   void send(rte_mbuf *pkt)
   {
     int bytes = sizeof(int);
+    rte_mbuf *pkt_saved = pkt;
     while(pkt) {
       memcpy(fragment + bytes, 
 	     rte_pktmbuf_mtod(pkt, void*),
@@ -99,6 +101,7 @@ typedef struct tunnel_st {
 	buf   += bytes_sent;
       }
     }
+    rte_pktmbuf_free(pkt_saved);
   }
 }tunnel_t;
 

@@ -661,9 +661,6 @@ struct cyclone_monitor {
     server_connect_server(cyclone_handle->me_quorum, 
 			  cyclone_handle->me,
 			  cyclone_handle->replicas);
-    // debug ... pause
-    while(true);
-
     while(!terminate) {
 
 #ifdef WORKAROUND0
@@ -694,7 +691,7 @@ struct cyclone_monitor {
 	  cyclone_handle->ae_response_cnt = 0;
 	  rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[monitor_queue]);
 	  if(mb == NULL) {
-	    BOOST_LOG_TRIVIAL(fatal) << "no mbufs for rcv q_dispatcher";
+	    BOOST_LOG_TRIVIAL(fatal) << "no mbufs for rcv q_raft";
 	    exit(-1);
 	  }
 	  tun->copy_out(mb);
@@ -766,6 +763,7 @@ struct cyclone_monitor {
       monitor_queue = queue_index_at_port(cyclone_handle->my_q(q_dispatcher), global_dpdk_context->ports);
       available = cyclone_rx_burst(monitor_port, monitor_queue, &pkt_array[0], PKT_BURST);
       */
+      /* TBD ... 
       available = 0;
       monitor_queue = queue_index_at_port(cyclone_handle->my_q(q_dispatcher), global_dpdk_context->ports);
       for(int i=0;i<num_clients;i++) {
@@ -781,6 +779,7 @@ struct cyclone_monitor {
 	}
       }
       accept(available, 0);
+      */
       // Check for transactions
       available = 0;
       while(available < PKT_BURST) {
