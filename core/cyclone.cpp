@@ -746,6 +746,10 @@ void cyclone_boot()
   for(int i=0;i<num_quorums;i++) {
     server_open_ports(quorums[i]->me, i);
   }
+  BOOST_LOG_TRIVIAL(info) << "Launch sleeping 10 seconds for startup ....";
+  sleep(10);
+  BOOST_LOG_TRIVIAL(info) << "Done!";
+
   for(int i=0;i<num_quorums;i++) {
     int e = rte_eal_remote_launch(dpdk_raft_monitor, 
 				  (void *)quorums[i]->monitor_obj, 

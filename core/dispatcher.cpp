@@ -351,7 +351,8 @@ void cyclone_network_init(const char *config_cluster_path,
 		    (MSG_MAXSIZE + sizeof(rpc_t) - 1)/sizeof(rpc_t),
 		    queues);
 
-  server_addresses = (struct sockaddr_in *)malloc(3*sizeof(struct sockaddr_in));
+  server_addresses      = (struct sockaddr_in *)malloc(3*sizeof(struct sockaddr_in));
+  server2server_tunnels = (tunnel_t *)malloc(3*num_quorums*sizeof(tunnel_t)); 
   /* server addresses for tunnel */
   for(int i=0;i<3;i++) {
     sprintf(key, "machines.ipaddr%d", i);
@@ -364,6 +365,9 @@ void cyclone_network_init(const char *config_cluster_path,
       BOOST_LOG_TRIVIAL(fatal) << "Unable to convert "
 			       << s;
       exit(-1);
+    }
+    for(int j=0;j<num_quorums;j++) {
+      server2server_tunnel(i, j)->init();
     }
   }
 }
