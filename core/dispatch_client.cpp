@@ -8,10 +8,11 @@
 #include <boost/property_tree/ptree.hpp>
 #include <unistd.h>
 #include "cyclone_context.hpp"
-
+#include "tcp_tunnel.hpp"
 
 extern dpdk_context_t *global_dpdk_context;
 typedef struct rpc_client_st {
+  tunnel_t *client2server_tunnels;
   int me;
   int me_mc;
   int me_queue;
@@ -26,6 +27,11 @@ typedef struct rpc_client_st {
   dpdk_rx_buffer_t *buf;
   int server_ports;
   unsigned int *terms;
+
+  tunnel_t* client2server_tunnel(int server, int quorum)
+  {
+    return &client2server_tunnels[server*num_quorums + quorum];
+  }
 
   int quorum_q(int quorum_id, int q)
   {
@@ -281,6 +287,17 @@ void* cyclone_client_init(int client_id,
   client->packet_rep = (msg_t *)buf;
   client->replicas = pt_quorum.get<int>("quorum.replicas");
   client->channel_seq = client_queue*client_mc*rtc_clock::current_time();
+  client->client2server_tunnels = (tunnel_t *)malloc(client->replicas*num_quorums*sizeof(tunnel_t)); 
+  for(int i=0;i<client->replicas;i++) {
+    for(int j=0;j<num_quorums;j++) {
+      client->client2server_tunnel(i, j)->init();
+      client_connect_server(i, 
+			    j, 
+			    client->client2server_tunnel(i, j));
+    }
+  }
+  BOOST_LOG_TRIVIAL(info) << "Connections done... sleeping 10 secs.";
+  sleep(10);
   for(int i=0;i<num_quorums;i++) {
     client->server = 0;
     client->update_server("Initialization");

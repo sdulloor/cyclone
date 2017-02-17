@@ -1,9 +1,9 @@
 #include "libcyclone.hpp"
 #include "tcp_tunnel.hpp"
 #include<netinet/in.h>
-static tunnel_t *client2server_tunnels;
+
 tunnel_t *server2server_tunnels;
-static tunnel_t *server2client_tunnels;
+tunnel_t *server2client_tunnels;
 
 sockaddr_in *server_addresses;
 int *sockets_raft;
@@ -19,11 +19,6 @@ tunnel_t* server2server_tunnel(int server, int quorum)
 tunnel_t* server2client_tunnel(int client, int quorum)
 {
   return &server2client_tunnels[quorum*num_clients + client];
-}
-
-tunnel_t* client2server_tunnel(int server, int quorum)
-{
-  return &client2server_tunnels[server*num_quorums + quorum];
 }
 
 void server_connect_server(int quorum,
@@ -66,14 +61,37 @@ void server_connect_server(int quorum,
 			  <<" connections complete";
 }
 
-void client_connect_server(int replicas)
+void client_connect_server(int replica, int quorum, tunnel_t *tun)
 {
-  for(int i=0;i<replicas;i++) {
-    for(int j=0;j<num_quorums;j++) {
-      tunnel_t *tun = client2server_tunnel(i, j);
-      // TBD
-    }
+  struct sockaddr_in serv_addr;
+  tun->socket_snd = socket(AF_INET, SOCK_STREAM, 0); 
+  if(tun->socket_snd < 0) {
+    BOOST_LOG_TRIVIAL(fatal) 
+      << "Unable to create server 2 server send socket"
+      << " for quorum = " << quorum;
+    exit(-1);
   }
+  serv_addr.sin_family = AF_INET;
+  serv_addr.sin_port   = htons(PORT_SERVER_BASE + num_quorums*num_queues + quorum);
+  serv_addr.sin_addr   = server_addresses[replica].sin_addr;
+  int e = connect(tun->socket_snd, 
+		  (struct sockaddr *) &serv_addr,
+		  sizeof(serv_addr));
+  if (e < 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "Client unable to connect to replica address "
+			     << serv_addr.sin_addr.s_addr
+			     <<" port "
+			     << serv_addr.sin_port
+			     <<" error = "
+			     << errno;
+    exit(-1);
+  }
+  tun->socket_rcv = tun->socket_snd;
+  BOOST_LOG_TRIVIAL(info) << "Client "
+			  << " connected to replica "
+			  << replica
+			  << " quorum = "
+			  << quorum;
 }
 
 void server_open_ports(int me, int quorum)
@@ -200,6 +218,7 @@ void server_accept_client(int socket, int quorum)
     }
     tun->socket_rcv = sock_rcv;
   }
+  BOOST_LOG_TRIVIAL(info) << "Client accept complete.";
 }
 
 
