@@ -7,17 +7,18 @@ static tunnel_t *server2client_tunnels;
 
 sockaddr_in *server_addresses;
 int *sockets_raft;
+int *sockets_client;
 
-static sockaddr_in **client_addresses;
+sockaddr_in *client_addresses;
 
 tunnel_t* server2server_tunnel(int server, int quorum)
 {
   return &server2server_tunnels[server*num_quorums + quorum];
 }
  
-tunnel_t* server2client_tunnel(int client, int tid)
+tunnel_t* server2client_tunnel(int client, int quorum)
 {
-  return &server2client_tunnels[num_clients*tid + client];
+  return &server2client_tunnels[quorum*num_clients + client];
 }
 
 tunnel_t* client2server_tunnel(int server, int quorum)
@@ -78,6 +79,8 @@ void client_connect_server(int replicas)
 void server_open_ports(int me, int quorum)
 {
   struct sockaddr_in iface;
+  
+  // RAFT port
   sockets_raft[quorum] = socket(AF_INET, SOCK_STREAM, 0);
   if(sockets_raft[quorum] < 0) {
     BOOST_LOG_TRIVIAL(fatal) << "Unable to get socket for quorum " 
@@ -100,6 +103,31 @@ void server_open_ports(int me, int quorum)
 			     << " quorum =  " << quorum;
     exit(-1);
   }
+
+  // Client port
+  sockets_client[quorum] = socket(AF_INET, SOCK_STREAM, 0);
+  if(sockets_client[quorum] < 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "Unable to get socket for client " 
+			     << quorum;
+    exit(-1);
+  }
+  iface.sin_family = AF_INET;
+  iface.sin_port   = htons(PORT_SERVER_BASE + num_quorums*num_queues + quorum);
+  iface.sin_addr = server_addresses[me].sin_addr;
+  //iface.sin_addr.s_addr = INADDR_ANY;
+  if(bind(sockets_client[quorum], (struct sockaddr *)&iface, sizeof(iface)) < 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "Unable to bind client socket "
+			     << " quorum =  " << quorum
+			     << " address = " << iface.sin_addr.s_addr
+			     << " port = " << iface.sin_port;
+    exit(-1);
+  }
+  if(listen(sockets_client[quorum], 100) < 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "Unable to set listen state for client socket "
+			     << " quorum =  " << quorum;
+    exit(-1);
+  }
+
 }
 
 void server_accept_server(int socket,
@@ -112,6 +140,10 @@ void server_accept_server(int socket,
   tunnel_t *tun;
   for(int i=1;i<replicas;i++) {
     sock_rcv = accept(socket, (struct sockaddr *)&sockaddr, &socklen);
+    if(sock_rcv < 0) {
+      BOOST_LOG_TRIVIAL(fatal) << "Server accept server call failed";
+      exit(-1);
+    }
     // Figure out who it is.
     tun = NULL;
     for(int j=0;j<replicas;j++) {
@@ -131,35 +163,43 @@ void server_accept_server(int socket,
 			       << sockaddr.sin_addr.s_addr;
       exit(-1);
     }
-    if(tun->socket_rcv < 0) {
+    tun->socket_rcv = sock_rcv;
+  }
+}
+
+void server_accept_client(int socket, int quorum)
+{
+  struct sockaddr_in sockaddr;
+  socklen_t socklen = sizeof(sockaddr_in);
+  int sock_rcv;
+  tunnel_t *tun;
+  for(int i=0;i<num_clients;i++) {
+    sock_rcv = accept(socket, (struct sockaddr *)&sockaddr, &socklen);
+    if(sock_rcv < 0) {
       BOOST_LOG_TRIVIAL(fatal) << "Server accept server call failed";
+      exit(-1);
+    }
+    // Figure out who it is.
+    tun = NULL;
+    for(int j=0;j<num_clients;j++) {
+      if(memcmp(&client_addresses[j].sin_addr, 
+		&sockaddr.sin_addr, 
+		sizeof(struct in_addr)) == 0){
+	tun = server2client_tunnel(j, quorum);
+	BOOST_LOG_TRIVIAL(info) << " quorum = "
+				<< quorum
+				<< " received connect from client " 
+				<< j;
+	break;
+      }
+    }
+    if(tun == NULL) {
+      BOOST_LOG_TRIVIAL(fatal) << "recvd connect from unknown client: "
+			       << sockaddr.sin_addr.s_addr;
       exit(-1);
     }
     tun->socket_rcv = sock_rcv;
   }
 }
 
-void server_accept_client(int socket)
-{
-  for(int i=0;i<num_clients;i++) {
-    for(int j=0;j<executor_threads;j++) {
-      tunnel_t *tun = server2client_tunnel(i, j);
-      tun->socket_rcv = accept(socket, NULL, NULL);
-      if(tun->socket_rcv < 0) {
-	BOOST_LOG_TRIVIAL(fatal) << "Server accept client call failed";
-	exit(-1);
-      }
-    }
-  }
-}
 
-
-void server_connect_client()
-{
-  for(int i=0;i<num_clients;i++) {
-    for(int j=0;j<executor_threads;j++) {
-      tunnel_t *tun = server2client_tunnel(i, j);
-      // TBD
-    }
-  }
-}

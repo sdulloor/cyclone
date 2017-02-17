@@ -107,7 +107,7 @@ typedef struct tunnel_st {
 
 extern tunnel_t *server2server_tunnels;
 extern tunnel_t* server2server_tunnel(int server, int quorum);
-extern tunnel_t* server2client_tunnel(int client, int tid); 
+extern tunnel_t* server2client_tunnel(int client, int quorum); 
 extern tunnel_t* client2server_tunnel(int server);
 extern void server_open_ports(int me, int quorum);
 extern void server_accept_server(int socket,
@@ -119,6 +119,7 @@ extern void server_connect_server(int quorum,
 				  int replicas);
 extern sockaddr_in *server_addresses;
 extern int *sockets_raft;
+extern int *sockets_client;
 // Random fixed port numbers
 const int PORT_SERVER_BASE = 0xf16;
 
