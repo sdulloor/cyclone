@@ -743,6 +743,7 @@ void* cyclone_setup(const char *config_quorum_path,
 void cyclone_boot()
 {
   sockets_raft = (int *)malloc(num_quorums*sizeof(int));
+  sockets_client = (int *)malloc(num_quorums*sizeof(int));
   for(int i=0;i<num_quorums;i++) {
     server_open_ports(quorums[i]->me, i);
   }
