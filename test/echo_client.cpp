@@ -41,8 +41,12 @@
 #include <boost/property_tree/ptree.hpp>
 #include "../core/clock.hpp"
 #include "../core/logging.hpp"
+#include "../core/tcp_tunnel.hpp"
 #include <libcyclone.hpp>
 #include <rte_launch.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 int driver(void *arg);
 
@@ -133,7 +137,30 @@ int main(int argc, const char *argv[]) {
     printf("Usage: %s client_id_start client_id_stop mc replicas clients partitions cluster_config quorum_config_prefix server_ports\n", argv[0]);
     exit(-1);
   }
-  
+
+  ///////////////////////////////////////////
+  char key[150];
+  boost::property_tree::ptree pt_cluster;
+  boost::property_tree::read_ini(argv[7], pt_cluster);
+
+  server_addresses      = (struct sockaddr_in *)malloc(3*sizeof(struct sockaddr_in));
+  /* server addresses for tunnel */
+  for(int i=0;i<3;i++) {
+    sprintf(key, "machines.ipaddr%d", i);
+    std::string s = pt_cluster.get<std::string>(key);
+    BOOST_LOG_TRIVIAL(info) << "Setting address " 
+			    << i 
+			    << " to " 
+			    << s;
+    if(inet_aton(s.c_str(), &server_addresses[i].sin_addr) == 0) {
+      BOOST_LOG_TRIVIAL(fatal) << "Unable to convert "
+			       << s;
+      exit(-1);
+    }
+  }
+
+  ////////////////////////////////////////////
+
   int client_id_start = atoi(argv[1]);
   int client_id_stop  = atoi(argv[2]);
   driver_args_t *dargs;
