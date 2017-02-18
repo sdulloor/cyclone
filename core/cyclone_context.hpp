@@ -658,6 +658,8 @@ struct cyclone_monitor {
     snapshot = (unsigned int *)malloc(num_quorums*sizeof(unsigned int));
     cyclone_handle->snapshot = ~1L;
     cyclone_handle->ae_nack_term = -1;
+    // Do accept loop for client sockets
+    server_accept_client(sockets_client[cyclone_handle->me_quorum], cyclone_handle->me_quorum);
     server_connect_server(cyclone_handle->me_quorum, 
 			  cyclone_handle->me,
 			  cyclone_handle->replicas);
@@ -763,7 +765,6 @@ struct cyclone_monitor {
       monitor_queue = queue_index_at_port(cyclone_handle->my_q(q_dispatcher), global_dpdk_context->ports);
       available = cyclone_rx_burst(monitor_port, monitor_queue, &pkt_array[0], PKT_BURST);
       */
-      /* TBD ... 
       available = 0;
       monitor_queue = queue_index_at_port(cyclone_handle->my_q(q_dispatcher), global_dpdk_context->ports);
       for(int i=0;i<num_clients;i++) {
@@ -779,7 +780,6 @@ struct cyclone_monitor {
 	}
       }
       accept(available, 0);
-      */
       // Check for transactions
       available = 0;
       while(available < PKT_BURST) {

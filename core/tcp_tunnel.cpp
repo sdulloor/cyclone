@@ -217,6 +217,7 @@ void server_accept_client(int socket, int quorum)
       exit(-1);
     }
     tun->socket_rcv = sock_rcv;
+    tun->socket_snd = sock_rcv;
   }
   BOOST_LOG_TRIVIAL(info) << "Client accept complete.";
 }

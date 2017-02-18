@@ -760,10 +760,6 @@ void cyclone_boot()
       exit(-1);
     }
   }
-  // Do accept loop for client sockets
-  for(int i=0;i<num_quorums;i++) {
-    server_accept_client(sockets_client[i], i);
-  }
   // Do accept loop for server sockets
   for(int i=0;i<num_quorums;i++) {
     server_accept_server(sockets_raft[i], i, quorums[i]->replicas);
