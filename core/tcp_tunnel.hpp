@@ -7,7 +7,7 @@
 #include <rte_ip.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-
+#include "clock.hpp"
 
 // Settings
 const int MSG_MAX = 4096;
@@ -60,7 +60,18 @@ typedef struct tunnel_st {
     }
     return ready();
   }
-  
+ 
+  int receive_timeout(unsigned long timeout_usecs)
+  {
+    unsigned long mark = rtc_clock::current_time();
+    while(!receive()) {
+      if((rtc_clock::current_time() - mark)  >= timeout_usecs) {
+	return 0;
+      }
+    }
+    return 1;
+  } 
+ 
   // Note: must only call when ready
   void copy_out(rte_mbuf *pkt)
   {

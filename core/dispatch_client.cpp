@@ -48,7 +48,7 @@ typedef struct rpc_client_st {
     }
   }
 
-  int common_receive_loop(int blob_sz)
+  int common_receive_loop(int blob_sz, int quorum)
   {
     int resp_sz;
     rte_mbuf *junk[PKT_BURST];
@@ -62,22 +62,25 @@ typedef struct rpc_client_st {
     }
 #endif
     while(true) {
-      resp_sz = cyclone_rx_timeout(global_dpdk_context,
-				   0,
-				   me_queue,
-				   buf,
-				   (unsigned char *)packet_in,
-				   MSG_MAXSIZE,
-				   timeout_msec*1000);
-      if(resp_sz == -1) {
+      if(!client2server_tunnel(server, quorum)->receive_timeout(timeout_msec*1000)) {
+	resp_sz = -1;
 	break;
       }
-
+      rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[me_queue]);
+      if(mb == NULL) {
+	BOOST_LOG_TRIVIAL(fatal) << "no mbufs for client rcv";
+	exit(-1);
+      }
+      client2server_tunnel(server, quorum)->copy_out(mb);
+      int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
+      void *payload = rte_pktmbuf_mtod_offset(mb, void *, payload_offset);
+      resp_sz = mb->data_len - payload_offset;
+      rte_memcpy(packet_in, payload, resp_sz);
+      rte_pktmbuf_free(mb);
       if(packet_in->channel_seq != (channel_seq - 1)) {
 	BOOST_LOG_TRIVIAL(warning) << "Channel seq mismatch";
 	continue;
       }
-      
       break;
     }
     return resp_sz;
@@ -97,10 +100,13 @@ typedef struct rpc_client_st {
 				    mb,
 				    pkt,
 				    sz);
+    client2server_tunnel(server, quorum_id)->send(mb);
+    /*
     int e = cyclone_tx(global_dpdk_context, mb, me_queue);
     if(e) {
       BOOST_LOG_TRIVIAL(warning) << "Client failed to send to server";
     }
+    */
   }
 
 
@@ -116,7 +122,7 @@ typedef struct rpc_client_st {
     packet_out_aux->requestor   = me_mc;
     packet_out_aux->payload_sz  = 0;
     send_to_server(packet_out_aux, sizeof(rpc_t), 0); // always quorum 0
-    int resp_sz = common_receive_loop(sizeof(rpc_t));
+    int resp_sz = common_receive_loop(sizeof(rpc_t), 0);
     if(resp_sz != -1) {
       memcpy(terms, packet_in + 1, num_quorums*sizeof(unsigned int));
       for(int i=0;i<num_quorums;i++) {
@@ -160,7 +166,7 @@ typedef struct rpc_client_st {
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
       cfg->node = nodeid;
       send_to_server(packet_out, sizeof(rpc_t) + sizeof(cfg_change_t), quorum_id);
-      resp_sz = common_receive_loop(sizeof(rpc_t) + sizeof(cfg_change_t));
+      resp_sz = common_receive_loop(sizeof(rpc_t) + sizeof(cfg_change_t), 0);
       if(resp_sz == -1) {
 	update_server("rx timeout");
 	continue;
@@ -190,7 +196,7 @@ typedef struct rpc_client_st {
       cfg_change_t *cfg = (cfg_change_t *)(packet_out + 1);
       cfg->node      = nodeid;
       send_to_server(packet_out, sizeof(rpc_t) + sizeof(cfg_change_t), quorum_id);
-      resp_sz = common_receive_loop(sizeof(rpc_t) + sizeof(cfg_change_t));
+      resp_sz = common_receive_loop(sizeof(rpc_t) + sizeof(cfg_change_t), 0);
       if(resp_sz == -1) {
 	update_server("rx timeout");
 	continue;
@@ -231,13 +237,13 @@ typedef struct rpc_client_st {
 	send_to_server(packet_out, 
 		       pkt_sz,
 		       quorum_id);
-	resp_sz = common_receive_loop(pkt_sz);
+	resp_sz = common_receive_loop(pkt_sz, quorum_id);
       }
       else {
 	packet_out->payload_sz = sz;
 	memcpy(packet_out + 1, payload, sz);
 	send_to_server(packet_out, sizeof(rpc_t) + sz, quorum_id);
-	resp_sz = common_receive_loop(sizeof(rpc_t) + sz);
+	resp_sz = common_receive_loop(sizeof(rpc_t) + sz, quorum_id);
       }
       if(resp_sz == -1) {
 	update_server("rx timeout, make rpc");
