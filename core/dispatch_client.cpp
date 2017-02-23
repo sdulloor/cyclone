@@ -297,7 +297,8 @@ void* cyclone_client_init(int client_id,
   for(int i=0;i<client->replicas;i++) {
     for(int j=0;j<num_quorums;j++) {
       client->client2server_tunnel(i, j)->init();
-      client_connect_server(i, 
+      client_connect_server(client_id,
+			    i, 
 			    j, 
 			    client->client2server_tunnel(i, j));
     }

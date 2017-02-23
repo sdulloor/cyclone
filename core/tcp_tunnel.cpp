@@ -1,9 +1,12 @@
 #include "libcyclone.hpp"
 #include "tcp_tunnel.hpp"
+#include<sys/types.h>
+#include<sys/socket.h>
 #include<netinet/in.h>
+#include<netinet/tcp.h>
 
 tunnel_t *server2server_tunnels;
-tunnel_t *server2client_tunnels;
+tunnel_t **server2client_tunnels;
 
 sockaddr_in *server_addresses;
 int *sockets_raft;
@@ -18,7 +21,7 @@ tunnel_t* server2server_tunnel(int server, int quorum)
  
 tunnel_t* server2client_tunnel(int client, int quorum)
 {
-  return &server2client_tunnels[quorum*num_clients + client];
+  return server2client_tunnels[quorum*num_clients + client];
 }
 
 void server_connect_server(int quorum,
@@ -61,7 +64,10 @@ void server_connect_server(int quorum,
 			  <<" connections complete";
 }
 
-void client_connect_server(int replica, int quorum, tunnel_t *tun)
+void client_connect_server(int clientnum,
+			   int replica, 
+			   int quorum, 
+			   tunnel_t *tun)
 {
   struct sockaddr_in serv_addr;
   tun->socket_snd = socket(AF_INET, SOCK_STREAM, 0); 
@@ -86,7 +92,20 @@ void client_connect_server(int replica, int quorum, tunnel_t *tun)
 			     << errno;
     exit(-1);
   }
+  int flag = 1;
+  int result = setsockopt(tun->socket_snd,            /* socket affected */
+			  IPPROTO_TCP,     /* set option at TCP level */
+			  TCP_NODELAY,     /* name of option */
+			  (char *) &flag,  /* the cast is historical cruft */
+			  sizeof(int));    /* length of option value */
+  if(result < 0) {
+    BOOST_LOG_TRIVIAL(fatal) << "Unable to set nodelay ...";
+    exit(-1);
+  }
+
+
   tun->socket_rcv = tun->socket_snd;
+  tun->send_buf((void *)&clientnum, sizeof(int));
   BOOST_LOG_TRIVIAL(info) << "Client "
 			  << " connected to replica "
 			  << replica
@@ -190,34 +209,29 @@ void server_accept_client(int socket, int quorum)
   struct sockaddr_in sockaddr;
   socklen_t socklen = sizeof(sockaddr_in);
   int sock_rcv;
-  tunnel_t *tun;
+  char buf[10];
   for(int i=0;i<num_clients;i++) {
+    tunnel_t *tun = (tunnel_t *)malloc(sizeof(tunnel_t));
+    tun->init();
     sock_rcv = accept(socket, (struct sockaddr *)&sockaddr, &socklen);
     if(sock_rcv < 0) {
       BOOST_LOG_TRIVIAL(fatal) << "Server accept server call failed";
       exit(-1);
     }
-    // Figure out who it is.
-    tun = NULL;
-    for(int j=0;j<num_clients;j++) {
-      if(memcmp(&client_addresses[j].sin_addr, 
-		&sockaddr.sin_addr, 
-		sizeof(struct in_addr)) == 0){
-	tun = server2client_tunnel(j, quorum);
-	BOOST_LOG_TRIVIAL(info) << " quorum = "
-				<< quorum
-				<< " received connect from client " 
-				<< j;
-	break;
-      }
-    }
-    if(tun == NULL) {
-      BOOST_LOG_TRIVIAL(fatal) << "recvd connect from unknown client: "
-			       << sockaddr.sin_addr.s_addr;
-      exit(-1);
-    }
+    BOOST_LOG_TRIVIAL(info) << "Quorum = "
+			    << quorum
+			    << " received connect from client"; 
     tun->socket_rcv = sock_rcv;
     tun->socket_snd = sock_rcv;
+    // Figure out who it is.
+    while(!tun->receive());
+    tun->copy_out_buf(buf);
+    int client = *(int *)buf;
+    BOOST_LOG_TRIVIAL(info) << "quorum = "
+			    << quorum
+			    <<" connect from client "
+			    << client;
+    server2client_tunnels[quorum*num_clients + client] = tun;
   }
   BOOST_LOG_TRIVIAL(info) << "Client accept complete.";
 }
