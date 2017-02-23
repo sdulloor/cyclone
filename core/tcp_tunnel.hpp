@@ -91,6 +91,22 @@ typedef struct tunnel_st {
     }
   }
 
+  void copy_out_buf(char *buf)
+  {
+    int bytes = *(int *)msg - sizeof(int);
+    memcpy(buf,
+	   msg + sizeof(int), 
+	   bytes);
+    int cur_msg_size = *(int *)msg;
+    if(msg_sz > cur_msg_size) {
+      memcpy(msg, msg + cur_msg_size, msg_sz - cur_msg_size);
+      msg_sz -= cur_msg_size;
+    }
+    else {
+      msg_sz = 0;
+    }
+  }
+
   void send(rte_mbuf *pkt)
   {
     int bytes = sizeof(int);
@@ -114,10 +130,29 @@ typedef struct tunnel_st {
     }
     rte_pktmbuf_free(pkt_saved);
   }
+
+  void send_buf(void *data, int size)
+  {
+    int bytes = sizeof(int);
+    memcpy(fragment + bytes, 
+	   data,
+	   size);
+    bytes += size;
+    *(int *)fragment = bytes;
+    char * buf =fragment;
+    while(bytes) {
+      int bytes_sent = ::send(socket_snd, buf, bytes, 0);
+      if(bytes_sent > 0) {
+	bytes -= bytes_sent;
+	buf   += bytes_sent;
+      }
+    }
+  }
+
 }tunnel_t;
 
 extern tunnel_t *server2server_tunnels;
-extern tunnel_t *server2client_tunnels;
+extern tunnel_t **server2client_tunnels;
 extern tunnel_t* server2server_tunnel(int server, int quorum);
 extern tunnel_t* server2client_tunnel(int client, int quorum); 
 extern tunnel_t* client2server_tunnel(int server);
@@ -130,7 +165,7 @@ void server_accept_client(int socket, int quorum);
 extern void server_connect_server(int quorum,
 				  int me,
 				  int replicas);
-void client_connect_server(int replica, int quorum, tunnel_t *tun);
+void client_connect_server(int client_id, int replica, int quorum, tunnel_t *tun);
 extern sockaddr_in *server_addresses;
 extern sockaddr_in *client_addresses;
 extern int *sockets_raft;
