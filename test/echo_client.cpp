@@ -92,7 +92,7 @@ int driver(void *arg)
     payload = atol(payload_env);
   }
   BOOST_LOG_TRIVIAL(info) << "PAYLOAD = " << payload;
-
+  cyclone_client_post_init(handles[0]);
   total_latency = 0;
   tx_block_cnt  = 0;
   tx_block_begin = rtc_clock::current_time();
@@ -103,7 +103,7 @@ int driver(void *arg)
     rpc_flags = 0;
     //rpc_flags = RPC_FLAG_RO;
     my_core = dargs->me % executor_threads;
-    sz = make_rpc(handles[partition],
+    sz = make_rpc(handles[0],
 		  buffer,
 		  payload,
 		  (void **)&resp,
@@ -188,6 +188,7 @@ int main(int argc, const char *argv[]) {
     for(int i=0;i<dargs->partitions;i++) {
       sprintf(fname_server, "%s", argv[7]);
       sprintf(fname_client, "%s%d.ini", argv[8], i);
+      BOOST_LOG_TRIVIAL(info) << "Exec client init...";
       dargs->handles[i] = cyclone_client_init(dargs->me,
 					      dargs->mc,
 					      1 + me - client_id_start,
@@ -196,6 +197,8 @@ int main(int argc, const char *argv[]) {
 					      fname_client);
     }
   }
+  BOOST_LOG_TRIVIAL(info) << "sleep 10 sec...";
+  sleep(10);
   for(int me = client_id_start; me < client_id_stop; me++) {
     int e = rte_eal_remote_launch(driver, dargs_array[me-client_id_start], 1 + me - client_id_start);
     if(e != 0) {
