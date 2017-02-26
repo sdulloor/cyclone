@@ -99,7 +99,7 @@ int driver(void *arg)
     rpc_flags = 0;
     //rpc_flags = RPC_FLAG_RO;
     my_core = dargs->me % executor_threads;
-    sz = make_rpc(handles[partition],
+    sz = make_rpc(handles[0],
 		  buffer,
 		  payload,
 		  (void **)&resp,

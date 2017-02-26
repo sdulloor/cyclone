@@ -106,7 +106,7 @@ int driver(void *arg)
 	  core_mask = core_mask | (1UL << i);
       }
     }
-    sz = make_rpc(handles[partition],
+    sz = make_rpc(handles[0],
 		  buffer,
 		  payload,
 		  (void **)&resp,
