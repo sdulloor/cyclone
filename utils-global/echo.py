@@ -27,7 +27,7 @@ def launch_cmds_client_gen(f, m, c, quorums, replicas, clients, machines, ports)
         c_start = clients_per_machine*(m - replicas)
         c_stop  = c_start + clients_per_machine
         if m == replicas + client_machines - 1:
-            cstop = clients
+            c_stop = clients
         if c == 0 and m < replicas + client_machines:
             cmd=''
             if os.environ.has_key('PAYLOAD'):
