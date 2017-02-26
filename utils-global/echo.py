@@ -27,7 +27,7 @@ def launch_cmds_client_gen(f, m, c, quorums, replicas, clients, machines, ports)
         c_start = clients_per_machine*(m - replicas)
         c_stop  = c_start + clients_per_machine
         if m == replicas + client_machines - 1:
-            cstop = clients
+            c_stop = clients
         if c == 0 and m < replicas + client_machines:
             cmd=''
             if os.environ.has_key('PAYLOAD'):
@@ -36,7 +36,7 @@ def launch_cmds_client_gen(f, m, c, quorums, replicas, clients, machines, ports)
                 cmd=cmd + 'CC_TX=' + os.environ.get('CC_TX') + ' '    
             if os.environ.has_key('QUORUMS_ACTIVE'):
                 cmd=cmd + 'QUORUMS_ACTIVE=' + os.environ.get('QUORUMS_ACTIVE') + ' '    
-            cmd=cmd + 'echo_client_multicore '
+            cmd=cmd + 'echo_client '
             cmd=cmd + str(c_start) + ' '
             cmd=cmd + str(c_stop) + ' '
             cmd=cmd + str(m) + ' '
