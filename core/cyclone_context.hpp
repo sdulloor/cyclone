@@ -578,7 +578,7 @@ struct cyclone_monitor {
       else if(accepted > 0 && 
 	      (messages[accepted - 1].data.len + msg_size) <= MSG_MAXSIZE &&
 	      messages[accepted - 1].type == RAFT_LOGTYPE_NORMAL &&
-	      chain_size[accepted - 1] < PKT_BURST) {
+	      chain_size[accepted - 1] < CHAIN_SZ) {
 
 	if(!is_multicore_rpc(rpc)) {
 	  del_adj_header(m);

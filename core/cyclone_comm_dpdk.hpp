@@ -55,6 +55,7 @@
 #define RTE_RESP_RX_DESC_DEFAULT 128
 #define RTE_RESP_TX_DESC_DEFAULT 512
 #define PKT_BURST 32
+#define CHAIN_SZ  32    /* Set to be same as pkt burst */ 
 #define IP_DEFTTL  64   /* from RFC 1340. */
 #define IP_VERSION 0x40
 #define IP_HDRLEN  0x05 /* default IP header length == five 32-bits words. */
