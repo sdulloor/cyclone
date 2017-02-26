@@ -303,13 +303,17 @@ void* cyclone_client_init(int client_id,
 			    client->client2server_tunnel(i, j));
     }
   }
-  BOOST_LOG_TRIVIAL(info) << "Connections done... sleeping 10 secs.";
-  sleep(10);
+  BOOST_LOG_TRIVIAL(info) << "Connections done... ";
+  return (void *)client;
+}
+
+void cyclone_client_post_init(void *handle)
+{
+  rpc_client_t *client = (rpc_client_t *)handle;
   for(int i=0;i<num_quorums;i++) {
     client->server = 0;
     client->update_server("Initialization");
   }
-  return (void *)client;
 }
 
 int make_rpc(void *handle,

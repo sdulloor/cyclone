@@ -39,7 +39,7 @@ static const int Q_BUFS = 8191;
 static const int R_BUFS = 1023;
 
 // Static client setting for tunnel tests
-static const int num_clients = 2;
+static const int num_clients = 10;
 
 // Maximum clients (1 million)
 static const unsigned int MAX_CLIENTS = 1024U*1024U;
@@ -97,6 +97,7 @@ void* cyclone_client_init(int client_id,
 			  const char *config_cluster_path,
 			  int server_ports,
 			  const char *config_quorum_path);
+void cyclone_client_post_init(void *handle);
 // Make an rpc call -- returns size of response
 int make_rpc(void *handle,
 	     void *payload,
