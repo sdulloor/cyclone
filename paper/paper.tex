@@ -1,24 +1,28 @@
-\documentclass[letterpaper,twocolumn,10pt]{article}
-\usepackage{usenix,epsfig,endnotes,graphicx,url}
-\begin{document}
+\documentclass[10pt, preprint]{sigplanconf}
+\usepackage{times,epsfig,endnotes,graphicx}
+\usepackage{datetime, url, hyperref}
 
-%don't want date printed
+\conferenceinfo{SOSP'17}{October 29--31, 2017, Shanghai, China}
+\copyrightyear{2017} 
+
+
+% These only appear when the 'preprint' option is specified.
+% Enabling these will cause the first page of the document to fail the 
+% format check on HotCRP :-(
+%\titlebanner{Under submission to SOSP 2017 - do not cite or distribute}
+%\preprintfooter{Draft of {\currenttime}, \today{}}
+
+% No date in title area.
 \date{}
 
-%make title bold and 14 pt font (Latex default is non-bold, 16 pt)
-\title{\Large \bf Cyclone: Replication Middleware for NVM Applications}
+% Paper number and no. of pages as author
+\authorinfo{Paper \textbf{\#XX}}{NN pages}
 
-%for single author (just remove % characters)
-\author{
-  {\rm Amitabha Roy}\\
-  Intel
-   \and
-  {\rm Subramanya Dulloor}\\
-  Intel
-  \and
-  {\rm Rajesh Sankaran}\\
-  Intel
-} % end author
+
+\begin{document}
+
+%make title bold and 14 pt font (Latex default is non-bold, 16 pt)
+\title{\Large \bf Cyclone: Warp Speed Replication for Key Value Stores}
 
 \maketitle
 
@@ -26,7 +30,7 @@
 % Comment it out when you first submit the paper for review.
 %\thispagestyle{empty}
 
-\subsection*{Abstract}
+\begin{abstract}
 The introduction of non-volatile directly attached memory in datacenters - in
 the form of NVDIMMs and new memory technologies allows efficient data structures
 to be built on non-volatile heaps that provide good performance coupled with
@@ -41,6 +45,7 @@ stack to reduce latency. Further, it can scale its consensus protocol across
 cores and network ports to provide good throughput under load. We show that
 Cyclone can replicate as many as 7 million updates a second using just 8 cores
 (for the consensus protocol) and 4 commodity 10 GigE ports on each replica.
+\end{abstract}
 
 \section{Introduction}
 Memory technology in datacenters is due to undergo a paradigm shift with the
@@ -574,7 +579,7 @@ such as filesystems? \emph{We believe that the requirement for scaling across
 value style applications, our on-going research is based on the scalable
 commutativity hypothesis.
 \newcommand\myurl[2]{\url{#1}}
-\bibliographystyle{acm}
+\bibliographystyle{plainnat}
 \bibliography{paper}
 
 \end{document}
