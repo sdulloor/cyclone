@@ -29,7 +29,7 @@ typedef struct rpc_client_st {
 
   int quorum_q(int quorum_id, int q)
   {
-    return server_ports + num_queues*quorum_id + q;
+    return server_ports + q*num_quorums + quorum_id;
   }
   
   int choose_quorum(unsigned long core_mask)

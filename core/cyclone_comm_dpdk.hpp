@@ -548,14 +548,9 @@ static void dpdk_context_init(dpdk_context_t *context,
     BOOST_LOG_TRIVIAL(info) << "Init mempool max reqsize = " << max_req_size;
     int my_port = queue2port(i, context->ports);
 
-    bool is_raft_pool =
-      (i >= context->ports) &&
-      (i < (context->ports + num_queues*num_quorums)) && 
-      ((i - context->ports) % num_queues == q_raft);
-    bool is_disp_pool = 
-      (i >= context->ports) &&
-      (i < (context->ports + num_queues*num_quorums)) &&
-      ((i - context->ports) % num_queues == q_dispatcher);
+    bool is_raft_pool = (i >= context->ports) && (i < (context->ports + num_quorums));
+    bool is_disp_pool = (i >= (context->ports + num_quorums)) && 
+      i < (context->ports + num_queues*num_quorums);
     if(is_disp_pool) {
       context->mempools[i] = rte_pktmbuf_pool_create(pool_name,
 						     Q_BUFS*pack_ratio,
@@ -585,14 +580,14 @@ static void dpdk_context_init(dpdk_context_t *context,
 
     if(is_raft_pool) {
       sprintf(pool_name, "extra_%d", i);
-      context->extra_pools[(i - context->ports)/num_queues] = rte_pktmbuf_pool_create(pool_name,
+      context->extra_pools[(i - context->ports)] = rte_pktmbuf_pool_create(pool_name,
 								  Q_BUFS,
 								  4*PKT_BURST,
 								  0,
 								  RTE_PKTMBUF_HEADROOM + sizeof(struct ether_hdr),
 								  rte_eth_dev_socket_id(my_port));
       
-      if (context->extra_pools[(i - context->ports)/num_queues] == NULL)
+      if (context->extra_pools[(i - context->ports)] == NULL)
 	rte_exit(EXIT_FAILURE, "Cannot init mbuf extra pool\n");
       
     }

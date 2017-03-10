@@ -200,7 +200,7 @@ typedef struct cyclone_st {
 
   int my_q(int q)
   {
-    return global_dpdk_context->ports + num_queues*me_quorum + q;
+    return global_dpdk_context->ports + q*num_quorums + me_quorum;
   }
   
   void send_msg(msg_t *msg, int dst_replica)
