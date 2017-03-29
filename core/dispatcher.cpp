@@ -210,7 +210,7 @@ typedef struct executor_st {
     else if(client_buffer->flags & RPC_FLAG_RO) {
       int e = exec_rpc_internal_ro(client_buffer, wal, sz, &cookie);
       int response_core = __builtin_ffsl(client_buffer->core_mask) - 1;
-      if(response_core && 
+      if(response_core == tid && 
 	 wal->leader && 
 	 !e && 
 	 (quorums[quorum]->snapshot&1)) {
@@ -292,6 +292,10 @@ typedef struct executor_st {
 int dpdk_executor(void *arg)
 {
   executor_t *ex = (executor_t *)arg;
+  rte_cpuset_t set;
+  rte_thread_get_affinity(&set);
+  BOOST_LOG_TRIVIAL(info) << "App Thread launch, affinity = " 
+			  << get_cpuset(&set);
   (*ex)();
   return 0;
 }

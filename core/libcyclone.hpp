@@ -25,7 +25,7 @@ static const int RAFT_LOG_TARGET  = 1000;
 static const int timeout_msec  = 30; // Client - failure detect
 
 // Execution resources
-static const int executor_threads = 39;
+static const int executor_threads = 16;
 
 // ZMQ specific tuning
 static const int zmq_threads = 4;
@@ -109,4 +109,9 @@ int add_node(void *handle, unsigned long core_mask, int node);
 
 // Possible flags 
 static const int RPC_FLAG_RO            = 1; // Read-only RPC
+
+
+////// RocksDB parameters
+const int rocksdb_num_threads           = 16;
+
 #endif

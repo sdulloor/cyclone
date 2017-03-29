@@ -19,6 +19,7 @@
 #include <stdbool.h>
 #include <sys/time.h>
 
+#include <rte_eal.h>
 #include <rte_common.h>
 #include <rte_log.h>
 #include <rte_malloc.h>
@@ -644,6 +645,16 @@ static void dpdk_context_init(dpdk_context_t *context,
     //rte_eth_dev_set_mtu(0, 2500);
     rte_eth_macaddr_get(j, &context->mc_addresses[context->me][j]);
   }
+}
+
+static unsigned long get_cpuset(rte_cpuset_t *set)
+{
+  unsigned long number = 0;
+  for (int j = 0; j < CPU_SETSIZE; j++)
+    if (CPU_ISSET(j, set))
+      number = number | (1UL << j);
+
+  return number;
 }
 
 #endif

@@ -591,6 +591,10 @@ int cyclone_get_term(void *cyclone_handle)
 int dpdk_raft_monitor(void *arg)
 {
   struct cyclone_monitor *monitor = (struct cyclone_monitor *)arg;
+  rte_cpuset_t set;
+  rte_thread_get_affinity(&set);
+  BOOST_LOG_TRIVIAL(info) << "Raft Thread launch, affinity = " 
+			  << get_cpuset(&set);
   (*monitor)();
   return 0;
 }

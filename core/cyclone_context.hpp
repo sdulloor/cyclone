@@ -545,7 +545,7 @@ struct cyclone_monitor {
 	msg_size = pktadj2rpcsz(m);
       }
       if(rpc->flags & RPC_FLAG_RO) {
-	if(is_leader) {
+	if(cyclone_handle->snapshot & 1) { // is leader
 	  void *triple[3];
 	  triple[0] = (void *)(unsigned long)cyclone_handle->me_quorum;
 	  triple[1] = m;
