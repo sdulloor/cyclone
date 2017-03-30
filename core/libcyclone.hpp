@@ -114,4 +114,14 @@ static const int RPC_FLAG_RO            = 1; // Read-only RPC
 ////// RocksDB parameters
 const int rocksdb_num_threads           = 16;
 
+
+
+/////////////////// Flash log interfaces /////////////////////
+static int flashlog_pagesize = (4*1024);
+void *create_flash_log(const char *path);
+int log_append(void *log_, 
+	       const char *data, 
+	       int size,
+	       int raft_idx);
+
 #endif

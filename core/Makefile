@@ -16,7 +16,7 @@ BOOST_THREAD_LIB=-lboost_thread-mt
 #BOOST_THREAD_LIB=-lboost_thread
 
 
-libcyclone.a: libcyclone.o dispatcher.o dispatch_client.o
+libcyclone.a: libcyclone.o dispatcher.o dispatch_client.o flash_log.o
 	ar rcs $@ $^
 
 libcyclone.o: cyclone.cpp libcyclone.hpp
@@ -34,6 +34,9 @@ checkpoint_savepage.o: checkpoint_savepage.cpp checkpoint.hpp
 dispatch_client.o: dispatch_client.cpp  libcyclone.hpp
 	$(CXX) $(CXXFLAGS) dispatch_client.cpp -c -o $@
 
+flash_log.o: flash_log.cpp  libcyclone.hpp
+	$(CXX) $(CXXFLAGS) flash_log.cpp -c -o $@
+
 .PHONY:clean install
 
 install:libcyclone.a
@@ -41,7 +44,7 @@ install:libcyclone.a
 	cp libcyclone.hpp /usr/include
 
 clean:
-	rm -f libcyclone.o dispatcher.o dispatch_client.o \
+	rm -f libcyclone.o dispatcher.o dispatch_client.o flash_log.o\
 	checkpoint.o checkpoint_savepage.o libcyclone.a /usr/lib/libcyclone.so \
 	/usr/lib/libcyclone.a /usr/include/libcyclone.hpp
 
