@@ -65,7 +65,7 @@ static void log_switch_page(flash_log_t *log)
 void *create_flash_log(const char *path)
 {
   int e;
-  int fd = open(path, O_WRONLY|O_APPEND|O_TRUNC|O_CREAT|O_DIRECT, 0644);
+  int fd = open(path, O_WRONLY|O_APPEND|O_TRUNC|O_CREAT|O_DIRECT|O_SYNC, 0644);
   if(fd == -1) {
     BOOST_LOG_TRIVIAL(fatal) << "Unable to create flash log";
     exit(-1);
