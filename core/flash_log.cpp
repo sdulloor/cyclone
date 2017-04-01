@@ -16,10 +16,12 @@ typedef struct flash_log_st {
   log_page_t log_pages[2];
   int active_page;
   int bytes_on_active_page;
+  int entries_on_active_page;
   int raft_idx;
   int checkpointed_raft_idx;
   int inflight_raft_idx;
   bool issued_io;
+  int issued_bytes;
   io_context_t ctx;
 } flash_log_t;
 
@@ -33,7 +35,7 @@ static void log_switch_page(flash_log_t *log)
     while(e <= 0) {
       e = io_getevents(log->ctx, 1, 1, events, NULL);
     }
-    if(events[0].res != flashlog_pagesize) {
+    if(events[0].res != log->issued_bytes) {
       BOOST_LOG_TRIVIAL(fatal) << "Async IO reported failure:"
 			       << (int)events[0].res;
       exit(-1);
@@ -46,7 +48,8 @@ static void log_switch_page(flash_log_t *log)
   issue_page->cb.aio_lio_opcode = IO_CMD_PWRITE;
   issue_page->cb.aio_fildes      = log->log_fd;
   issue_page->cb.u.c.buf         = issue_page->page;
-  issue_page->cb.u.c.nbytes      = flashlog_pagesize;
+  log->issued_bytes              = ((log->bytes_on_active_page + 4095)/4096)*4096;
+  issue_page->cb.u.c.nbytes      = log->issued_bytes;
   issue_page->cb.u.c.offset      = 0;
   ios[0] = &issue_page->cb;
   int e = io_submit(log->ctx, 1, ios);
@@ -60,6 +63,7 @@ static void log_switch_page(flash_log_t *log)
   log->issued_io = true;
   log->inflight_raft_idx = log->raft_idx;
   log->bytes_on_active_page = sizeof(unsigned long);
+  log->entries_on_active_page = 0;
 }
 
 void *create_flash_log(const char *path)
@@ -99,6 +103,7 @@ void *create_flash_log(const char *path)
   log->raft_idx = -1;
   log->checkpointed_raft_idx = -1;
   log->bytes_on_active_page = sizeof(unsigned long);
+  log->entries_on_active_page = 0;
   return (void *)log;
 }
 
@@ -112,12 +117,16 @@ int log_append(void *log_,
   if(bytes_left < (size + sizeof(unsigned long))) {
     log_switch_page(log);
   }
+  else if(log->entries_on_active_page >= flashlog_hwm) {
+    log_switch_page(log);
+  }
   char *buffer = log->log_pages[log->active_page].page;
   buffer = buffer + log->bytes_on_active_page;
   *(unsigned long *)buffer = size;
   buffer = buffer + sizeof(unsigned long);
   memcpy(buffer, data, size);
   log->bytes_on_active_page += (size + sizeof(unsigned long));
+  log->entries_on_active_page++;
   log->raft_idx = raft_idx;
   return log->checkpointed_raft_idx;
 }

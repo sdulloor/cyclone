@@ -25,7 +25,7 @@ static const int RAFT_LOG_TARGET  = 1000;
 static const int timeout_msec  = 30; // Client - failure detect
 
 // Execution resources
-static const int executor_threads = 16;
+static const int executor_threads = 32;
 
 // ZMQ specific tuning
 static const int zmq_threads = 4;
@@ -117,7 +117,8 @@ const int rocksdb_num_threads           = 16;
 
 
 /////////////////// Flash log interfaces /////////////////////
-static int flashlog_pagesize = (4*1024);
+static int flashlog_pagesize = (128*1024);
+static int flashlog_hwm = 200;
 void *create_flash_log(const char *path);
 int log_append(void *log_, 
 	       const char *data, 
