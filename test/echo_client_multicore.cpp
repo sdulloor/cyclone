@@ -60,6 +60,16 @@ typedef struct driver_args_st {
   }
 } driver_args_t;
 
+unsigned long gen_core_mask(int active)
+{
+  unsigned long mask = 0;
+  while(__builtin_popcountl(mask) != active) {
+    int bit = rand() % executor_threads;
+    mask = mask | (1UL << bit);
+  }
+  return mask;
+}
+
 int driver(void *arg)
 {
   driver_args_t *dargs = (driver_args_t *)arg;
@@ -89,6 +99,13 @@ int driver(void *arg)
   }
   BOOST_LOG_TRIVIAL(info) << "PAYLOAD = " << payload;
 
+  int active = 1;
+  const char *active_env = getenv("ACTIVE");
+  if(active_env != NULL) {
+    active = atol(active_env);
+  }
+  BOOST_LOG_TRIVIAL(info) << "ACTIVE = " << active;
+
   total_latency = 0;
   tx_block_cnt  = 0;
   tx_block_begin = rtc_clock::current_time();
@@ -99,13 +116,9 @@ int driver(void *arg)
     rpc_flags = 0;
     //rpc_flags = RPC_FLAG_RO;
     //    my_core = dargs->me % executor_threads;
-    unsigned long core_mask = 0;
-    while(core_mask == 0) {
-      for(int i=0;i<executor_threads;i++) {
-	if(rand() %2)
-	  core_mask = core_mask | (1UL << i);
-      }
-    }
+    unsigned long core_mask = gen_core_mask(active);
+    //core_mask = 1UL | (1UL << 1);
+    //core_mask = gen_core_mask(2);
     sz = make_rpc(handles[0],
 		  buffer,
 		  payload,
