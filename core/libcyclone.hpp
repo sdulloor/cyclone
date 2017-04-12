@@ -124,7 +124,7 @@ const int rocksdb_num_threads           = 16;
 
 
 /////////////////// Flash log interfaces /////////////////////
-static int flashlog_pagesize = (8*1024);
+static int flashlog_pagesize = (128*1024);
 static int flashlog_hwm = 200;
 void *create_flash_log(const char *path);
 int log_append(void *log_, 
