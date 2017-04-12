@@ -23,6 +23,7 @@ typedef struct flash_log_st {
   bool issued_io;
   int issued_bytes;
   io_context_t ctx;
+  unsigned long logsize;
 } flash_log_t;
 
 static void log_switch_page(flash_log_t *log)
@@ -42,6 +43,17 @@ static void log_switch_page(flash_log_t *log)
     }
     log->checkpointed_raft_idx = log->inflight_raft_idx - 1;
   }
+  if(log->logsize >= flashlog_segsize) {
+    if(ftruncate(log->log_fd, 0)) {
+      BOOST_LOG_TRIVIAL(fatal) << "ftruncate failed";
+      exit(-1);
+    }
+    if(lseek(log->log_fd, 0, SEEK_SET)  == (off_t)-1) {
+      BOOST_LOG_TRIVIAL(fatal) << "Lseek failed";
+      exit(-1);
+    }
+    log->logsize = 0;
+  }
   log_page_t * issue_page = &log->log_pages[log->active_page];
   *(unsigned long *)issue_page->page = log->bytes_on_active_page;
   memset(&issue_page->cb, 0, sizeof(struct iocb));
@@ -49,6 +61,7 @@ static void log_switch_page(flash_log_t *log)
   issue_page->cb.aio_fildes      = log->log_fd;
   issue_page->cb.u.c.buf         = issue_page->page;
   log->issued_bytes              = ((log->bytes_on_active_page + 4095)/4096)*4096;
+  log->logsize                   += log->issued_bytes;
   issue_page->cb.u.c.nbytes      = log->issued_bytes;
   issue_page->cb.u.c.offset      = 0;
   ios[0] = &issue_page->cb;
@@ -69,11 +82,19 @@ static void log_switch_page(flash_log_t *log)
 void *create_flash_log(const char *path)
 {
   int e;
-  int fd = open(path, O_WRONLY|O_APPEND|O_TRUNC|O_CREAT|O_DIRECT|O_SYNC, 0644);
+  int fd = open(path, 
+		O_WRONLY|O_APPEND|O_TRUNC|O_CREAT|O_DIRECT|(flashlog_use_osync ? O_SYNC:0), 
+		0644);
   if(fd == -1) {
     BOOST_LOG_TRIVIAL(fatal) << "Unable to create flash log";
     exit(-1);
   }
+  BOOST_LOG_TRIVIAL(info) << "Preallocating flashlog segment";
+  if(e = posix_fallocate(fd, 0, flashlog_segsize)) {
+    BOOST_LOG_TRIVIAL(fatal) << "preallocation failed: " << e;
+    exit(-1);
+  }
+  BOOST_LOG_TRIVIAL(info) << "Done preallocating flashlog segment";
   flash_log_t *log = (flash_log_t *)malloc(sizeof(flash_log_t));
   log->log_fd = fd;
   BOOST_LOG_TRIVIAL(info) << "Flashlog fd = " << fd;
@@ -84,6 +105,7 @@ void *create_flash_log(const char *path)
     exit(-1);
   }
   log->issued_io = false;
+  log->logsize   = 0;
   log->active_page = 0;
   if(posix_memalign((void **)&log->log_pages[0].page,
 		    4096, 
