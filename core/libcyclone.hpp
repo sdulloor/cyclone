@@ -58,11 +58,17 @@ typedef struct rpc_cookie_st {
 } rpc_cookie_t;
 
 ////// RPC Server side interface
-// Returns currently checkpointed log idx
 typedef 
-int (*rpc_callback_t)(const unsigned char *data,
-		      const int len,
-		      rpc_cookie_t * rpc_cookie);
+void (*rpc_callback_t)(const unsigned char *data,
+		       const int len,
+		       rpc_cookie_t * rpc_cookie);
+
+// Add a flashlog entry
+// Returns currently checkpointed log idx
+typedef
+int (*flashlog_callback_t)(const unsigned char *data,
+			   const int len,
+			   rpc_cookie_t *rpc_cookie);
 
 //Garbage collect return value
 typedef void (*rpc_gc_callback_t)(rpc_cookie_t *cookie);
@@ -71,6 +77,7 @@ typedef void (*rpc_gc_callback_t)(rpc_cookie_t *cookie);
 typedef struct rpc_callbacks_st {
   rpc_callback_t rpc_callback;
   rpc_gc_callback_t gc_callback;
+  flashlog_callback_t flashlog_callback;
 } rpc_callbacks_t;
 
 // Init network stack
@@ -117,7 +124,7 @@ const int rocksdb_num_threads           = 16;
 
 
 /////////////////// Flash log interfaces /////////////////////
-static int flashlog_pagesize = (128*1024);
+static int flashlog_pagesize = (8*1024);
 static int flashlog_hwm = 200;
 void *create_flash_log(const char *path);
 int log_append(void *log_, 

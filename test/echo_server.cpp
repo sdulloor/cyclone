@@ -47,9 +47,9 @@ static unsigned long *marks;
 static unsigned long *completions;
 
 
-int callback(const unsigned char *data,
-	       const int len,
-	       rpc_cookie_t *cookie)
+void callback(const unsigned char *data,
+	      const int len,
+	      rpc_cookie_t *cookie)
 {
   cookie->ret_value  = NULL;
   cookie->ret_size   = 0;
@@ -65,6 +65,12 @@ int callback(const unsigned char *data,
     marks[cookie->core_id] = rtc_clock::current_time();
   }
   */
+}
+
+int wal_callback(const unsigned char *data,
+		  const int len,
+		  rpc_cookie_t *cookie)
+{
   return cookie->log_idx;
 }
 
@@ -75,7 +81,8 @@ void gc(rpc_cookie_t *cookie)
 
 rpc_callbacks_t rpc_callbacks =  {
   callback,
-  gc
+  gc,
+  wal_callback
 };
 
 int main(int argc, char *argv[])

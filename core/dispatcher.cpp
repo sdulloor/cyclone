@@ -118,13 +118,15 @@ int exec_rpc_internal(rpc_t *rpc,
   }
 
   const unsigned char * user_data = (const unsigned char *)(rpc + 1);
+  int checkpoint_idx = app_callbacks.flashlog_callback
+    ((const unsigned char *)rpc, len + sizeof(rpc_t), cookie);
   if(is_multicore_rpc(rpc)) {
     user_data += num_quorums*sizeof(unsigned int) + sizeof(ic_rdv_t);
     len        -= (num_quorums*sizeof(unsigned int) + sizeof(ic_rdv_t));
   }
-  int checkpoint_idx = app_callbacks.rpc_callback(user_data,
-						  len,
-						  cookie);
+  app_callbacks.rpc_callback(user_data,
+			     len,
+			     cookie);
   cstatus->checkpoint_idx = checkpoint_idx;
   __sync_synchronize(); // publish core status
   return 0;

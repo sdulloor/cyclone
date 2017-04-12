@@ -123,9 +123,6 @@ int driver(void *arg)
 		  (void **)&resp,
 		  1UL << my_core,
 		  rpc_flags);
-    if(sz != sizeof(rock_kv_t)) {
-      BOOST_LOG_TRIVIAL(fatal) << "Invalid response";
-    }
     tx_block_cnt++;
     
     if(dargs->leader) {

@@ -48,19 +48,15 @@ static unsigned long *completions;
 
 static void *logs[executor_threads];
 
-int callback(const unsigned char *data,
-	     const int len,
-	     rpc_cookie_t *cookie)
+void callback(const unsigned char *data,
+	      const int len,
+	      rpc_cookie_t *cookie)
 {
   cookie->ret_value  = NULL;
   cookie->ret_size   = 0;
   cookie->ret_value  = malloc(len);
   cookie->ret_size   = len;
   memcpy(cookie->ret_value, data, len);
-  int idx = log_append(logs[cookie->core_id],
-		       (const char *)data,
-		       len, 
-		       cookie->log_idx);
   /*
   if((++completions[cookie->core_id]) >= 1000000) {
     BOOST_LOG_TRIVIAL(info) << "Completion rate = "
@@ -70,6 +66,16 @@ int callback(const unsigned char *data,
     marks[cookie->core_id] = rtc_clock::current_time();
   }
   */
+}
+
+int wal_callback(const unsigned char *data,
+		 const int len,
+		 rpc_cookie_t *cookie)
+{
+  int idx = log_append(logs[cookie->core_id],
+		       (const char *)data,
+		       len, 
+		       cookie->log_idx);
   return idx;
 }
 
@@ -80,7 +86,8 @@ void gc(rpc_cookie_t *cookie)
 
 rpc_callbacks_t rpc_callbacks =  {
   callback,
-  gc
+  gc,
+  wal_callback
 };
 
 int main(int argc, char *argv[])

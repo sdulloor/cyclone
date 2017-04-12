@@ -51,9 +51,9 @@ static unsigned long *completions;
 rocksdb::DB* db = NULL;
 const char *dir = "data";
 
-int callback(const unsigned char *data,
-	     const int len,
-	     rpc_cookie_t *cookie)
+void callback(const unsigned char *data,
+	      const int len,
+	      rpc_cookie_t *cookie)
 {
   cookie->ret_value  = malloc(len);
   cookie->ret_size   = len;
@@ -93,6 +93,12 @@ int callback(const unsigned char *data,
     marks[cookie->core_id] = rtc_clock::current_time();
   }
   */
+}
+
+int wal_callback(const unsigned char *data,
+		 const int len,
+		 rpc_cookie_t *cookie)
+{
   return cookie->log_idx;
 }
 
@@ -134,6 +140,9 @@ void opendb(){
       BOOST_LOG_TRIVIAL(fatal) << s.ToString().c_str();
       exit(-1);
     }
+
+    // Disable write-ahead log
+    
 }
 
 int main(int argc, char *argv[])

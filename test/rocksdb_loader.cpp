@@ -43,6 +43,7 @@
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
 #include <rocksdb/write_batch.h>
+#include "rocksdb.hpp"
 
 // Rate measurement stuff
 rocksdb::DB* db = NULL;
@@ -51,14 +52,14 @@ const int BATCH_SIZE = 100;
 
 void load(unsigned long keys)
 {
-  unsigned char value_base[256];
+  unsigned char value_base[value_sz];
   BOOST_LOG_TRIVIAL(info) << "Start loading.";
   unsigned long ts_heartbeat = rtc_clock::current_time();
   for(unsigned long i=0;i<keys;i+=BATCH_SIZE) {
     rocksdb::WriteBatch batch;
     for(int j=i;j<i + BATCH_SIZE && j < keys;j++) {
       rocksdb::Slice key((const char *)&j, 8);
-      rocksdb::Slice value((const char *)&value_base[0], 256);
+      rocksdb::Slice value((const char *)&value_base[0], value_sz);
       batch.Put(key, value);
     }
     rocksdb::WriteOptions write_options;
