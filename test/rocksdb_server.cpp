@@ -49,6 +49,8 @@
 static unsigned long *marks;
 static unsigned long *completions;
 rocksdb::DB* db = NULL;
+static void *logs[executor_threads];
+
 
 void callback(const unsigned char *data,
 	      const int len,
@@ -59,8 +61,14 @@ void callback(const unsigned char *data,
   rock_kv_t *rock = (rock_kv_t *)data;
   if(rock->op == OP_PUT) {
     rocksdb::WriteOptions write_options;
-    write_options.sync       = false;
-    write_options.disableWAL = true;
+    if(use_rocksdbwal) {
+      write_options.sync       = true;
+      write_options.disableWAL = false;
+    }
+    else {
+      write_options.sync       = false;
+      write_options.disableWAL = true;
+    }
     rocksdb::Status s = db->Put(write_options, 
 				std::to_string(rock->key), 
 				rock->value);
@@ -99,7 +107,16 @@ int wal_callback(const unsigned char *data,
 		 const int len,
 		 rpc_cookie_t *cookie)
 {
-  return cookie->log_idx;
+  if(use_flashlog) {
+    int idx = log_append(logs[cookie->core_id],
+			 (const char *)data,
+			 len, 
+			 cookie->log_idx);
+    return idx;
+  }
+  else {
+    return cookie->log_idx;
+  }
 }
 
 void gc(rpc_cookie_t *cookie)
@@ -125,6 +142,7 @@ void opendb(){
   options.max_background_compactions = num_threads;
   options.max_background_flushes = num_threads;
   options.max_write_buffer_number = num_threads;
+  options.wal_dir = log_dir;
   options.env->set_affinity(num_quorums + executor_threads, 
 			    num_quorums + executor_threads + num_threads);
   rocksdb::Status s = rocksdb::DB::Open(options, data_dir, &db);
@@ -150,6 +168,12 @@ int main(int argc, char *argv[])
 		       atoi(argv[2]),
 		       atoi(argv[6]) + num_queues*num_quorums + executor_threads);
   
+
+  char log_path[50];
+  for(int i=0;i<executor_threads;i++) {
+    sprintf(log_path, "%s/flash_log%d", log_dir, i);
+    logs[i] = create_flash_log(log_path);
+  }
   
   opendb();
   

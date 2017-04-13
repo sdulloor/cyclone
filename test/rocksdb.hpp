@@ -12,4 +12,6 @@ const char *preload_dir = "/mnt/ssd/preloaded";
 const char *data_dir = "/mnt/ssd/checkpoint";
 const char *log_dir  = "/mnt/ssd/checkpoint";
 const unsigned long rocks_keys = 100000000;
+const int use_flashlog   = 1;
+const int use_rocksdbwal = 1;
 #endif
