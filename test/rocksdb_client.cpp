@@ -92,7 +92,7 @@ int driver(void *arg)
   BOOST_LOG_TRIVIAL(info) << "FRAC_READ = " << frac_read;
 
   
-  unsigned long keys = 10000;
+  unsigned long keys = rocks_keys;
   const char *keys_env = getenv("KV_KEYS");
   if(keys_env != NULL) {
     keys = atol(keys_env);

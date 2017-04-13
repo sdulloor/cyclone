@@ -49,7 +49,6 @@
 static unsigned long *marks;
 static unsigned long *completions;
 rocksdb::DB* db = NULL;
-const char *dir = "data";
 
 void callback(const unsigned char *data,
 	      const int len,
@@ -60,7 +59,8 @@ void callback(const unsigned char *data,
   rock_kv_t *rock = (rock_kv_t *)data;
   if(rock->op == OP_PUT) {
     rocksdb::WriteOptions write_options;
-    write_options.sync = false;
+    write_options.sync       = false;
+    write_options.disableWAL = true;
     rocksdb::Status s = db->Put(write_options, 
 				std::to_string(rock->key), 
 				rock->value);
@@ -81,7 +81,7 @@ void callback(const unsigned char *data,
     }
     else {
       rock_back->key = rock->key;
-      memcpy(rock_back->value, val.c_str(), 256);
+      memcpy(rock_back->value, val.c_str(), value_sz);
     }
   }
   /*
@@ -109,7 +109,8 @@ void gc(rpc_cookie_t *cookie)
 
 rpc_callbacks_t rpc_callbacks =  {
   callback,
-  gc
+  gc,
+  wal_callback
 };
 
 
@@ -118,31 +119,19 @@ void opendb(){
   rocksdb::Options options;
   int num_threads=rocksdb_num_threads;
   options.create_if_missing = true;
-  //  if (inmem){
-  //options.env = rocksdb::NewMemEnv(rocksdb::Env::Default());
-  //}
-#if 1
-    options.PrepareForBulkLoad();
-    options.write_buffer_size = 1024 * 1024 * 256;
-    options.target_file_size_base = 1024 * 1024 * 512;
-    options.IncreaseParallelism(num_threads);
-    options.max_background_compactions = num_threads;
-    options.max_background_flushes = num_threads;
-    options.max_write_buffer_number = num_threads;
-    //options.min_write_buffer_number_to_merge = max(num_threads/2, 1);
-    options.compaction_style = rocksdb::kCompactionStyleNone;
-    //options.memtable_factory.reset(new rocksdb::VectorRepFactory(1000));
-    options.env->set_affinity(num_quorums + executor_threads, 
-			      num_quorums + executor_threads + num_threads);
-#endif
-    rocksdb::Status s = rocksdb::DB::Open(options, dir, &db);
-    if (!s.ok()){
-      BOOST_LOG_TRIVIAL(fatal) << s.ToString().c_str();
-      exit(-1);
-    }
-
-    // Disable write-ahead log
-    
+  options.write_buffer_size = 1024 * 1024 * 256;
+  options.target_file_size_base = 1024 * 1024 * 512;
+  options.IncreaseParallelism(num_threads);
+  options.max_background_compactions = num_threads;
+  options.max_background_flushes = num_threads;
+  options.max_write_buffer_number = num_threads;
+  options.env->set_affinity(num_quorums + executor_threads, 
+			    num_quorums + executor_threads + num_threads);
+  rocksdb::Status s = rocksdb::DB::Open(options, data_dir, &db);
+  if (!s.ok()){
+    BOOST_LOG_TRIVIAL(fatal) << s.ToString().c_str();
+    exit(-1);
+  }
 }
 
 int main(int argc, char *argv[])

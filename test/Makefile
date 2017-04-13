@@ -2,7 +2,7 @@
 counter_loader counter_add_node counter_delete_node\
 counter_coordinator_driver counter_driver_mt counter_driver_noop_mt
 #all: counter_server counter_driver_noop_mt counter_delete_node counter_add_node counter_loader counter_driver_mt
-all: echo_server echo_client echo_client_multicore rocksdb_client echo_logserver rocksdb_server rocksdb_loader
+all: echo_server echo_client echo_client_multicore rocksdb_client echo_logserver rocksdb_server rocksdb_loader rocksdb_checkpoint
 
 
 
@@ -45,6 +45,9 @@ rocksdb_server:rocksdb_server.cpp
 rocksdb_loader:rocksdb_loader.cpp
 	$(CXX) $(CXXFLAGS) $(ROCKS_CXXFLAGS) rocksdb_loader.cpp $(BOOST_THREAD_LIB) $(LIBS) $(ROCKS_LIBS) -o $@
 
+rocksdb_checkpoint:rocksdb_checkpoint.cpp
+	$(CXX) $(CXXFLAGS) $(ROCKS_CXXFLAGS) rocksdb_checkpoint.cpp $(BOOST_THREAD_LIB) $(LIBS) $(ROCKS_LIBS) -o $@
+
 counter_coordinator:counter_coordinator.cpp common.o 
 	$(CXX) $(CXXFLAGS) counter_coordinator.cpp common.o $(BOOST_THREAD_LIB) $(LIBS) -o $@
 
@@ -85,5 +88,5 @@ clean:
 counter_coordinator counter_delete_node counter_add_node \
 counter_loader counter_driver_mt common.o counter_driver_noop_mt \
 echo_server echo_client echo_client_multicore rocksdb_server rocksdb_client \
-echo_logserver rocksdb_loader
+echo_logserver rocksdb_loader rocksdb_checkpoint
 
