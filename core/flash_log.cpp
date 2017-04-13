@@ -24,15 +24,17 @@ typedef struct flash_log_st {
   int issued_bytes;
   io_context_t ctx;
   unsigned long logsize;
+  unsigned long max_logsize;
 } flash_log_t;
 
 static void log_switch_page(flash_log_t *log)
 {
   struct iocb *ios[1];
   struct io_event events[1];
+  int e;
   if(log->issued_io) {
     log_page_t * inflight_page = &log->log_pages[1 - log->active_page];
-    int e = 0;
+    e = 0;
     while(e <= 0) {
       e = io_getevents(log->ctx, 1, 1, events, NULL);
     }
@@ -43,16 +45,12 @@ static void log_switch_page(flash_log_t *log)
     }
     log->checkpointed_raft_idx = log->inflight_raft_idx - 1;
   }
-  if(log->logsize >= flashlog_segsize) {
-    if(ftruncate(log->log_fd, 0)) {
-      BOOST_LOG_TRIVIAL(fatal) << "ftruncate failed";
+  if(log->logsize >= log->max_logsize) {
+    if(e = posix_fallocate(log->log_fd, log->logsize, flashlog_segsize)) {
+      BOOST_LOG_TRIVIAL(fatal) << "preallocation failed: " << e;
       exit(-1);
     }
-    if(lseek(log->log_fd, 0, SEEK_SET)  == (off_t)-1) {
-      BOOST_LOG_TRIVIAL(fatal) << "Lseek failed";
-      exit(-1);
-    }
-    log->logsize = 0;
+    log->max_logsize += flashlog_segsize;
   }
   log_page_t * issue_page = &log->log_pages[log->active_page];
   *(unsigned long *)issue_page->page = log->bytes_on_active_page;
@@ -65,7 +63,7 @@ static void log_switch_page(flash_log_t *log)
   issue_page->cb.u.c.nbytes      = log->issued_bytes;
   issue_page->cb.u.c.offset      = 0;
   ios[0] = &issue_page->cb;
-  int e = io_submit(log->ctx, 1, ios);
+  e = io_submit(log->ctx, 1, ios);
   if(e < 1) {
     BOOST_LOG_TRIVIAL(fatal) << "Failed to submit asynchronous IO: "
 			     << e;
@@ -106,6 +104,7 @@ void *create_flash_log(const char *path)
   }
   log->issued_io = false;
   log->logsize   = 0;
+  log->max_logsize = flashlog_segsize;
   log->active_page = 0;
   if(posix_memalign((void **)&log->log_pages[0].page,
 		    4096, 
