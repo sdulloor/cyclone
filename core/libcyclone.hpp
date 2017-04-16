@@ -52,6 +52,7 @@ static int core_to_quorum(int core_id)
 
 typedef struct rpc_cookie_st {
   int core_id;
+  unsigned long core_mask;
   int log_idx;
   void *ret_value;
   int ret_size;

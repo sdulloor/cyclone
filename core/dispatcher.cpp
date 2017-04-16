@@ -64,6 +64,7 @@ void init_rpc_cookie_info(rpc_cookie_t *cookie,
   cookie->log_idx     = wal->idx;
   cookie->ret_size    = 0;
   cookie->ret_value   = NULL;
+  cookie->core_mask   = rpc->core_mask;
 }
 
 static int do_multicore_redezvous(rpc_cookie_t *cookie,
