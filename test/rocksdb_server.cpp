@@ -44,6 +44,7 @@
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
 #include "rocksdb.hpp"
+#include <rocksdb/write_batch.h>
 
 // Rate measurement stuff
 static unsigned long *marks;
@@ -51,6 +52,29 @@ static unsigned long *completions;
 rocksdb::DB* db = NULL;
 static void *logs[executor_threads];
 
+typedef struct batch_barrier_st {
+  volatile unsigned long batch_barrier[2];
+  volatile int batch_barrier_sense;
+} batch_barrier_t;
+
+static batch_barrier_t barriers[executor_threads];
+
+static void barrier(batch_barrier_t *barrier,
+		    int thread_id, 
+		    unsigned long mask, 
+		    bool leader)
+{
+  int sense = barrier->batch_barrier_sense;
+  __sync_fetch_and_or(&barrier->batch_barrier[sense], 1UL << thread_id);
+  if(leader) {
+    while(barrier->batch_barrier[sense] != mask);
+    barrier->batch_barrier_sense  = 1 - barrier->batch_barrier_sense;
+    barrier->batch_barrier[sense] = 0;
+  }
+  else {
+    while(barrier->batch_barrier[sense] != 0);
+  }
+}
 
 void callback(const unsigned char *data,
 	      const int len,
@@ -69,27 +93,69 @@ void callback(const unsigned char *data,
       write_options.sync       = false;
       write_options.disableWAL = true;
     }
-    rocksdb::Status s = db->Put(write_options, 
-				std::to_string(rock->key), 
-				rock->value);
-    if (!s.ok()){
-      BOOST_LOG_TRIVIAL(fatal) << s.ToString();
-      exit(-1);
+    if(len == sizeof(rock_kv_t)) { // single put
+      rocksdb::Slice key((const char *)&rock->key, 8);
+      rocksdb::Slice value((const char *)&rock->value[0], value_sz);
+      rocksdb::Status s = db->Put(write_options, 
+				  key,
+				  value);
+      if (!s.ok()){
+	BOOST_LOG_TRIVIAL(fatal) << s.ToString();
+	exit(-1);
+      }
+    }
+    else {
+      int leader = __builtin_ffsl(cookie->core_mask) - 1;
+      if(leader == cookie->core_id) { // Multi put
+	rocksdb::WriteBatch batch;
+	int bytes  = len;
+	const unsigned char *buffer = data;
+	while(bytes) {
+	  if(bytes == len) {
+	    rocksdb::Slice key((const char *)&rock->key, 8);
+	    rocksdb::Slice value((const char *)&rock->value[0], value_sz);
+	    batch.Put(key, value);
+	    buffer = buffer + sizeof(rock_kv_t);
+	    bytes -= sizeof(rock_kv_t);
+	  }
+	  else {
+	    rock_kv_pair_t *kv = (rock_kv_pair_t *)buffer;
+	    rocksdb::Slice key((const char *)&kv->key, 8);
+	    rocksdb::Slice value((const char *)&kv->value[0], value_sz);
+	    batch.Put(key, value);
+	    buffer = buffer + sizeof(rock_kv_pair_t);
+	    bytes -= sizeof(rock_kv_pair_t);
+	  }
+	}
+	rocksdb::Status s = db->Write(write_options, 
+				      &batch);
+	if (!s.ok()){
+	  BOOST_LOG_TRIVIAL(fatal) << s.ToString();
+	  exit(-1);
+	}
+	BOOST_LOG_TRIVIAL(info) << "Leader enter barrier";
+	
+	barrier(&barriers[leader], cookie->core_id, cookie->core_mask, true);
+      }
+      else {
+	barrier(&barriers[leader], cookie->core_id, cookie->core_mask, false);
+      }
     }
     memcpy(cookie->ret_value, data, len);
   }
   else {
     rock_kv_t *rock_back = (rock_kv_t *)cookie->ret_value;
-    std::string val;
+    rocksdb::Slice key((const char *)&rock->key, 8);
+    std::string value;
     rocksdb::Status s = db->Get(rocksdb::ReadOptions(),
-				std::to_string(rock->key),
-				&val);
+				key,
+				&value);
     if(s.IsNotFound()) {
       rock_back->key = ULONG_MAX;
     }
     else {
       rock_back->key = rock->key;
-      memcpy(rock_back->value, val.c_str(), value_sz);
+      memcpy(rock_back->value, value.c_str(), value_sz);
     }
   }
   /*
@@ -162,6 +228,11 @@ int main(int argc, char *argv[])
   completions = (unsigned long *)malloc(executor_threads*sizeof(unsigned long));
   memset(marks, 0, executor_threads*sizeof(unsigned long));
   memset(completions, 0, executor_threads*sizeof(unsigned long));
+  for(int i=0;i<executor_threads;i++) {
+    barriers[i].batch_barrier[0] = 0;
+    barriers[i].batch_barrier[1] = 0;
+    barriers[i].batch_barrier_sense = 0;
+  }
   int server_id = atoi(argv[1]);
   cyclone_network_init(argv[4],
 		       atoi(argv[6]),
