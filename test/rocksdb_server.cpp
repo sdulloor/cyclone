@@ -133,8 +133,6 @@ void callback(const unsigned char *data,
 	  BOOST_LOG_TRIVIAL(fatal) << s.ToString();
 	  exit(-1);
 	}
-	BOOST_LOG_TRIVIAL(info) << "Leader enter barrier";
-	
 	barrier(&barriers[leader], cookie->core_id, cookie->core_mask, true);
       }
       else {
