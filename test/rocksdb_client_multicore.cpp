@@ -70,6 +70,7 @@ int gen_multi(char * buffer, int keys, unsigned long max_key, unsigned long *cor
   rock_kv_pair_t *tail = (rock_kv_pair_t *)(buffer + sizeof(rock_kv_t));
   for(int i=1;i<keys;i++,tail++) {
     tail->key = rand() % max_key;
+    (*core_mask) |= (1UL << (tail->key % executor_threads));
     size += sizeof(rock_kv_pair_t);
   }
   return size;
@@ -133,6 +134,7 @@ int driver(void *arg)
       rpc_flags = 0;
       kv->op    = OP_PUT;
       unsigned long cmask = 0;
+      //int random_core = rand() % executor_threads;
       int req_sz = gen_multi(buffer, active, keys, &cmask);
       sz = make_rpc(handles[0],
 		    buffer,
