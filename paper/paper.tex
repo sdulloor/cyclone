@@ -587,7 +587,7 @@ ability to simultaneously issues replication messages on all quorums. The
 smaller contribution to increasing latency that continues past the 8 core case
 is due to cacheline pingponging when executing the rendevous. Both these sources
 of latency drift could be corrected using replication quorums mapped to
-dedicated NICs and more scalable rendesvous designs (such as with machine aware
+dedicated NICs and more scalable rendezvous designs (such as with machine aware
 broadcast trees~\cite{broadcast_tree}). However we deemed the complexity of such
 optimizations unnecessary. The added latency for most cases is well under the
 extra round trip delay, which would the minimum needed for a solution using
@@ -597,6 +597,110 @@ distributed transactions via two phase commit.
 \includegraphics[scale=0.6]{results2/multi.pdf}
 \caption{Ganged Operations}
 \label{fig:ganged}
+\end{figure}
+
+We now evaluate Cyclone integrated with the Rocksdb persistent key value
+store. Rocksdb is a complex industrial strength persistent key value store and
+this means that it is accompanied by a complex array of performance tuning knobs
+to get the best performance from flash. We were also aware that SSD performance
+is slated for dramatic increases in the coming years with the introduction of
+new memory technology such as 3DXPoint based Optane SSDs. To demonstrate that
+Cyclone is future proof we eliminated flash media performance from the picture
+as far as the key value store is concerned by placing all files for the key
+value store (SSTables) on a RAMdisk, which presumably represents the limit in
+performance for flash in the near future. All log files on secondary storage
+however - both Rocksdb's own write ahead log and the alternative of Cyclone's
+second level flashlog - are placed on the SSDs.
+
+We evaluate two different request sizes: 8 byte keys with 8 byte values and 8
+bytes keys with 256 byte values. We run 8 physical logs on 8 cores and devote 32
+cores to making requests to Rocksdb. Since we are interested in performance of
+the log, which is only used for update requests, our workload is 100\% writes.
+
+Before evaluating with Rocksdb we measure the baseline performance of
+replicating the log with Cycloine for the given request sizes - Rocksdb performs
+a no-op. We note that in addition to the key and value, we are also logging
+RocksDB specific request data such as operation type and the request header.
+Figure~\ref{fig:kv_baseline} shows the baseline performance for the chosen
+request sizes. With the smaller request size, Cyclone can conservatively sustain
+close to a million requests a second at a latency of just under 25us. With the
+larger request size, Cyclone can sustain around 350K requests a second, again at
+a latency of just under 25 us. Armed with these baseline numbers we now examine
+how well Cyclone performs with Rocksdb.
+
+\begin{figure}
+\includegraphics[scale=0.6]{results2/kv_baseline.pdf}
+\caption{Baseline KV replication performance}
+\label{fig:kv_baseline}
+\end{figure}
+
+The performance of Rocksdb with Cyclone for the small update workload is shown
+in Figure~\ref{fig:rocksdb}. We consider four different settings. The line
+labeled Rocksdb is the key value store running with no logging whatsover - a
+system crash would lead to data loss. The line labeled Rocksdb/WAL is for
+Rocksdb running with its write ahead logging turned on. The large gap between
+these two is the overhead of the existing Rocksdb WAL solution. The line labeled
+Rocksdb/Cyclone 1 way is a two level Cyclone log but without any
+replication. The line almost exactly tracks the performance of Rockdb. As
+suggested by the baseline replication performance, Cyclone is able to provide a
+write ahead log with no overhead to Rocksdb. The line labeled Rocksdb/Cyclone 3
+way is with 3-way replication turned on. Other than a 20us delta due to the
+extra network round trip, the line almost exactly tracks the Rocksdb no logging
+case. Cyclone therefore provides high availability to Rocksdb at a fraction of
+the cost of its existing single machine write ahead log. We also repeat the
+experiment for the larger update size in Figure~\ref{fig:rocksdb_256}. The
+conclusions are identical: Cyclone solves Rocksdb's write ahead logging
+problem.
+
+\begin{figure}
+\includegraphics[scale=0.6]{results2/rocksdb.pdf}
+\caption{Rocksdb - small updates}
+\label{fig:rocksdb}
+\end{figure}
+
+\begin{figure}
+\includegraphics[scale=0.6]{results2/rocksdb_256.pdf}
+\caption{Rocksdb - large updates}
+\label{fig:rocksdb_256}
+\end{figure}
+
+Next, we consider the problem of supporting Rocksdb's write-batch operation that
+atomically writes a set of key-value pairs into the KV store. In order to
+perform the operation with Cyclone managing the log, the client must issue a
+ganged operation across cores owning the keys in the write batch. This is in
+contrast to baseline Rocksdb where the entire write batch can be sent to any
+core. A key concern here was whether Cyclone would add any latency to the
+operation due to the extra synchronization needed across replication quorums and
+participating application cores. We examine the problem for the unloaded case
+and small updates in Figure~\ref{fig:rocksdb_multi} for a single client with
+increasing number of keys in the batch - till 32 keys that covers all
+application cores. The line labeled Rocksdb is with no write-ahead logging. We
+note an increasing latency for this baseline indicating Rocksdb takes longer
+with larger key batches. For the other options - Rocksdb/wal has considerably
+larger latency. Cyclone does an effective job of cutting down on this latency
+even as it needs to pay a price for synchronizing multiple quorums and
+application cores making it somewhat slower than running Rocksdb with no logging
+for batched writes.
+
+\begin{figure}
+\includegraphics[scale=0.6]{results2/rocksdb_multi.pdf}
+\caption{Rocksdb - batched writes}
+\label{fig:rocksdb_multi}
+\end{figure}
+
+Finally we showcase the benefit of using Cyclone beyond pure performance as
+compared to the existing single machine Rocksdb write ahead log. Cyclone brings
+multi-machine availability with the ability to automatically failover. We
+demonstrate this in Figure ~\ref{fig:timeline} that shows the timeline of a run
+where we kill the server process on the leader replica. Cyclone is configured to
+with a 30ms failure detection timeout after which the client library tries
+replicas in turn to locate the leader - in this case it fails over in about
+60ms.
+
+\begin{figure}
+\includegraphics[scale=0.6]{results2/failover.pdf}
+\caption{Rocksdb - failover}
+\label{fig:timeline}
 \end{figure}
 
 \section{Conclusion}
