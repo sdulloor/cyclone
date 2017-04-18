@@ -61,21 +61,6 @@ typedef struct driver_args_st {
   }
 } driver_args_t;
 
-int gen_multi(char * buffer, int keys, unsigned long max_key, unsigned long *core_mask)
-{
-  rock_kv_t *head = (rock_kv_t *)buffer;
-  int size = sizeof(rock_kv_t);
-  head->key = rand() % max_key;
-  (*core_mask) |= (1UL << (head->key % executor_threads));
-  rock_kv_pair_t *tail = (rock_kv_pair_t *)(buffer + sizeof(rock_kv_t));
-  for(int i=1;i<keys;i++,tail++) {
-    tail->key = rand() % max_key;
-    (*core_mask) |= (1UL << (tail->key % executor_threads));
-    size += sizeof(rock_kv_pair_t);
-  }
-  return size;
-}
-
 int driver(void *arg)
 {
   driver_args_t *dargs = (driver_args_t *)arg;
@@ -114,14 +99,6 @@ int driver(void *arg)
   }
   BOOST_LOG_TRIVIAL(info) << "KEYS = " << keys;
 
-  int active = 1;
-  const char *active_env = getenv("ACTIVE");
-  if(active_env != NULL) {
-    active = atol(active_env);
-  }
-  BOOST_LOG_TRIVIAL(info) << "ACTIVE = " << active;
-
-
   total_latency = 0;
   tx_block_cnt  = 0;
   tx_block_begin = rtc_clock::current_time();
@@ -132,31 +109,22 @@ int driver(void *arg)
     double coin = ((double)rand())/RAND_MAX;
     if(coin > frac_read) {
       rpc_flags = 0;
-      kv->op    = OP_PUT;
-      unsigned long cmask = 0;
-      //int random_core = rand() % executor_threads;
-      int req_sz = gen_multi(buffer, active, keys, &cmask);
-      sz = make_rpc(handles[0],
-		    buffer,
-		    req_sz,
-		    (void **)&resp,
-		    cmask,
-		    rpc_flags);
+      kv->op    = OP_ADD;
     }
     else {
       rpc_flags = RPC_FLAG_RO;
       kv->op    = OP_GET;
-      kv->key   = rand() % keys;
-      my_core = kv->key % executor_threads;
-      sz = make_rpc(handles[0],
+    }
+    //kv->key   = rand() % keys;
+    kv->key   = 0xdeadbeefUL;
+    my_core = kv->key % executor_threads;
+    //my_core = rand() % executor_threads;
+    sz = make_rpc(handles[0],
 		  buffer,
 		  sizeof(rock_kv_t),
 		  (void **)&resp,
 		  1UL << my_core,
 		  rpc_flags);
-    
-    }
-    
     tx_block_cnt++;
     
     if(dargs->leader) {
