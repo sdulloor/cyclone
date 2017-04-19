@@ -150,15 +150,16 @@ actually containing the byte and a fixed size piece of external metadata that
 describes various aspects of the packet, most crucially a pointer to the start
 and end of the packet in the byte array. DPDK's userspace drivers receive
 packets from the NIC such that they are offset in the byte array by a
-configurable amount referred to as ``headroom''. We prepend RAFT related
-information specific to each log entry in the headroom and shift the start
-pointer appropriately - these operations are standard enough for software packet
-switches that DPDK provides convenient library calls to do it. For the final
-step, we need to prepare the packet for transmission to the various follower
-replicas. To do this we prepare a different packet containing an ethernet header
-for the targeted replica and ``chain'' the data packet to each of these
-headers. Each header is then separately handed off to the driver for
-transmission via the NIC, carrying the data packet with it by association.
+configurable amount referred to as ``headroom''. We strip off the existing
+network headers in the packet and prepend RAFT related information specific to
+each log entry in the headroom by shifting the start pointer appropriately -
+these operations are standard enough for software packet switches that DPDK
+provides convenient library calls to do it. For the final step, we need to
+prepare the packet for transmission to the various follower replicas. To do this
+we prepare a different packet containing an ethernet header for the targeted
+replica and ``chain'' the data packet to each of these headers. Each header is
+then separately handed off to the driver for transmission via the NIC, carrying
+the data packet with it by association.
 
 \begin{figure}
 \begin{verbatim}
@@ -211,9 +212,30 @@ normally introduced by {\tt clflush}. This allows one to hit full memory
 bandwidth on present generation platforms, a quantity in excess of 200 Gb/s per
 core, well above the near term speeds of network interface cards.
 
-
+\begin{figure}
+  \centering
+  \includegraphics[scale=0.3]{figures2/batching.pdf}
+  \caption{Batching}
+  \label{fig:batching}
+\end{figure}
 
 \subsubsection{Batching}
+Although the control plane code only runs operations related to the RAFT state
+machine it is still slow enough relative to the dataplane to add significant
+overhead for each packet. We tackle this problem by applying another classic
+software packet switching technique: batching - illustrated in
+Figure~\ref{fig:batching}. We use a burst receive call available in the DPDK
+userspace driver to receive a burst of client packets at a time. We then chain
+these packets together and treat them as a single log entry from the perspective
+of RAFT, amortizing the control plane overheads over the packets (at most 32 at
+a time due to current driver limitations).
+
+We note there that batching in Cyclone does not involve a latency-throughput
+tradeoff like in many other systems~\cite{ix-dataplane}. The batch receive call
+we use in DPDK returns immediately with whatever number of packets is available,
+including zero. We always flush the transmit buffer after every call to DPDK to
+transmit packets to replicas. Therefore, we never tradeoff latency for
+throughput when batching. 
 
 \subsection{Flash Log}
 TBD: talk about why we don't need group commit.
