@@ -238,6 +238,16 @@ transmit packets to replicas. Therefore, we never tradeoff latency for
 throughput when batching. 
 
 \subsection{Flash Log}
+Cyclone is designed to use only limited amounts of NVM and drains log entries
+down into a log placed on a flash SSD. 
+
+\begin{figure}
+  \centering
+  \includegraphics[scale=0.3]{figures2/flashlog_page.pdf}
+  \caption{Flashlog segment}
+  \label{fig:flashlog_page}
+\end{figure}
+
 TBD: talk about why we don't need group commit.
 \section{Horizontal Scaling}
 
