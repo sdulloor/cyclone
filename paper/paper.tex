@@ -1,6 +1,6 @@
 \documentclass[10pt, preprint, nonatbib]{sigplanconf}
 \usepackage{times,epsfig,endnotes,graphicx, verbatim}
-\usepackage{datetime, url, hyperref, pdfpages}
+\usepackage{datetime, url, pdfpages}
 
 \conferenceinfo{SOSP'17}{October 29--31, 2017, Shanghai, China}
 \copyrightyear{2017} 
@@ -93,7 +93,6 @@ use by the log.
 \begin{figure}
 \centering
 \includegraphics[scale=0.3]{figures2/nvm_log.pdf}
-\hspace{-0.2in}
 \caption{NVM Log Structure}
 \label{fig:nvm_log}
 \end{figure}
@@ -152,13 +151,14 @@ describes various aspects of the packet, most crucially a pointer to the start
 and end of the packet in the byte array. DPDK's userspace drivers receive
 packets from the NIC such that they are offset in the byte array by a
 configurable amount referred to as ``headroom''. We prepend RAFT related
-information in the headroom and shift the start pointer appropriately - these
-operations are standard enough for software packet switches that DPDK provides
-convenient library calls to do it. For the final step, we need to prepare the
-packet for transmission to the various follower replicas. To do this we prepare
-a different packet containing an ethernet header for the targeted replica and
-``chain'' the data packet to each of these headers. Each header is then
-separately handed off to the driver for transmission via the NIC.
+information specific to each log entry in the headroom and shift the start
+pointer appropriately - these operations are standard enough for software packet
+switches that DPDK provides convenient library calls to do it. For the final
+step, we need to prepare the packet for transmission to the various follower
+replicas. To do this we prepare a different packet containing an ethernet header
+for the targeted replica and ``chain'' the data packet to each of these
+headers. Each header is then separately handed off to the driver for
+transmission via the NIC, carrying the data packet with it by association.
 
 \begin{figure}
 \begin{verbatim}
@@ -183,11 +183,36 @@ separately handed off to the driver for transmission via the NIC.
 \end{figure}
 
 \begin{figure}
+  \centering
+  \includegraphics[scale=0.3]{figures2/network_packet.pdf}
   \caption{Cyclone Network Packet Layout}
   \label{fig:packet_layout}
 \end{figure}
 
-TBD: talk about how we do not need a reliable network layer like TCP/IP.
+We note that by discrding stream oriented protocols the network layer is not
+longer reliable or ordered. This is not a problem for RAFT that is designed to
+tolerate network failures resulting in drops or reordering of network
+packets. However this rules out consensus protocols such as Zookeeper Atomic
+Broadcast (ZAB~\cite{zab}) that depend on a reliable stream-oriented network
+layer to function correctly.
+
+Finally, we turn our attention to the persistence step in
+Figure~\ref{fig:control_plane}. RAFT requires that the log entry be persisted
+before it is multicast out to follower replicas. Since the NVM is directly
+attached we do this by executing a cacheline flush ({\tt clflush}) instruction
+for every cacheline in the packet and the pointer in the pointer buffer to
+persist these via the memory bus. This is the one exception to our otherwise
+clean separation between the control and data plane - necessitated by the fact
+that at the moment NICs do not support persistent memory. This is not too
+onerous a burden because we can use the newly introduced {\tt
+  clflush-opt}~\cite{clflush_opt} instruction specifically intended to
+efficiently flush to persistent memory without the overhead of the serialization
+normally introduced by {\tt clflush}. This allows one to hit full memory
+bandwidth on present generation platforms, a quantity in excess of 200 Gb/s per
+core, well above the near term speeds of network interface cards.
+
+
+
 \subsubsection{Batching}
 
 \subsection{Flash Log}
