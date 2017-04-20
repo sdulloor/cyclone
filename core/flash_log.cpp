@@ -141,6 +141,17 @@ int log_append(void *log_,
   else if(log->entries_on_active_page >= flashlog_hwm) {
     log_switch_page(log);
   }
+  unsigned long stop_byte = log->bytes_on_active_page + size - 1;
+  // Skip to next page if necessary
+  if(stop_byte/4096 != log->bytes_on_active_page/4096) {
+    if(bytes_left < 4096) {
+      log_switch_page(log);
+    }
+    else {
+      log->bytes_on_active_page = 
+	((log->bytes_on_active_page + 4096)/4096)*4096;
+    }
+  }
   char *buffer = log->log_pages[log->active_page].page;
   buffer = buffer + log->bytes_on_active_page;
   *(unsigned long *)buffer = size;
