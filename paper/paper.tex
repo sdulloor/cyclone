@@ -239,7 +239,34 @@ throughput when batching.
 
 \subsection{Flash Log}
 Cyclone is designed to use only limited amounts of NVM and drains log entries
-down into a log placed on a flash SSD. 
+down into a log placed on a flash SSD - that we term the flashlog. The flashlog
+is written out in segments of configurable size (we use 128KB segments). A
+segment buffer is prepared in memory (volatile DRAM) using the layout shown in
+Figure~\ref{fig:flashlog_page}. We do not allow objects in the flashlog to cross
+a 4KB boundary - linking multiple objects together with a special flag encoded
+into the size if necessary. We flush log segments out to the log file using
+asynchronous direct IO, and therefore we fill one log segment buffer while
+keeping IO to another one outstanding to the flash drive. To avoid having to do
+a synchronous metadata flush, we preallocate (using the posix\_fallocate call) a
+gigabyte worth of zero filled disk pages at the end of a file, at a time.
+
+In order to recover from a crash, we make two important assumptions about the
+underlying SSD. First, we assume that 4KB is the \emph{minimum} atomic unit for
+updating pages on the SSD even under power failure i.e. there are no shorn
+writes on a 4KB page~\cite{shorn_writes}. We also assume that the SSD has power
+loss data protection meaning that writes cached in the drive's volatile cache
+are written to the SSD using a backup capacitor in the event of power failure -
+a property of many data center class SSDs today, including the Intel DC P3600
+SSD we use in our evaluation. Together these two assumptions mean that we can
+recover a consistent prefix of the log on a power failure.
+
+We move log entries from the head of the NVM log to the flashlog buffers in FIFO
+order. THe NVM log entry is only actually removed then the IO for the
+corresponding flashlog page is complete. This means that during recovery we can
+have the same log entry both in the NVM log and the flashlog, a condition that
+can be detected by examining the RAFT related information that is embedded as
+part of the logged packet.
+
 
 \begin{figure}
   \centering
@@ -248,7 +275,14 @@ down into a log placed on a flash SSD.
   \label{fig:flashlog_page}
 \end{figure}
 
-TBD: talk about why we don't need group commit.
+The fact that we can immedately absorb updates into an NVM log and only move
+them to the flashlog in suitable units for block IO solves a common problem with
+logging to secondary storage - the need to do group commit. Logging systems
+often wait to collect a batch of entries to write to secondary storage trading
+latency for throughput. This is unnecessary in Cyclone as it
+effectively makes use of directly attached NVM with a two level log that removes
+the need to make this tradeoff.
+
 \section{Horizontal Scaling}
 
 \subsection{API Commutativity}
