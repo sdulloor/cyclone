@@ -422,6 +422,110 @@ are also routed through the logs. Flushing the NVM logs on failover is a better
 solution that we are currently in the process of engineering into Cyclone.
 
 \subsection{Ganged Operations}
+Key value stores (such as Rocksdb) usually provide a batched write operation
+that atomically updates a set of key-value pairs. A batched write is often a key
+primitive for building more sophisticated operations such as
+transactions. Batched writes require special handling in Cyclone due to the
+requirement that we route a write request by hashing the key to select both the
+control plane core (physical log) as well as KV store core. A batched write has
+multiple keys and therefore we need to synchronize the progress of the operation
+across multiple physical logs (and associated replication quorums) as well as KV
+store cores. In effect the serial history contains a grouped set of operation on
+multiple keys spanning multiple cores as a single atomic operation. All serial
+histories across replicas therefore continue to map to the same equivalent
+serial history modulo reordering of operations to different keys.
+
+A simple solution to this problem is to use a distributed transaction, using
+two-phase commit to couple the otherwise independent replication quorums and KV
+store cores. However this method has a number of problems. First, it introduces
+an additional network round trip that is normally not necessary for a key value
+store with a single shared memory image holding all the keys. Second, handling
+failures with distributed transactions would have cause an explosion in
+complexity in Cyclone, something we wished to avoid in the interests of
+practical deployment to independent end users who need to understand and 
+maintain Cyclone as part of their KV store infrastructure.
+
+Our solution instead is to use a technique we termed ganged operations, based on
+the observation that in the failure free case, executing a batched write across
+multiple control plane cores and KV store cores does not look very much
+different from a synchronous shared memory barrier. The challenge is to
+effectively manage failures in replication without causing participating cores
+to stop making progress. The first step is to reconfigure RAFTs leader election
+protocol to ensure that the leaders for all the physical logs are co-located on
+the same host. Clients always dispatch batched writes to a fixed control plane
+core (called the injection core) which is then responsible for serially
+forwarding the requests to the participating control plane cores (for
+corresponding physical logs). The injection core uses DPDKs packet cloning
+primitives to avoid dataplane work while forwarding copies of the same batched
+write packet to multiple control plane cores. The injection core also adds a
+``nonce'' - a unique timestamp to the packet. In addition the injection core
+adds a unique view number to the packet corresponding to the term numbers of all
+the participating RAFT instances (read from shared memory of the co-located leaders).
+We describe the remaining flow for ganged operations in terms of the pseudocode
+in Figure~\ref{fig:ganged_ops}. We defer discussion of how we generate the nonce
+to later in this section. We also assume that a unique barrier is allocated in
+shared memory for each ganged operation. We discuss later how this is done
+without using dynamic allocation.
+
+In the absence of failures Figure~\ref{fig:ganged_ops} is straightforward. One
+replication is complete on all participating physical logs, the corresponding KV
+store cores execute {\tt event\_replicated\_ganged\_op}. The use a bitmask for
+the barrier setting the appropriate bit for themselves. Once all KV store cores
+have arrived at the barrier the operation is executed. A distinguished leader
+core (we use use the minumum numbered participating KV store core) is
+responsible for sending back the response to the client. Two types of failure
+need to be considered. First, one of the non-leader cores could fail. The
+remaning cores would never progress past the barrier. To solve this the leader
+core montors the remaning cores for their current view - which is the RAFT term
+of the last executed log entry. If the view has moved past the view in the
+packet, replication failed on that physical log. The leader then sets the bit
+for the core that will no longer participate in the barrier to aid progress (a
+technique we borrowed from lock-free data structures~\cite{lock-free}). It also
+sets a failed flag to signal failure to the other participating cores. The
+second failure case is that the leader core might not receive the operation if
+it fails during replication from corresponding physical log. This case is
+detected in a similar manner by the remaining cores by monitoring the published
+view from the leader core in shared memory.
+
+
+\begin{figure*}
+  \centering
+\begin{verbatim}
+    // Control plane core
+    event_recv_ganged_op(packet)
+    {
+      Begin replication of packet
+    }
+
+    // KV store core
+    event_replicated_ganged_op (packet, barrier)
+    {
+      if(leader KV core)
+        atomic set bit me in barrier.mask         
+        do
+         for each KV store core in packet
+          if core_public_data[core].view > packet.view
+           barrier.failed = true 
+           atomic set bit for core in barrier.mask
+        while barrrer.mask != mask of participating KV cores
+        if barrier.failed
+         Ganged replication failed. Send retry to client. return.
+        else       
+         execute operation
+         send response
+      else
+        wait until 
+         core_public_data[leader core].view > packet.view
+         OR core_public_data[me].barrier == mask of participating KV cores
+        if core_public_data[leader core].view > packet.view
+         Ganged replication failed. Send retry to client. return.
+        else
+         execute operation
+    }
+\end{verbatim}
+\caption{Ganged Operation}
+\label{fig:ganged_ops}
+\end{figure*}
 
 \section{Evaluation}
 We evaluate Cyclone on a 12 node cluster connected via a 10 GigE switch. Three
