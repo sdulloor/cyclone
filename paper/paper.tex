@@ -257,8 +257,8 @@ writes on a 4KB page~\cite{shorn_writes}. We also assume that the SSD has power
 loss data protection meaning that writes cached in the drive's volatile cache
 are written to the SSD using a backup capacitor in the event of power failure -
 a property of many data center class SSDs today, including the Intel DC P3600
-SSD we use in our evaluation. Together these two assumptions mean that we can
-recover a consistent prefix of the log on a power failure.
+SSD~\cite{ssd_spec} we use in our evaluation. Together these two assumptions
+mean that we can recover a consistent prefix of the log on a power failure.
 
 We move log entries from the head of the NVM log to the flashlog buffers in FIFO
 order. THe NVM log entry is only actually removed then the IO for the
@@ -276,18 +276,73 @@ part of the logged packet.
 \end{figure}
 
 The fact that we can immedately absorb updates into an NVM log and only move
-them to the flashlog in suitable units for block IO solves a common problem with
-logging to secondary storage - the need to do group commit. Logging systems
+them to the flashlog in suitable units for block IO, sidesteps a common problem
+with logging to secondary storage - the need to do group commit. Logging systems
 often wait to collect a batch of entries to write to secondary storage trading
-latency for throughput. This is unnecessary in Cyclone as it
-effectively makes use of directly attached NVM with a two level log that removes
-the need to make this tradeoff.
+latency for throughput. This is unnecessary in Cyclone as it effectively makes
+use of directly attached NVM with a two level log that removes the need to make
+this tradeoff.
+
+\begin{figure}
+  \centering
+  \includegraphics[scale=0.3]{figures2/race.pdf}
+  \caption{Race with multiple physical logs}
+  \label{fig:race}
+\end{figure}
 
 \section{Horizontal Scaling}
+The basic principle in Cyclone is to turn log replication into a software packet
+switching problem. A key ingredient in software packet switching is applying
+multiple CPU cores to parallelize the control plane, scaling message processing
+throughput. In this section we describe how we can horizontally scale Cyclone's
+single \emph{logical} log across multiple \emph{physical} logs. For each
+physical log, we run an independent version of RAFT with the corresponding
+control plane mapped to a dedicated core. Further, as we shortly describe we
+assume a concurrent key value store where a set of CPU cores independently run
+operations from the physical logs on the shared memory key-value store data
+structure, synchronizing as necessary.
 
-\subsection{API Commutativity}
+We begin by describing how a key-value store API can be mapped on these
+independent physical logs without divergence in replica state. We then discuss
+how different pieces of work related to replication and the key value store
+itself are distributed across available CPU cores and available NIC queues. 
+
+\subsection{Leveraging API Commutativity}
+Update requests to a key-value store consist of a key and an associated operation -
+such as ``put'' that set the value for the key or ``merge'' that calls a
+user-defined operator to merge a new value for the key into the existing value.
+A naive approach that maps a key to a random physical log and subsequently to a
+random core on the system for execution runs into the determinism problem -
+replicas could diverge with respect to the final value assigned to a key on
+different replicas. We illustrate this problem with an example in
+Figure~\ref{fig:race} where two updates to the same key race with each other on
+different physical logs and execution cores to end up being applied in different
+orders on different replicas, leading to a divergence of state.
+
+The solution to this problem is observe that the key-value store is a concurrent
+data structure that ultimately admits a serialization of operations to
+it. Further, consecutive operations to different keys in the serial history can
+be interchanged, because operations to different keys are
+\emph{commutative}. The correct way to use different physical logs is therefore
+to simply hash the key to select the physical log \emph{and} the core on which
+the operation executes. This guarantees determinism as the serial history of
+two different replicas can be transformed into the same serial history by
+reordering operations to different keys. 
+
+Further relaxations to the mapping scheme are possible when operations to the
+same key are also commutative. A good example is when key value stores are used
+to maintain counters. Different increment operations to the same counter are
+commutative if one is prepared to tolerate non-determinism in the sequence of
+updates seen by a reader with the counter reaching the same eventual value. This
+specific use-case, in fact, lead to the addition of the merge operation in
+Rocksdb, a key value store that we use for evaluation. Merge operations
+therefore could be dispatched to a random physical log with no harm. For this
+paper however, we stick on the stricter requirement that operations to the same
+key are not commutative.
 
 \subsection{Core Assignment}
+
+TBD: mention no linearizability for reads at the moment
 
 \subsection{NIC Queue Assignmnt}
 
