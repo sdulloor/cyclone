@@ -48,7 +48,7 @@ interfaces are commutative for operations to different keys to scale our two
 level log horizontally into a number of physical two level logs - with a hash of
 the key being used to choose the right log. Each log is replicated by an
 independent instance of RAFT, thereby leveraging the scalability afforded by
-classic software packet switching when using multiple CPU cores. Cyclone is able
+classic software packet switching when using multiple threads. Cyclone is able
 to replicate millions of small updates a second using only commodity 10 gigabit
 ethernet adapters and improves the performance of RocksDB - a popular persistent
 key value store by orders of magnitude when compared to its own write ahead log
@@ -118,11 +118,12 @@ We implement the common case flow in RAFT as a software packet switch using
 DPDK. The dataplane now encompasses the NIC and the CPU caches with the NIC
 placing packet data directly in the CPU cache via DDIO~\cite{ddio} - a standard
 feature of most NICs today. The dataplane for the RAFT protocol is therefore
-separated from the control plane. The control plane now runs on a CPU core and
-takes care of checking adherence to the protocol: checking for correct term, log
-index and that the replica receiving the packet from the client is indeed the
-leader. In addition, the control plane is responsible for non common-case
-activities such as dealing with timeout and leader elections.
+separated from the control plane. The control plane now runs in a thread pinned
+to a dedicated CPU core and takes care of checking adherence to the protocol:
+checking for correct term, log index and that the replica receiving the packet
+from the client is indeed the leader. In addition, the control plane is
+responsible for non common-case activities such as dealing with timeout and
+leader elections.
 
 The pseudocode in Figure~\ref{fig:control_plane} describes the control plane in
 Cyclone organized as event handlers triggered on receiving a packet. We focus on
@@ -297,15 +298,78 @@ multiple CPU cores to parallelize the control plane, scaling message processing
 throughput. In this section we describe how we can horizontally scale Cyclone's
 single \emph{logical} log across multiple \emph{physical} logs. For each
 physical log, we run an independent version of RAFT with the corresponding
-control plane mapped to a dedicated core. Further, as we shortly describe we
-assume a concurrent key value store where a set of CPU cores independently run
-operations from the physical logs on the shared memory key-value store data
-structure, synchronizing as necessary.
+control plane mapped to a dedicated CPU core. Further, we assume a concurrent
+key value store where a set of CPU cores independently run operations from the
+physical logs on the shared memory key-value store data structure, synchronizing
+as necessary.
 
-We begin by describing how a key-value store API can be mapped on these
-independent physical logs without divergence in replica state. We then discuss
-how different pieces of work related to replication and the key value store
-itself are distributed across available CPU cores and available NIC queues. 
+We begin by showing how we divide CPU cores and NIC resources on the plaform across
+replication and key value store work, and show how a KV store request flows
+across them.  We then describe how a key-value store API can be mapped to
+independent physical logs without divergence in replica state. Finally, we
+describe special handling in Cyclone for multi-key operations.
+
+\subsection{Core Allocation}
+A key-value store integrated with Cyclone runs two types of threads. One type of
+thread does key-value store work. This includes servicing lookup and update
+requests and background threads that flush in-memory data structures to
+secondary storage and do maintainence work on secondary storage data structures
+such as compacting log-structured merge trees~\cite{lsmtree}. We use a dedicated
+thread per-physical log to run the corresponding control plane including the
+associated RAFT state machine. We use static assignment of threads to cores as
+recommended for packet switching libraries such as DPDK for the best possible
+performance. Therefore we use the term threads and cores interchangeably in this
+paper. Client requests are always received by the control plane core for
+the physical log the request is directed to. A response for the core is always
+sent by the KV store core that finally handles the request.
+
+An important resource for Cyclone is the NIC that must be shared among the
+control plane cores that receive and replicate requests and the KV store cores
+that send back responses. Most NICs provide independent transmit/receive queue
+pairs and we aim for synchronization free access to these to aid horizontal
+scalability with respect to the network resource. DPDK already provides fairly
+scalable access to NIC queues, with the queue number being a parameter to send
+and receive calls. All that remains for us is to map the queues to the control
+plane and KV store cores, keeping in mind that there may be multiple NICs on the
+system. We do this by iterating over all control plane cores followed by all KV
+store cores. We assign two queue pairs to each control plane core, one to
+receive requests from the client and the other transmit and receive replication
+protocol related messages. We assign one queue pair to each KV store core to
+send back responses to clients. We are careful to spread the different queue
+pairs for a core across the available NICs as far as possible. This is important
+due to the asymmetry between the different types of traffic. Queue pairs
+carrying replication traffic will likely be more busy that those carrying client
+request responses due to the amplification to multicast the same message to
+different replicas.
+
+The flow for an update operation in Cyclone is as follows. The network packet is
+received by the control plane for the targeted physical log. The packet is then
+immediately sent out for replication as described in the previous section. When
+responses from a majority quorum is received, the request is passed to the
+targeted KV store core for execution. The KV store core process the request and
+sends back the response to the client. We note that replication is pipelined and
+decoupled from execution and thus multiple updates requests are usually in
+flight for replication at a time.
+
+The flow for a read operation is simpler. It is still targeted to a physical log
+but instead to replicating it the control plane core simply passes it on
+straight away to the KV store core for execution and response.
+
+The control plane cores and KV store cores communicate through a one-way
+lock-free FIFO queue passing pointers to packets. We leverage the convenient
+ring library in DPDK for this.
+
+Finally an asynchronous source of work in the system is maintenance of the
+two-level log. We depart from a 1:1 mapping between the first level NVM log and
+the second level flashlog here. Each physical log consists of one NVM log
+managed by the corresponding control plane core and multiple flashlogs each of
+which is managed as an additional responsibility by a KV store core. We
+therefore enforce a many to one mapping between key value store cores and
+control plane cores - thereby partitioning KV store cores across control plane
+cores. A request picks a control plane core and any one of the associated KV
+store cores for execution. The request is logged in the NVM log of the control
+plane core and garbage collected once it is drained to the flashlog of the
+selected KV store core.
 
 \subsection{Leveraging API Commutativity}
 Update requests to a key-value store consist of a key and an associated operation -
@@ -337,14 +401,25 @@ updates seen by a reader with the counter reaching the same eventual value. This
 specific use-case, in fact, lead to the addition of the merge operation in
 Rocksdb, a key value store that we use for evaluation. Merge operations
 therefore could be dispatched to a random physical log with no harm. For this
-paper however, we stick on the stricter requirement that operations to the same
-key are not commutative.
+paper however, we stick to the stricter requirement that operations to the same
+key are not commutative. However, Cyclone's client side libraries leave it to
+the user to specify the exact physical log and key-value thread to use to enable
+more relaxed mappings when necessary.
 
-\subsection{Core Assignment}
+We note that commutativity as assumed by Cyclone is an \emph{API level
+  property}. There are no assumption as to how application cores synchronize to
+access the shared key-value state or the underlying data structures for holding
+key-value pairs.
 
-TBD: mention no linearizability for reads at the moment
-
-\subsection{NIC Queue Assignmnt}
+Finally, Cyclone provides seraializable reads but does not - at the moment -
+guarantee the ability to read one's own writes, repeatable reads or more
+generally, linearizable reads. The reason is that on a failover the new leader
+replica might still have update operations in its NVM logs that are yet to be
+applied to the key value store. However the original failed leader replica might
+have applied these updates and a client might have already observed them. Users
+who desire linearizable reads can issue a special API call to ensure that reads
+are also routed through the logs. Flushing the NVM logs on failover is a better
+solution that we are currently in the process of engineering into Cyclone.
 
 \subsection{Ganged Operations}
 
