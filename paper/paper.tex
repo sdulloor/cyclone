@@ -41,15 +41,15 @@ as NVDIMMs to maintain a two level log: the upper level in a small amount of NVM
 draining into a larger lower level log maintained on flash. Replicating the
 smaller log kept in NVMs transforms the replication problem into a packet
 switching problem as the leader sends the exact same packet to all follower
-replicas and we solve the problem as such by using the RAFT protocol implemented
-as a software multicast module on the Data Plane Development Kit (DPDK). Second,
+replicas. We solve this problem by using the RAFT protocol implemented
+as a software multicast module on the Data Plane Development Kit (DPDK). In addition,
 we leverage the observation that key value store interfaces are commutative for
 operations to different keys to scale our two level log horizontally into a
-number of physical two level logs - with a hash of the key being used to choose
+number of physical two level logs. A hash of the key is used to choose
 the physical log. Each log is replicated by an independent instance of RAFT,
 thereby leveraging the scalability afforded by classic software packet switching
 when using multiple CPU cores. Cyclone is able to replicate millions of small
-updates a second using only commodity 10 gigabit ethernet adapters and improves
+updates a second using only commodity 10 gigabit ethernet adapters, improving
 the performance and availability of RocksDB, a popular persistent key value
 store by an order of magnitude when compared to its own write ahead log without
 replication.
@@ -71,15 +71,15 @@ high availabilty and revenue are often interconnected. Key value stores
 therefore usually incorporate support for a write ahead log that if replicated
 and kept durable for every appended update provides the necessary high
 availability. Unfortunately the write ahead is a performance achilles heel for
-these systems - eclipsing much of the work on improving performance of the LSM
+these systems - eclipsing much of the work on improving the performance of the LSM
 component. To illustrate the impact of the write ahead log, consider
-Figure~\ref{fig:problem}. The line marked Rocksdb shows the performance of
+Figure~\ref{fig:problem}. The line marked 'Rocksdb' shows the performance of
 Rocksdb without the write ahead log. The performance when persisting the write
 ahead log without replicating it is shown as the line marked 'rocksdb/WAL'. The
 line marked 'rocksdb/3 way rep.' is for simply replicating the log three ways
 without persisting it, using RAFT~\cite{raft} running over TCP/IP. Either
 persisting every update to the log or replicating it using TCP/IP causes
-performance to drop by an order of magnitude (observe the log scale on the
+performance to drop by an order of magnitude (note the log scale on the
 x-axis). It is therefore no suprise that deployments of Rocksdb often turn off
 the write ahead log~\cite{samza}. On the other side of the spectrum, key value
 store research such as FloDB~\cite{flodb} turns off the write ahead log to be
@@ -110,12 +110,13 @@ version of RAFT that replicates the NVM log using classic packet switching
 techniques such as separation of control and data planes. Second, Cyclone uses a
 two level log structure where it drains entries from the NVM log in IO friendly
 batches to a log placed on a flash drive. This allows Cyclone to use only a
-limited amount of NVM reasoning that current forms of NVM such as NVDIMMs are
-more expensive than DRAM. Our experiments use an NVM footprint of a mere 64 MB
-to achieve performance comparable to placing the entire log in NVM. This allows
-Cyclone to be used in deployments where the key value store is maintained
-entirely in main memory rather than as a multi-level LSM tree structure, with
-the log serving as the source for recovery in the event of failure.
+limited amount of NVM following the reasoning that current forms of NVM such as
+NVDIMMs are more expensive than DRAM. Our experiments use an NVM footprint of a
+mere 64 MB to achieve performance comparable to placing the entire log in
+NVM. This allows Cyclone to be used in deployments where the key value store is
+maintained entirely in main memory rather than as a multi-level LSM tree
+structure, with the log serving as the source for recovery in the event of
+failure.
 
 We discuss the two level structure focusing on the packet switching components
 in Section~\ref{sec:2level}. We then describe how we can horizontally scale this
@@ -137,7 +138,7 @@ suggests that an efficient way to implement a replicated log is to treat it as a
 software packet switching problem. However peristing logs on flash represents an
 impediment in that block storage devices are not good candidates to hold packets
 being software switched. Our solution is to split the log into two levels. The
-upper level is held in persistent directly attached non-volatile memory (NVM)
+upper level is held in directly attached non-volatile memory (NVM)
 such as NVDIMMs. The lower level is held on a flash SSD - we term the lower
 level log as the flashlog. We periodically drain entries in batches from the NVM
 log to the backing flashlog. An important consequence of this two level approach
@@ -250,8 +251,8 @@ carrying the data packet with it by association.
   \label{fig:packet_layout}
 \end{figure}
 
-We note that by discrding stream oriented protocols such as TCP, the network
-layer is not longer reliable or ordered. This is not a problem for RAFT that is
+We note that by discarding stream oriented protocols such as TCP, the network
+layer is no longer reliable or ordered. This is not a problem for RAFT that is
 designed to tolerate network failures resulting in drops or reordering of
 network packets. However, this rules out consensus protocols such as Zookeeper
 Atomic Broadcast (ZAB~\cite{zab}) that depend on a reliable stream-oriented
@@ -268,7 +269,7 @@ that at the moment NICs do not support persistent memory. This is not too
 onerous a burden because we can use the newly introduced {\tt
   clflush-opt}~\cite{clflush_opt} instruction specifically intended to
 efficiently flush to persistent memory without the overhead of the serialization
-normally introduced by {\tt clflush}. This allows one to hit full memory
+normally introduced by {\tt clflush}. This allows us to hit full memory
 bandwidth on present generation platforms, a quantity in excess of 200 Gb/s per
 core, well above the near term speeds of network interface cards.
 
@@ -314,12 +315,13 @@ hit its end.
 In order to recover from a crash, we make two important assumptions about the
 underlying SSD. First, we assume that 4KB is the \emph{minimum} atomic unit for
 updating pages on the SSD even under power failure i.e. there are no shorn
-writes on a 4KB page~\cite{shorn_writes}. We also assume that the SSD has power
-loss data protection meaning that writes cached in the drive's volatile cache
-are written to the SSD using a backup capacitor in the event of power failure -
-a property of many data center class SSDs today, including the Intel DC P3600
-SSD~\cite{ssd_spec} we use in our evaluation. Together these two assumptions
-mean that we can recover a consistent prefix of the log on a power failure.
+writes (otherwise known as torn writes) on a 4KB page~\cite{shorn_writes}. We
+also assume that the SSD has power loss data protection meaning that writes
+cached in the drive's volatile cache are written to the SSD using a backup
+capacitor in the event of power failure - a property of many data center class
+SSDs today, including the Intel DC P3600 SSD~\cite{ssd_spec} we use in our
+evaluation. Together these two assumptions mean that we can recover a consistent
+prefix of the log on a power failure.
 
 We move log entries from the head of the NVM log to the flashlog buffers in FIFO
 order. The NVM log entry is only actually removed when the IO for the
@@ -407,10 +409,10 @@ The flow for an update operation in Cyclone is as follows. The network packet is
 received by the control plane for the targeted physical log. The packet is then
 immediately sent out for replication as described in the previous section. When
 responses from a majority quorum is received, the request is passed to the
-targeted KV store core for execution. The KV store core process the request and
-sends back the response to the client. We note that replication is pipelined and
-decoupled from execution and thus multiple updates are usually in
-flight on the network for replication at the same time.
+targeted KV store core for execution. The KV store core processes the request
+and sends back the response to the client. We note that replication is pipelined
+and decoupled from execution and thus multiple updates are usually in flight on
+the network for replication at the same time.
 
 The flow for a read operation is simpler. It is still targeted to a physical log
 but instead of replicating it, the control plane core simply passes it on
@@ -470,7 +472,7 @@ the user to specify the exact physical log and key-value store core to use in
 order to enable more relaxed mappings when necessary.
 
 We note that commutativity as assumed by Cyclone is an \emph{API level
-  property}. There are no assumption as to how application cores synchronize to
+  property}. There is no assumption as to how application cores synchronize to
 access the shared key-value state or the underlying data structures for holding
 key-value pairs. We emphasize that this means replicas ultimately have the same
 content but not necessarily the same memory state.
@@ -509,7 +511,7 @@ complexity in Cyclone, something we wished to avoid in the interests of
 practical deployment to independent end users who need to understand and 
 maintain Cyclone as part of their embedded KV store infrastructure.
 
-Our solution instead is to use a technique we termed ganged operations. It is
+Our solution instead is to use a technique we term ganged operations. It is
 based on the observation that in the failure free case, executing a batched
 write across multiple control plane cores and KV store cores does not look very
 much different from a synchronous shared memory barrier. The challenge is to
@@ -519,41 +521,40 @@ protocol to ensure that the leaders for all the physical logs are co-located on
 the same host. Clients always dispatch batched writes to a fixed control plane
 core (called the injection core) which is then responsible for forwarding the
 request to the participating control plane cores (for corresponding physical
-logs). The injection core uses DPDKs packet cloning primitives to avoid
+logs). The injection core uses DPDK's packet cloning primitives to avoid
 dataplane work while forwarding copies of the same batched write packet to
 multiple control plane cores. The injection core also adds a ``nonce'' - a
 unique timestamp to the packet. In addition, the injection core adds a unique
 view number to the packet containing the term numbers of all the participating
-RAFT instances (read from shared memory of the co-located leaders).  We describe
-the remaining flow for ganged operations in terms of the pseudocode in
-Figure~\ref{fig:ganged_ops}. We defer discussion of how we generate the nonce to
-later in this section. We also assume that a unique barrier is allocated in
-shared memory for each ganged operation. We discuss later how this is done
-without using dynamic allocation.
+RAFT instances (read from shared memory of the co-located leaders).  The flow
+for ganged operations is described in the pseudocode of
+Figure~\ref{fig:ganged_ops}. We defer the discussion of how we generate the
+nonce to later in this section. We also assume that a unique barrier is
+allocated in shared memory for each ganged operation. We discuss later how this
+is done without using dynamic allocation.
 
 In the absence of failures Figure~\ref{fig:ganged_ops} is straightforward. Once
 replication is complete on all participating physical logs, the corresponding KV
-store cores execute \\{\tt event\_replicated\_ganged\_op}. They use a bitmask for
-the barrier setting the appropriate bit for themselves. Once all KV store cores
-have arrived at the barrier the operation is executed. A distinguished leader
-core (we use the minumum numbered participating KV store core) is
+store cores execute \\{\tt event\_replicated\_ganged\_op}. They use a bitmask
+for the barrier setting the appropriate bit for themselves. Once all KV store
+cores have arrived at the barrier the operation is executed. A distinguished
+leader core (we use the minumum numbered participating KV store core) is
 responsible for sending back the response to the client. Two types of failure
 need to be considered. First, replication on the physical log corresponding to
-one of the non-leader cores could fail. The
-remaning cores would never progress past the barrier. To solve this the leader
-core montors the remaning cores for their current view - which is the RAFT term
-of the last executed log entry. If the view has moved past the view in the
-packet, replication failed on that physical log. The leader then sets the bit
-for the core that will no longer participate in the barrier to aid progress (a
-technique we borrowed from lock-free data structures~\cite{lock-free}). It also
-sets a failed flag to signal failure to the other participating cores. The
-second failure case is that the leader core might not receive the operation if
-it fails during replication from corresponding physical log. This case is
-detected in a similar manner by the remaining cores by monitoring the published
-view from the leader core in shared memory. We add that on a leadership change
-due to timeout we enqueue and execute a nop on the physical log and all
-associated KV store cores to ensure previous entries are committed - a corner
-case in the RAFT protocol.
+one of the non-leader cores could fail. The remaning cores would never progress
+past the barrier. To solve this the leader core monitors the remaning cores for
+their current view - which is the RAFT term of the last executed log entry. If
+the view has moved past the view in the packet, replication failed on that
+physical log. The leader then sets the bit for the core that will no longer
+participate in the barrier to aid progress (a technique we borrowed from
+lock-free data structures~\cite{lock-free}). It also sets a failed flag to
+signal failure to the other participating cores. The second failure case is that
+the leader core might not receive the operation if it fails during replication
+from corresponding physical log. This case is detected in a similar manner by
+the remaining cores by monitoring the published view from the leader core in
+shared memory. We add that on a leadership change due to timeout we enqueue and
+execute a nop on the physical log and all associated KV store cores to ensure
+previous entries are committed - a corner case in the RAFT protocol.
 
 
 \begin{figure*}
@@ -708,7 +709,7 @@ keeping Cyclone agnostic to the exact size of entry being replicated. A final
 point about Figure~\ref{fig:flashlog_512} is that once we are past the storage
 bottleneck the latency spike is dramatic and large enough to trigger Cyclone's
 failure detector and repeated retries from the clients. There are - therefore -
-no points on the ``knee'' of the curve as in the pure packet switched one level
+no points on the ``knee'' of the curve as in the pure packet switched one-level
 log case.
 
 \begin{figure}
@@ -739,7 +740,7 @@ a quicker rate of increase from 1 to 8 active cores, the reason being that this
 corresponds to an increase in the number of physical logs that must be
 synchronized on. There is some amount of synchronization involved in the
 userspace DPDK driver for access to common resources for accessing the NIC and
-this affects the ability to simultaneously issues replication messages on all
+this affects the ability to simultaneously issue replication messages on all
 quorums. The smaller contribution to increasing latency that continues past the
 8 core case is due to cacheline pingponging when executing the rendevous of
 Figure~\ref{fig:ganged_ops}. Both these sources of latency drift could be
@@ -747,9 +748,7 @@ corrected using replication quorums mapped to dedicated NICs and more scalable
 rendezvous designs (such as with machine aware broadcast
 trees~\cite{broadcast_tree}). However we deemed the complexity of such
 optimizations unnecessary. The added latency for most cases is well under the
-extra round trip delay (including replication for all phases of a 2PC), which
-would the minimum needed for a solution using distributed transactions via two
-phase commit.
+extra round trip delay (including replication) for all phases of a 2PC.
 
 \begin{figure}
 \includegraphics[scale=0.6]{results2/multi.pdf}
@@ -869,7 +868,7 @@ Cyclone takes a software only approach to improving replication performance
 using commodity network hardware. At the other end of the spectrum, Consensus in
 a box~\cite{consensus_box} implements the Zookeeper atomic broadcast protocol
 together with a NIC on an FPGA. That work ignored durability focusing purely on
-replication performance. Latency numbers are impressive from the FPGA that cuts
+replication performance. Latency numbers are impressive due to the FPGA that cuts
 out the path from CPU caches to the NIC and are reported to be as low as 3us for
 a round trip from leader to follower replica compared to the 7us we observe with
 DPDK. Notably however they reported 7us when using TCP/IP from the FPGA rather
@@ -929,7 +928,7 @@ log for NVML data store applications.
 
 Cyclone provides a client library that automatically times out and retries
 requests to deal with failure. Protection against repeated execution of the same
-request if currently left to the key value store and client, since we felt that
+request is currently left to the key value store and client, since we felt that
 exactly once semantics is optional when updates such as put operations are
 idempotent. We have experimented with exactly once semantics as a basis for
 distributed transactions across shards running Cyclone integrated key value
@@ -938,14 +937,21 @@ space and maintaining information about last seen sequence numbers from clients
 in NVM. Distributed transactions on Cyclone shards however are outside the scope
 of this paper.
 
+Finally, we note that scaling a log horizontally for concurrency is also an idea
+adopted by filesystems. NOVA~\cite{nova} is an example that uses a per-inode log
+to improve concurrency when the filesystem is placed on NVM attached to the
+memory bus. Cyclone also uses a distinct NVM log per control plane core in a
+similar vein but does not maintain a namespace since the number of NVM logs is a
+small fixed number equal to the number of control plane cores.
+
 \section{Conclusion}
-Persistent key values stores struggle today to provide high availability using a
+Persistent key value stores struggle today to provide high availability using a
 write ahead log without a significant impact to performance. Cyclone solves this
 problem by leveraging a small amount of directly attached non-volatile memory
 that transforms the replication problem into a software packet switching
 problem. Cyclone and its Rocksdb bindings are slated for release to the open
 source community and we hope both the code and the ideas in the system itself
-will help key value store builders and researchers deal with their logging
+will help key value store builders and researchers overcome their logging
 problem.
 \newcommand\myurl[2]{\url{#1}}
 \bibliographystyle{plain}
