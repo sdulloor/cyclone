@@ -589,8 +589,9 @@ view from the leader core in shared memory.
       else
         wait until 
          core_public_data[leader core].view > packet.view
-         OR core_public_data[me].barrier == mask of participating KV cores
+         OR barrier.mask == mask of participating KV cores
         if core_public_data[leader core].view > packet.view
+         OR barrier.failed
          Ganged replication failed. Send retry to client. return.
         else
          execute operation
@@ -862,35 +863,73 @@ replicas in turn to locate the leader - in this case it fails over in about
 \label{fig:timeline}
 \end{figure}
 
-
 \section{Related Work}
-Memory technology in datacenters is due to undergo a paradigm shift with the
-increased use of directly addressable non-volatile memory both in the form of
-battery backed non-volatile DIMMs~\cite{farm} as well as newer memory types such
-as 3D XPoint~\cite{pmfs, bpfs}. In anticipation, libraries that allow
-programmers to build durable data structures on non-volatile heaps have become
-available~\cite{mnemosyne, nvheaps, cdds} - an example of such a library that we
-have used in this paper is Intel's non volatile memory library
-(NVML)~\cite{nvml}. A missing piece however is a component to make such durable
-data structures highly available using replication across a commodity network
-such as ethernet. Existing solutions that offer good performance are dependent
-on high performance RDMA networking hardware, with a dependence on external
-services (such as zookeeper~\cite{zookeeper}) and application specific code for
-fault recovery~\cite{farm, htm}.  This is a problem for programmers using NVML
-where one cannot apriori guarantee the availability of such RDMA networking
-hardware (for e.g., when running on externally hosted environments or public
-clouds).
+
+Cyclone takes a software only approach to improving replication performance over
+commodity network hardware. At the other end of the spectrum, Consensus in a
+box~\cite{consensus_box} implements the zookeeper atomic broadcast protocol
+together with a NIC on an FPGA. That work ignored durability focusing purely on
+replication performance. Latency numbers are impressive from the FPGA that cuts
+out the path from CPU caches to the NIC are as low as 3us for a round trip from
+leader to follower replica compared to the 7us we observe with DPDK. Notably
+however they reported 7us when using TCP/IP from the FPGA rather than their own
+connection oriented network protocol. On the other hand peak replication
+throughput appears to be 6M replications/sec on 66 Gbps of aggregate network
+bandwith, comparable to the mark obtained by Cyclone on an aggregate 40 Gbps of
+network bandwidth. We believe the general applicability afforded by our software
+only packes switching solution makes it attractive in comparison to an FPGA
+based solution even given the larger latency.
+
+Networked Ordered Paxos~\cite{nopaxos} reprograms top of rack switches to order
+client requests and multicast them to replicas - attacking replication latency
+by removing the need to direct requests through a leader replica. It is hard to
+compare performance due to the 1Gbps links used to leaf nodes in NoPaxos but we
+note that avoiding changes to switching infrastructure was a specific constraint
+in the design of Cyclone due to the difficulty we encountered in convincing
+public cloud customers to allow such changes to be made.
+
+{CRANE}~\cite{crane} is a system for replicating mutithreaded programs using
+Paxos. It uses deterministic multi-threading to ensure replicas converge to the
+same state as opposed to semantic equivalence in Cyclone using the commutativity
+of the key value store interface. Although CRANE is more generally applicable in
+that it makes no assumptions about the application API, deterministic
+multithreading comes with high overheads for applications that store large
+amounts of data - CRANE reports around a 2X slowdown for MySQL likely rendering
+it unsuitable as a replacement for the WAL in key value stores.
+
+A number of researchers have proposed using high performance networking hardware
+for improving the performance of various distributed system stacks such as
+distributed transactions~\cite{farm} and replication~\cite{dare, mojim}. We note
+that the ideas in Cyclone are not specific to ethernet. The same ideas of packet
+switching and horizontal scaling can be equally applied to RDMA. However, we
+chose commodity ethernet due to the short term deployment plans that are a
+priority design target. 
+
+The scalable commutativity rule~\cite{scalable_commutativity} generalized the
+idea of commutativity in key value store interfaces that we have used for
+horizontal scaling in Cyclone. Conveniently it provides a tool for checking when
+API calls can commute in a history. It is a simple exercise to express a key
+value store in COMMUTER and check that operations to different keys
+commute. This provides a theoretical basis for horizontal scaling, something we
+have omitted for brevity from this paper. The scalable commutativity rule also
+suggests that scalable key value store implementations would exploit
+commutativity something we have observed in the case of in-memory layers for key
+value stores such as Flodb and indeed in the way we distributed keys across
+physical logs in Cyclone.
+
+Finally, we note the in progress transformation of durable memory in datacenters
+with the advents of 3DXPoint. Researchers have speculated on the impact of cheap
+and high volume directly attached 3DXPoint~\cite{tiering}. Memory vendors have
+also begun shipping software libraries such as NVML~\cite{nvml} for building durable
+in-memory data structures using undo logging. A durable key value store using
+3DXPoint would be an idea target for Cyclone because each NVM log entry can be
+discarded as soon as it is applied to the key value store, since the results are
+persistent. This would allow Cyclone to operate at pure packet switching speeds,
+a goal we hope to achieve in the future with a single level log for NVML
+applications.
 
 \section{Conclusion}
-Cyclone allows developers to add availability to key value maps built on top of
-libraries such as NVML and achieve good performance on commodity networking
-hardware. A key question is whether Cyclone can be used for other applications
-such as filesystems? \emph{We believe that the requirement for scaling across
-  multiple replication quorums can be satisfied by applications where the
-  scalable commutativity rule~\cite{scalable_commutativity} applies to common
-  case primitives.} Although our intitial release of Cyclone will be for key
-value style applications, our on-going research is based on the scalable
-commutativity hypothesis.
+
 \newcommand\myurl[2]{\url{#1}}
 \bibliographystyle{plain}
 \bibliography{paper}
