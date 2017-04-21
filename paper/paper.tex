@@ -1,6 +1,6 @@
 \documentclass[10pt, preprint, nonatbib]{sigplanconf}
 \usepackage{times,epsfig,endnotes,graphicx, verbatim}
-\usepackage{datetime, url, pdfpages}
+\usepackage{datetime, url, pdfpages, parskip}
 
 \conferenceinfo{SOSP'17}{October 29--31, 2017, Shanghai, China}
 \copyrightyear{2017} 
@@ -32,58 +32,58 @@
 
 \begin{abstract}
 Persistent key value stores are rapidly becoming an important component of many
-distributed data serving solutions - with innovations targeted at taking
-advantage of growing flash speeds. Unfortunately their performance is hampered
-by the need to maintain and replicate a write ahead log to guarantee
-availability in the face of machine and storage failures. Cyclone offers a
-solution to this problem by leveraging a small amount of directly attached
-non-volatile memory (NVM) such as NVDIMMs to maintain a two level log - the upper
-level in a small amount of NVM draining into a larger lower level log
-maintained on flash. Replicating the smaller log kept in NVMs transforms the
-replication problem into a packet switching problem - the leader sends the exact
-same packet to all follower replicas and we solve the problem as such by using
-the RAFT protocol implemented as a software multicast module on the Data Plane
-Development Kit (DPDK). Second, we levergage the observation that key value store
-interfaces are commutative for operations to different keys to scale our two
-level log horizontally into a number of physical two level logs - with a hash of
-the key being used to choose the right log. Each log is replicated by an
-independent instance of RAFT, thereby leveraging the scalability afforded by
-classic software packet switching when using multiple threads. Cyclone is able
-to replicate millions of small updates a second using only commodity 10 gigabit
-ethernet adapters and improves the performance of RocksDB - a popular persistent
-key value store by orders of magnitude when compared to its own write ahead log
-without replication.
+distributed data serving solutions with innovations targeted at taking advantage
+of growing flash speeds. Unfortunately their performance is hampered by the need
+to maintain and replicate a write ahead log to guarantee availability in the
+face of machine and storage failures. Cyclone offers a solution to this problem
+by leveraging a small amount of directly attached non-volatile memory (NVM) such
+as NVDIMMs to maintain a two level log: the upper level in a small amount of NVM
+draining into a larger lower level log maintained on flash. Replicating the
+smaller log kept in NVMs transforms the replication problem into a packet
+switching problem as the leader sends the exact same packet to all follower
+replicas and we solve the problem as such by using the RAFT protocol implemented
+as a software multicast module on the Data Plane Development Kit (DPDK). Second,
+we leverage the observation that key value store interfaces are commutative for
+operations to different keys to scale our two level log horizontally into a
+number of physical two level logs - with a hash of the key being used to choose
+the physical log. Each log is replicated by an independent instance of RAFT,
+thereby leveraging the scalability afforded by classic software packet switching
+when using multiple CPU cores. Cyclone is able to replicate millions of small
+updates a second using only commodity 10 gigabit ethernet adapters and improves
+the performance and availability of RocksDB, a popular persistent key value
+store by an order of magnitude when compared to its own write ahead log without
+replication.
 \end{abstract}
 
 \section{Introduction}
 Persistent key value stores are an increasingly important component of
 datacenter scale storage services. Key value stores such as
 Rocksdb~\cite{rocksdb}, LevelDB~\cite{leveldb} and FloDB~\cite{flodb} represent
-large amounts of effort on both the engineering and deployment fronts. These key
-value stores represent sophisticated in-memory data structures built around Log
+large amounts of effort on both the engineering and research fronts. These key
+value stores include sophisticated in-memory data structures built around Log
 Structured Merge trees~\cite{lsmtree} and are heavily tuned to extract maximum
-performance from present and future generations of flash solid state drives
-(SSDs).
+performance from flash-based solid state drives (SSDs).
 
-These key value stores however have a hitherto ignored an important component -
-the write ahead log. A machine or storage failure leading to total loss or
-temporary unavailability of data is unacceptable in many internet scale services
-where high availabilty and revenue are often interconnected. Key value stores
-therefore usually incorporate support for a write-ahead log that if replicated
-and made durable for every appended update provides the necessary high
+These key value stores however tend to ignore an important component: the write
+ahead log. A machine or storage failure leading to total loss or temporary
+unavailability of data is unacceptable in many internet scale services where
+high availabilty and revenue are often interconnected. Key value stores
+therefore usually incorporate support for a write ahead log that if replicated
+and kept durable for every appended update provides the necessary high
 availability. Unfortunately the write ahead is a performance achilles heel for
-these systems - rendering much of the work on improving performance of the LSM
-component moot. To illustrate the impact of the write ahead log, consider
+these systems - eclipsing much of the work on improving performance of the LSM
+component. To illustrate the impact of the write ahead log, consider
 Figure~\ref{fig:problem}. The line marked Rocksdb shows the performance of
-Rocksdb without the write ahead log. Both persisting the write ahead log without
-replicating it - the line marked Rockdb/WAL as well simply replicating the log
-three ways using the RAFT~\cite{raft} protocol over TCP/IP without persisting it
-are at least an order of magnitude slower (observe the log scale on the
+Rocksdb without the write ahead log. The performance when persisting the write
+ahead log without replicating it is shown as the line marked 'rocksdb/WAL'. The
+line marked 'rocksdb/3 way rep.' is for simply replicating the log three ways
+without persisting it, using RAFT~\cite{raft} running over TCP/IP. Either
+persisting every update to the log or replicating it using TCP/IP causes
+performance to drop by an order of magnitude (observe the log scale on the
 x-axis). It is therefore no suprise that deployments of Rocksdb often turn off
 the write ahead log~\cite{samza}. On the other side of the spectrum, key value
-store researchers such as the FloDB~\cite{flodb} authors turn off the write
-ahead log to be able to showcase benefits of sophisticated extensions to LSM
-datastructures.
+store research such as FloDB~\cite{flodb} turns off the write ahead log to be
+able to showcase benefits of sophisticated extensions to LSM datastructures.
 
 \begin{figure}
 \centering
@@ -98,25 +98,24 @@ service specialized for key value stores such as Rocksdb. Cyclone provides the
 order of magnitude better performance required to close the performance gap in
 Figure~\ref{fig:problem} both on the storage and network side. Cyclone requires
 \emph{a small amount of} directly attached Non Volatile Memory (NVM) on the
-server - such as in the form of NVDIMMs~\cite{farm} or directly attached
+host - such as in the form of NVDIMMs~\cite{farm} or directly attached
 persistent memory~\cite{pmfs}.
 
-Cyclone makes use of a limited amount of attached NVM using two simple
-ideas. First it leverages the observation that with persistence being a first
-class property of a subset of directly addressable DRAM, replicating the same
-log entry from the leader to follower replicas is no different from multicast
-using software packet switching techniques. It directly leverages this
-observation to implement a version of RAFT the replicates the NVM log using
-classic packet switching techniques such as separation of control and
-dataplanes. Second, Cyclone uses a two level log structure where it drains
-entries from the NVM log in IO friendly batches to a log place on a flash
-drive. This allows Cyclone to use only a limited amount of NVM as current forms
-of NVM such as NVDIMMs are more expensive than DRAM. Our experiments use an NVM
-footprint of a mere 64 MB to achieve performance comparable to placing the
-entire log in NVM. This allows Cyclone to be used in deployments where the key
-value store in maintanied entirely in main memory with the log serving as the
-source for recovery in the event of failure, rather than a multi-level LSM tree
-structure.
+Cyclone makes use of a limited amount of attached NVM using two ideas. First, it
+leverages the observation that with persistence being a first class property of
+a subset of directly addressable DRAM, replicating the same log entry from the
+leader to follower replicas is no different from multicast using software packet
+switching techniques. It directly leverages this observation to implement a
+version of RAFT that replicates the NVM log using classic packet switching
+techniques such as separation of control and data planes. Second, Cyclone uses a
+two level log structure where it drains entries from the NVM log in IO friendly
+batches to a log placed on a flash drive. This allows Cyclone to use only a
+limited amount of NVM reasoning that current forms of NVM such as NVDIMMs are
+more expensive than DRAM. Our experiments use an NVM footprint of a mere 64 MB
+to achieve performance comparable to placing the entire log in NVM. This allows
+Cyclone to be used in deployments where the key value store is maintained
+entirely in main memory rather than as a multi-level LSM tree structure, with
+the log serving as the source for recovery in the event of failure.
 
 We discuss the two level structure focusing on the packet switching components
 in Section~\ref{sec:2level}. We then describe how we can horizontally scale this
@@ -124,15 +123,15 @@ basic idea across multiple cores by leveraging the commutativity of key value
 store APIs across different keys in Section~\ref{sec:horizontal}. We then
 demonstrate in the evaluation in Section~\ref{sec:evaluation} that Cyclone can
 replicate millions of updates a second using only commodity 10 Gigabit ethernet
-thereby closing the performance gap between key value store performance and
-write ahead logging performance using only a small amount of directly attached
-NVM. A discussion of related work follows before we conclude.
+adapters thereby closing the performance gap between key value store performance
+and write ahead logging performance using only a small amount of directly
+attached NVM. A discussion of related work follows before we conclude.
 
 \section{Two Level Log}
 \label{sec:2level}
 A fundamental challenge in building an efficient replicated log is dealing with
-network overheads. Cyclone'e construction is predicated on the observation that
-in the common case protocols such as RAFT simply multicast the same entry
+network overheads. Cyclone's construction is predicated on the observation that
+in the common case, protocols such as RAFT simply multicast the same entry
 received from a client, from the leader replica to all follower replicas. This
 suggests that an efficient way to implement a replicated log is to treat it as a
 software packet switching problem. However peristing logs on flash represents an
@@ -140,27 +139,26 @@ impediment in that block storage devices are not good candidates to hold packets
 being software switched. Our solution is to split the log into two levels. The
 upper level is held in persistent directly attached non-volatile memory (NVM)
 such as NVDIMMs. The lower level is held on a flash SSD - we term the lower
-level log as the flash log. We periodically drain entries in batches from the
-NVM log to the backing flashlog. An important and beneficial side effect of this
-two level approach is that we need only limited amounts of NVM with the bulk of
-the log residing on flash - an arrangement that maps well to the relative cost
-of the two types of memory. We begin by describing the NVM log and how we
-implement the RAFT consensus protocol in the packet switching paradigm around
-it. We then describe the flashlog and how we drain entries in batches from the
-NVM level to the flash level.
+level log as the flashlog. We periodically drain entries in batches from the NVM
+log to the backing flashlog. An important consequence of this two level approach
+is that we need only a limited amounts of NVM with the bulk of the log residing
+on flash - an arrangement that maps well to the current relative costs of the
+two types of memory. We begin by describing the NVM log and how we implement the
+RAFT consensus protocol in the packet switching paradigm around it. We then
+describe the flashlog and how we drain entries in batches from the NVM level to
+the flash level.
 
 \subsection{NVM Log}
 The NVM log is maintained as a circular log of fixed sized pointers (a pointer
 log) to memory buffers - each of which holds a client request. This arrangement
-is shown in Figure~\ref{fig:nvm_log} that also illustrates the advantage of
-such an arragement. Adding a level of indirection in the NVM log allows us to
-isolate the circular log being manipulated by the RAFT protocol from the
-problems of variable sized client requests that can be scattered across
-non-volatile memory depending on the internals of the memory allocator of the
-packets switching library we use. Another advantage is that it makes recovery
-from NVM easy - appends to the circular pointer log are atomic and we use the
-pointer log to recover allocator state i.e. what pieces of NVM are currently in
-use by the log.
+is shown in Figure~\ref{fig:nvm_log} that also illustrates the advantage of such
+an arragement. Adding a level of indirection in the NVM log allows us to
+separate the FIFO ordered circular log being manipulated by the RAFT from
+variable sized client being managed by the memory allocator of the packet
+switching library we use. Another advantage is that it makes recovery from NVM
+easy - appends to the circular pointer log are atomic and we can use the pointer
+log to recover allocator state i.e. what pieces of NVM are currently in use by
+the log.
 
 \begin{figure}
 \centering
@@ -171,7 +169,7 @@ use by the log.
 
 We now describe how we implement the RAFT consensus protocol to replicate the
 NVM log across a set of replicas. The software packet switching idea we apply is
-to separate the control plane from the dataplane using the Data Plane
+to separate the control plane from the data plane using the Data Plane
 Development Kit (DPDK~\cite{dpdk}) library for direct userspace access to the
 network interface.
 
@@ -179,7 +177,7 @@ network interface.
 We use RAFT~\cite{raft} as the underlying protocol for log replication. RAFT
 replicates a log across a set of replicas. Its operations are leader-based and
 RAFT incorporates a leader election algorithm that elects a leader with the most
-upto date log. The leader receives log entries from clients, appends them to the
+up to date log. The leader receives log entries from clients, appends them to the
 persistent log (NVM log in this case) and multicasts the new entry to follower
 replicas. On a response from enough follower replicas (constituting a majority
 quorum) the leader replica can then execute the command in the log entry. In
@@ -187,52 +185,46 @@ our case this involves accessing the key value store and sending the response
 back to the client.
 
 We implement the common case flow in RAFT as a software packet switch using
-DPDK. The dataplane now encompasses the NIC and the CPU caches with the NIC
-placing packet data directly in the CPU cache via DDIO~\cite{ddio} - a standard
-feature of most NICs today. The dataplane for the RAFT protocol is therefore
-separated from the control plane. The control plane now runs in a thread pinned
-to a dedicated CPU core and takes care of checking adherence to the protocol:
-checking for correct term, log index and that the replica receiving the packet
-from the client is indeed the leader. In addition, the control plane is
-responsible for non common-case activities such as dealing with timeout and
-leader elections.
+DPDK. The dataplane now encompasses the Network Interface Card (NIC) and the CPU
+caches with the NIC placing packet data directly in the CPU cache via
+DDIO~\cite{ddio} - a standard feature of most NICs today. The dataplane for the
+RAFT protocol is therefore separated from the control plane. The control plane
+runs in a thread pinned to a dedicated CPU core and takes care of the protocol
+state machine: checking for correct term, log index and that the replica
+receiving the packet from the client is indeed the leader. On the follower side
+it is responsible for checking that the leader is in the correct term before
+accepting the packet by appending it to the NVM log and initiating a
+response. In addition, the control plane is responsible for uncommon case
+activities such as dealing with timeouts and leader elections.
 
-The pseudocode in Figure~\ref{fig:control_plane} describes the control plane in
-Cyclone organized as event handlers triggered on receiving a packet. We focus on
-two events for illustration (and brevity): the event where a request is received
-from a client and the event where a leader election related message is
-received. A key concern when we built Cyclone was adhering as far as possible to
-the software packet switching principle of separating the control plane from the
-dataplane. This means that the CPU should avoid examining every byte of the
-packet as far as possible.
+The pseudocode in Figure~\ref{fig:control_plane} describes part of the control
+plane in Cyclone organized as event handlers triggered on receiving a packet at
+the leader. We focus on one event for illustration (and brevity): the event
+where a request is received from a client. A key concern when we built Cyclone
+was adhering as far as possible to the software packet switching principle of
+separating the control plane from the dataplane. This means that the CPU should
+avoid examining every byte of the packet as far as possible.
 
-If an election message is received all the code related to handling
-the election related message is run on the CPU core and all contents of the
-packet are examined to decide what to do in accordance with the RAFT protocol
-state machine. This is an exception to the software packet switching principle
-but one that we found acceptable since leader elections are rare compared to the
-common case of replicating client packets.
-
-The sequence of operations when a packet is received from the client however
-needs careful design for efficient software packet switching. To illustrate how
-this is achieved, Figure~\ref{fig:packet_layout} shows how Cyclone manipulates
-packet layouts across the two steps of prepending a RAFT header and transmitting
-to follower replicas. DPDK describes packets using an ``mbuf'' data
+The sequence of operations when a packet is received from the client needs
+careful design for efficient software packet switching. To illustrate how this
+is achieved, Figure~\ref{fig:packet_layout} shows how Cyclone manipulates packet
+layouts across the two steps of prepending a RAFT header and transmitting to
+follower replicas. DPDK describes packets using an ``mbuf'' data
 structure. Roughly speaking, an ``mbuf'' consists of a flat array of bytes
-actually containing the byte and a fixed size piece of external metadata that
+actually containing the packet and a fixed size piece of external metadata that
 describes various aspects of the packet, most crucially a pointer to the start
 and end of the packet in the byte array. DPDK's userspace drivers receive
 packets from the NIC such that they are offset in the byte array by a
 configurable amount referred to as ``headroom''. We strip off the existing
 network headers in the packet and prepend RAFT related information specific to
-each log entry in the headroom by shifting the start pointer appropriately -
-these operations are standard enough for software packet switches that DPDK
-provides convenient library calls to do it. For the final step, we need to
-prepare the packet for transmission to the various follower replicas. To do this
-we prepare a different packet containing an ethernet header for the targeted
-replica and ``chain'' the data packet to each of these headers. Each header is
-then separately handed off to the driver for transmission via the NIC, carrying
-the data packet with it by association.
+each log entry in the headroom by shifting the start pointer appropriately.
+These operations are standard enough for software packet switches that DPDK
+provides convenient library calls for it. For the final step, we need to prepare
+the packet for transmission to the various follower replicas. To do this we
+prepare a different packet containing an ethernet header for \emph{each}
+targeted replica and ``chain'' the data packet to each of these headers. Each
+header is then separately handed off to the driver for transmission via the NIC,
+carrying the data packet with it by association.
 
 \begin{figure}
 \begin{verbatim}
@@ -246,11 +238,6 @@ the data packet with it by association.
       Persist to local log
       Transmit to follower replicas
     }
-
-    event_receive_election_msg()
-    {
-      Handle_election_msg()
-    }
 \end{verbatim}
 \caption{Cyclone Control Plane Fragment}
 \label{fig:control_plane}
@@ -263,12 +250,12 @@ the data packet with it by association.
   \label{fig:packet_layout}
 \end{figure}
 
-We note that by discrding stream oriented protocols the network layer is not
-longer reliable or ordered. This is not a problem for RAFT that is designed to
-tolerate network failures resulting in drops or reordering of network
-packets. However this rules out consensus protocols such as Zookeeper Atomic
-Broadcast (ZAB~\cite{zab}) that depend on a reliable stream-oriented network
-layer to function correctly.
+We note that by discrding stream oriented protocols such as TCP, the network
+layer is not longer reliable or ordered. This is not a problem for RAFT that is
+designed to tolerate network failures resulting in drops or reordering of
+network packets. However, this rules out consensus protocols such as Zookeeper
+Atomic Broadcast (ZAB~\cite{zab}) that depend on a reliable stream-oriented
+network layer to function correctly.
 
 Finally, we turn our attention to the persistence step in
 Figure~\ref{fig:control_plane}. RAFT requires that the log entry be persisted
@@ -303,7 +290,7 @@ these packets together and treat them as a single log entry from the perspective
 of RAFT, amortizing the control plane overheads over the packets (at most 32 at
 a time due to current driver limitations).
 
-We note there that batching in Cyclone does not involve a latency-throughput
+We note that batching in Cyclone does not involve a latency-throughput
 tradeoff like in many other systems~\cite{ix-dataplane}. The batch receive call
 we use in DPDK returns immediately with whatever number of packets is available,
 including zero. We always flush the transmit buffer after every call to DPDK to
@@ -321,7 +308,8 @@ into the size if necessary. We flush log segments out to the log file using
 asynchronous direct IO, and therefore we fill one log segment buffer while
 keeping IO to another one outstanding to the flash drive. To avoid having to do
 a synchronous metadata flush, we preallocate (using the posix\_fallocate call) a
-gigabyte worth of zero filled disk pages at the end of a file, at a time.
+gigabyte worth of zero filled disk pages at the end of the log file whenever we
+hit its end.
 
 In order to recover from a crash, we make two important assumptions about the
 underlying SSD. First, we assume that 4KB is the \emph{minimum} atomic unit for
@@ -334,7 +322,7 @@ SSD~\cite{ssd_spec} we use in our evaluation. Together these two assumptions
 mean that we can recover a consistent prefix of the log on a power failure.
 
 We move log entries from the head of the NVM log to the flashlog buffers in FIFO
-order. THe NVM log entry is only actually removed then the IO for the
+order. The NVM log entry is only actually removed when the IO for the
 corresponding flashlog page is complete. This means that during recovery we can
 have the same log entry both in the NVM log and the flashlog, a condition that
 can be detected by examining the RAFT related information that is embedded as
@@ -349,12 +337,11 @@ part of the logged packet.
 \end{figure}
 
 The fact that we can immedately absorb updates into an NVM log and only move
-them to the flashlog in suitable units for block IO, sidesteps a common problem
+them to the flashlog in suitable units for block IO sidesteps a common problem
 with logging to secondary storage - the need to do group commit. Logging systems
 often wait to collect a batch of entries to write to secondary storage trading
-latency for throughput. This is unnecessary in Cyclone as it effectively makes
-use of directly attached NVM with a two level log that removes the need to make
-this tradeoff.
+latency for throughput. This is unnecessary in Cyclone as the use of directly
+attached NVM with a two level log removes the need to make this tradeoff.
 
 \begin{figure}
   \centering
@@ -368,13 +355,13 @@ this tradeoff.
 The basic principle in Cyclone is to turn log replication into a software packet
 switching problem. A key ingredient in software packet switching is applying
 multiple CPU cores to parallelize the control plane, scaling message processing
-throughput. In this section we describe how we can horizontally scale Cyclone's
+throughput. In this section, we describe how we can horizontally scale Cyclone's
 single \emph{logical} log across multiple \emph{physical} logs. For each
 physical log, we run an independent version of RAFT with the corresponding
 control plane mapped to a dedicated CPU core. Further, we assume a concurrent
 key value store where a set of CPU cores independently run operations from the
 physical logs on the shared memory key-value store data structure, synchronizing
-as necessary.
+among themselves as necessary.
 
 We begin by showing how we divide CPU cores and NIC resources on the plaform across
 replication and key value store work, and show how a KV store request flows
