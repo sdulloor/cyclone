@@ -370,18 +370,19 @@ independent physical logs without divergence in replica state. Finally, we
 describe special handling in Cyclone for multi-key operations.
 
 \subsection{Core Allocation}
-A key-value store integrated with Cyclone runs two types of threads. One type of
-thread does key-value store work. This includes servicing lookup and update
-requests and background threads that flush in-memory data structures to
+A key-value store integrated with Cyclone runs two types of threads. The first
+type of thread does key-value store work. This includes servicing lookup and
+update requests and background threads that flush in-memory data structures to
 secondary storage and do maintainence work on secondary storage data structures
-such as compacting log-structured merge trees~\cite{lsmtree}. We use a dedicated
-thread per-physical log to run the corresponding control plane including the
-associated RAFT state machine. We use static assignment of threads to cores as
-recommended for packet switching libraries such as DPDK for the best possible
-performance. Therefore we use the term threads and cores interchangeably in this
-paper. Client requests are always received by the control plane core for
-the physical log the request is directed to. A response for the core is always
-sent by the KV store core that finally handles the request.
+such as compacting log-structured merge trees~\cite{lsmtree}. The second type of
+thread is a dedicated thread per-physical log to run the corresponding control
+plane including the associated RAFT state machine. We use static assignment of
+threads to cores as recommended for packet switching libraries such as DPDK for
+the best possible performance. Therefore we use the terms thread and core
+interchangeably in this paper. Client requests are always received by the
+control plane core for the physical log the request is directed to. A response
+for the core is always sent by the KV store core that finally handles the
+request.
 
 An important resource for Cyclone is the NIC that must be shared among the
 control plane cores that receive and replicate requests and the KV store cores
@@ -393,14 +394,14 @@ and receive calls. All that remains for us is to map the queues to the control
 plane and KV store cores, keeping in mind that there may be multiple NICs on the
 system. We do this by iterating over all control plane cores followed by all KV
 store cores. We assign two queue pairs to each control plane core, one to
-receive requests from the client and the other transmit and receive replication
-protocol related messages. We assign one queue pair to each KV store core to
-send back responses to clients. We are careful to spread the different queue
-pairs for a core across the available NICs as far as possible. This is important
-due to the asymmetry between the different types of traffic. Queue pairs
-carrying replication traffic will likely be more busy that those carrying client
-request responses due to the amplification to multicast the same message to
-different replicas.
+receive requests from the client and the other to transmit and receive
+replication protocol related messages. We assign one queue pair to each KV store
+core to send back responses to clients. We are careful to spread the different
+queue pairs for a core across the available NICs as far as possible. This is
+important due to the asymmetry between the different types of traffic. Queue
+pairs carrying replication traffic will likely be more busy than those carrying
+client request responses due to the amplification in message count to multicast
+the same message to different replicas.
 
 The flow for an update operation in Cyclone is as follows. The network packet is
 received by the control plane for the targeted physical log. The packet is then
@@ -408,32 +409,32 @@ immediately sent out for replication as described in the previous section. When
 responses from a majority quorum is received, the request is passed to the
 targeted KV store core for execution. The KV store core process the request and
 sends back the response to the client. We note that replication is pipelined and
-decoupled from execution and thus multiple updates requests are usually in
-flight for replication at a time.
+decoupled from execution and thus multiple updates are usually in
+flight on the network for replication at the same time.
 
 The flow for a read operation is simpler. It is still targeted to a physical log
-but instead to replicating it the control plane core simply passes it on
+but instead of replicating it, the control plane core simply passes it on
 straight away to the KV store core for execution and response.
 
-The control plane cores and KV store cores communicate through a one-way
+The control plane cores communicate with the KV store cores through a one-way
 lock-free FIFO queue passing pointers to packets. We leverage the convenient
 ring library in DPDK for this.
 
-Finally an asynchronous source of work in the system is maintenance of the
+Finally, an asynchronous source of work in the system is maintenance of the
 two-level log. We depart from a 1:1 mapping between the first level NVM log and
 the second level flashlog here. Each physical log consists of one NVM log
 managed by the corresponding control plane core and multiple flashlogs each of
 which is managed as an additional responsibility by a KV store core. We
-therefore enforce a many to one mapping between key value store cores and
-control plane cores - thereby partitioning KV store cores across control plane
-cores. A request picks a control plane core and any one of the associated KV
-store cores for execution. The request is logged in the NVM log of the control
-plane core and garbage collected once it is drained to the flashlog of the
-selected KV store core.
+therefore enforce a many to one mapping between key value store cores and a
+front end control plane core - thereby partitioning KV store cores across
+control plane cores. A request picks a control plane core and any one of the
+associated KV store cores for execution. The request is logged in the NVM log of
+the control plane core and garbage collected once it is drained to the flashlog
+of the selected KV store core.
 
 \subsection{Leveraging API Commutativity}
-Update requests to a key-value store consist of a key and an associated operation -
-such as ``put'' that set the value for the key or ``merge'' that calls a
+Update requests to a key-value store include a key and an associated operation -
+such as ``put'' that sets the value for the key or ``merge'' that calls a
 user-defined operator to merge a new value for the key into the existing value.
 A naive approach that maps a key to a random physical log and subsequently to a
 random core on the system for execution runs into the determinism problem -
@@ -451,7 +452,9 @@ be interchanged, because operations to different keys are
 to simply hash the key to select the physical log \emph{and} the core on which
 the operation executes. This guarantees determinism as the serial history of
 two different replicas can be transformed into the same serial history by
-reordering operations to different keys. 
+reordering operations to different keys. Operations to the same key are already
+in the same order in the serial histories by virtue of being replicated on the
+same physical log and being executed on the same KV store core.
 
 Further relaxations to the mapping scheme are possible when operations to the
 same key are also commutative. A good example is when key value stores are used
@@ -461,15 +464,16 @@ updates seen by a reader with the counter reaching the same eventual value. This
 specific use-case, in fact, lead to the addition of the merge operation in
 Rocksdb, a key value store that we use for evaluation. Merge operations
 therefore could be dispatched to a random physical log with no harm. For this
-paper however, we stick to the stricter requirement that operations to the same
+paper however, we stick to the stricter case that operations to the same
 key are not commutative. However, Cyclone's client side libraries leave it to
-the user to specify the exact physical log and key-value thread to use to enable
-more relaxed mappings when necessary.
+the user to specify the exact physical log and key-value store core to use in
+order to enable more relaxed mappings when necessary.
 
 We note that commutativity as assumed by Cyclone is an \emph{API level
   property}. There are no assumption as to how application cores synchronize to
 access the shared key-value state or the underlying data structures for holding
-key-value pairs.
+key-value pairs. We emphasize that this means replicas ultimately have the same
+content but not necessarily the same memory state.
 
 Finally, Cyclone provides seraializable reads but does not - at the moment -
 guarantee the ability to read one's own writes, repeatable reads or more
@@ -490,51 +494,52 @@ requirement that we route a write request by hashing the key to select both the
 control plane core (physical log) as well as KV store core. A batched write has
 multiple keys and therefore we need to synchronize the progress of the operation
 across multiple physical logs (and associated replication quorums) as well as KV
-store cores. In effect the serial history contains a grouped set of operation on
-multiple keys spanning multiple cores as a single atomic operation. All serial
-histories across replicas therefore continue to map to the same equivalent
-serial history modulo reordering of operations to different keys.
+store cores. In effect, the serial history contains a grouped set of operation
+on multiple keys as a single atomic operation. All serial histories across
+replicas therefore continue to map to the same equivalent serial history modulo
+reordering of operations to different keys.
 
-A simple solution to this problem is to use a distributed transaction, using
+One way to do this is to use a distributed transaction, using
 two-phase commit to couple the otherwise independent replication quorums and KV
 store cores. However this method has a number of problems. First, it introduces
 an additional network round trip that is normally not necessary for a key value
 store with a single shared memory image holding all the keys. Second, handling
-failures with distributed transactions would have cause an explosion in
+failures with distributed transactions would have caused an explosion in
 complexity in Cyclone, something we wished to avoid in the interests of
 practical deployment to independent end users who need to understand and 
-maintain Cyclone as part of their KV store infrastructure.
+maintain Cyclone as part of their embedded KV store infrastructure.
 
-Our solution instead is to use a technique we termed ganged operations, based on
-the observation that in the failure free case, executing a batched write across
-multiple control plane cores and KV store cores does not look very much
-different from a synchronous shared memory barrier. The challenge is to
+Our solution instead is to use a technique we termed ganged operations. It is
+based on the observation that in the failure free case, executing a batched
+write across multiple control plane cores and KV store cores does not look very
+much different from a synchronous shared memory barrier. The challenge is to
 effectively manage failures in replication without causing participating cores
 to stop making progress. The first step is to reconfigure RAFTs leader election
 protocol to ensure that the leaders for all the physical logs are co-located on
 the same host. Clients always dispatch batched writes to a fixed control plane
-core (called the injection core) which is then responsible for serially
-forwarding the requests to the participating control plane cores (for
-corresponding physical logs). The injection core uses DPDKs packet cloning
-primitives to avoid dataplane work while forwarding copies of the same batched
-write packet to multiple control plane cores. The injection core also adds a
-``nonce'' - a unique timestamp to the packet. In addition the injection core
-adds a unique view number to the packet corresponding to the term numbers of all
-the participating RAFT instances (read from shared memory of the co-located leaders).
-We describe the remaining flow for ganged operations in terms of the pseudocode
-in Figure~\ref{fig:ganged_ops}. We defer discussion of how we generate the nonce
-to later in this section. We also assume that a unique barrier is allocated in
+core (called the injection core) which is then responsible for forwarding the
+request to the participating control plane cores (for corresponding physical
+logs). The injection core uses DPDKs packet cloning primitives to avoid
+dataplane work while forwarding copies of the same batched write packet to
+multiple control plane cores. The injection core also adds a ``nonce'' - a
+unique timestamp to the packet. In addition, the injection core adds a unique
+view number to the packet containing the term numbers of all the participating
+RAFT instances (read from shared memory of the co-located leaders).  We describe
+the remaining flow for ganged operations in terms of the pseudocode in
+Figure~\ref{fig:ganged_ops}. We defer discussion of how we generate the nonce to
+later in this section. We also assume that a unique barrier is allocated in
 shared memory for each ganged operation. We discuss later how this is done
 without using dynamic allocation.
 
-In the absence of failures Figure~\ref{fig:ganged_ops} is straightforward. One
+In the absence of failures Figure~\ref{fig:ganged_ops} is straightforward. Once
 replication is complete on all participating physical logs, the corresponding KV
-store cores execute {\tt event\_replicated\_ganged\_op}. The use a bitmask for
+store cores execute {\tt event\_replicated\_ganged\_op}. They use a bitmask for
 the barrier setting the appropriate bit for themselves. Once all KV store cores
 have arrived at the barrier the operation is executed. A distinguished leader
-core (we use use the minumum numbered participating KV store core) is
+core (we use the minumum numbered participating KV store core) is
 responsible for sending back the response to the client. Two types of failure
-need to be considered. First, one of the non-leader cores could fail. The
+need to be considered. First, replication on the physical log corresponding to
+one of the non-leader cores could fail. The
 remaning cores would never progress past the barrier. To solve this the leader
 core montors the remaning cores for their current view - which is the RAFT term
 of the last executed log entry. If the view has moved past the view in the
@@ -545,7 +550,10 @@ sets a failed flag to signal failure to the other participating cores. The
 second failure case is that the leader core might not receive the operation if
 it fails during replication from corresponding physical log. This case is
 detected in a similar manner by the remaining cores by monitoring the published
-view from the leader core in shared memory.
+view from the leader core in shared memory. We add that on a leadership change
+due to timeout we enqueue and execute a nop on the physical log and all
+associated KV store cores to ensure previous entries are committed - a corner
+case in the RAFT protocol.
 
 
 \begin{figure*}
@@ -575,10 +583,10 @@ view from the leader core in shared memory.
          send response
       else
         wait until 
-         core_public_data[leader core].view > packet.view
-         OR barrier.mask == mask of participating KV cores
-        if core_public_data[leader core].view > packet.view
-         OR barrier.failed
+         core_public_data[leader core].view > packet.view OR
+         barrier.mask == mask of participating KV cores
+        if core_public_data[leader core].view > packet.view OR
+           barrier.failed
          Ganged replication failed. Send retry to client. return.
         else
          execute operation
@@ -589,12 +597,13 @@ view from the leader core in shared memory.
 \end{figure*}
 
 The assumption in Figure~\ref{fig:ganged_ops} is that each ganged operation is
-mapped to a unique barrier. We achieve this by using a fixed piece memory owned
-by the leader core to hold the barrier and write the nonce to it in order to
-indicate that the barrer is active. Non-leader cores watch for the nonce to know
-when to execute the ganged operation barrier in Figure~\ref{fig:ganged_ops},
-while also monitoring the leader's published view to detect the case where the
-ganged operation fails to replicate on the leader's physical log.
+mapped to a unique barrier. We achieve this by using a fixed piece of memory
+owned by the leader core to hold the barrier and write the nonce to it in order
+to indicate that the barrer is active for the corresponding batched write
+operation. Non-leader cores watch for the nonce to know when to execute the
+ganged operation barrier in Figure~\ref{fig:ganged_ops}, while also monitoring
+the leader's published view to detect the case where the ganged operation fails
+to replicate on the leader's physical log.
 
 Finally, we describe how we generate the nonce. The nonce is generated on the
 injector core by concatenating the ethernet MAC ID of the first NIC on the
@@ -602,11 +611,11 @@ system with a 64 bit value that is the number of CPU timestamp counter cycles
 since epoch time (read from the real time clock at startup plus the number of
 cycles from the CPU {\tt rdtsc} instruction). The nonce can only be repeated if
 the same machine manages to fail and come back up in less time than the real
-time clock drift (controlled with NTP), a possiblity that we discount.
+time clock drift (controlled with NTP), a possibility that we discount.
 
 Ganged operations possibly consititute the most complex part of Cyclone but the
-code weighs in at well under a couple of hundred lines of code. We believe that
-this complexity is worth paying to avoid distributed transactions.
+code weighs in at well under a couple of hundred lines. We believe that
+this additional complexity is still small compared to distributed transactions.
 
 \section{Evaluation}
 \label{sec:evaluation}
