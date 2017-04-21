@@ -57,6 +57,13 @@ without replication.
 
 \section{Introduction}
 
+\begin{figure}
+\centering
+\includegraphics[scale=0.6]{results2/problem.pdf}
+\caption{Rocksdb Write Ahead Logging Impact}
+\label{fig:wal_impact}
+\end{figure}
+
 \section{Two Level Log}
 A fundamental challenge in building an efficient replicated log is dealing with
 network overheads. Cyclone'e construction is predicated on the observation that
@@ -526,6 +533,26 @@ view from the leader core in shared memory.
 \caption{Ganged Operation}
 \label{fig:ganged_ops}
 \end{figure*}
+
+The assumption in Figure~\ref{fig:ganged_ops} is that each ganged operation is
+mapped to a unique barrier. We achieve this by using a fixed piece memory owned
+by the leader core to hold the barrier and write the nonce to it in order to
+indicate that the barrer is active. Non-leader cores watch for the nonce to know
+when to execute the ganged operation barrier in Figure~\ref{fig:ganged_ops},
+while also monitoring the leader's published view to detect the case where the
+ganged operation fails to replicate on the leader's physical log.
+
+Finally, we describe how we generate the nonce. The nonce is generated on the
+injector core by concatenating the ethernet MAC ID of the first NIC on the
+system with a 64 bit value that is the number of CPU timestamp counter cycles
+since epoch time (read from the real time clock at startup plus the number of
+cycles from the CPU {\tt rdtsc} instruction). The nonce can only be repeated if
+the same machine manages to fail and come back up in less time than the real
+time clock drift (controlled with NTP), a possiblity that we discount.
+
+Ganged operations possibly consititute the most complex part of Cyclone but the
+code weighs in at well under a couple of hundred lines of code. We believe that
+this complexity is worth paying to avoid distributed transactions.
 
 \section{Evaluation}
 We evaluate Cyclone on a 12 node cluster connected via a 10 GigE switch. Three
