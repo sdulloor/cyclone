@@ -16,7 +16,7 @@
 \date{}
 
 % Paper number and no. of pages as author
-\authorinfo{Paper \textbf{\#224}}{NN pages}
+\authorinfo{Paper \textbf{\#224}}{13 pages}
 
 
 \begin{document}
@@ -533,7 +533,7 @@ without using dynamic allocation.
 
 In the absence of failures Figure~\ref{fig:ganged_ops} is straightforward. Once
 replication is complete on all participating physical logs, the corresponding KV
-store cores execute {\tt event\_replicated\_ganged\_op}. They use a bitmask for
+store cores execute \\{\tt event\_replicated\_ganged\_op}. They use a bitmask for
 the barrier setting the appropriate bit for themselves. Once all KV store cores
 have arrived at the barrier the operation is executed. A distinguished leader
 core (we use the minumum numbered participating KV store core) is
@@ -619,39 +619,39 @@ this additional complexity is still small compared to distributed transactions.
 
 \section{Evaluation}
 \label{sec:evaluation}
-We evaluate Cyclone on a 12 node cluster connected via a 10 GigE switch. Three
-of the machines are equipped with 1.6TB Intel DC P3600 SSDs and 4*10 GigE
-ports. The remaining nine machines do not have SSDs and have only one 10 GigE
-port, serving as clients for most of the experiments. As with other
-work~\cite{faast}, we use DRAM on the machines to proxy for NVDIMMs where
-necessary - the persistent memory needed never exceeds 64 MB regardless of the
-size of the key value store or second level log on flash. We divide the
-evaluation into three parts. First, we evaluate Cyclone's performance with a
-single level log as a pure software packet switch. Next, we evaluate performance
-when adding a second level of log on flash. Finally, we evaluate performance
-when integrated with Rocksdb as an alternative to Rocksdb's write ahead
-log. Unless otherwise mentioned, we use a 60 byte header followed by a payload
-for experiments. We log both the header and payload. In all cases the server
-echoes the received entry (header and payload) back to the client. We fix the
-number of application threads at 32 using at most 8 threads for running RAFT
-instances.
+We evaluate Cyclone on a 12 node x86 Xeon cluster connected via a 10 GigE
+switch. Three of the machines are equipped with 1.6TB Intel DC P3600 SSDs and
+4*10 GigE ports. The remaining nine machines do not have SSDs and have only one
+10 GigE port, serving as clients for most of the experiments. We turn on jumbo
+frame support in the 10 GigE switch to enable maximum use of batching in
+Cyclone. As with other work~\cite{faast}, we use DRAM on the machines to proxy
+for NVDIMMs where necessary - the persistent memory needed never exceeds 64 MB
+regardless of the size of the key value store or second level log on flash. We
+divide the evaluation into three parts. First, we evaluate Cyclone's performance
+with a single level log as a pure software packet switch. Next, we evaluate
+performance when adding a second level of log on flash. Finally, we evaluate
+performance when integrated with Rocksdb~\cite{rocksdb} as an alternative to
+Rocksdb's write ahead log. Unless otherwise mentioned, we use a 60 byte header
+followed by an optional payload for experiments. We log both the header and
+payload. In all cases the server echoes the received entry (header and payload)
+back to the client. We fix the number of KV Store threads at 32 using at most 8
+physcial logs with associated control plane cores for running RAFT instances.
 
 Cyclone is built on top of DPDK to apply software packet switching techniques to
 the log replication problem. We therefore begin by systematically evaluating
-optimizations applied in Cyclone to replicate the top level log in
+optimizations applied in Cyclone to replicate the NVM log in
 Figure~\ref{fig:network_opts} - with no payload. The y-axis reports latency seen
 at the client (which means two network round trips with replication). Using
-TCP/IP to replicate a RAFT log tops out at around 30K entries/s. Applying
-optimizations improves performance by a large enough amount that we use a log
-scale on the x-axis. Switching to DPDK (the line marked +DPDK) improves the
-throughput by an order of magnitude to around 50K entries/s. Using batching
-(line marked +batching) improves the performance further bringing us close to a
-million entries/s. Scaling horizontally to 8 physical logs (+8 phy logs)
-improves performance to close to 2M entries/s. Finally using all 4 ports on the
-machine to replicate entries improves performance considerably to 6M
-entries/s. In all performance improves by 200X over the TCP/IP single log
-baseline. Cyclone also considerably improves the latency for replication, from
-close to 100us with TCP/IP to around 30us at peak throughput.
+TCP/IP to replicate a RAFT log tops out at around 30K entries/s.  Switching to
+DPDK (the line marked +DPDK) improves the throughput by an order of magnitude to
+around 500K entries/s. Using batching (the line marked +batching) improves the
+performance further bringing us close to a million entries/s. Scaling
+horizontally to 8 physical logs (+8 phy logs) improves performance to close to
+2M entries/s. Finally using all 4 ethernet ports on the machine to replicate
+entries improves performance considerably to 6M entries/s. In all, performance
+improves by 200X over the TCP/IP single log baseline. Cyclone also considerably
+improves the latency for replication, from close to 100us with TCP/IP to around
+30us at peak throughput.
 
 \begin{figure}
 \includegraphics[scale=0.6]{results2/network_opts.pdf}
@@ -666,16 +666,16 @@ decrease Cyclone's performance. Figure~\ref{fig:replicas} shows the impact of
 varying replica count. Using only a single replica cuts out a network round trip
 and shows the best unloaded latency (10 us) and peak throughput (near 10M
 entries/s). Adding replicas decreases the peak throughput down to around 2M
-entries/s. We note that a number of previous pieces of work~\cite{faast, farm}
-use three replicas and therefore we focus on three replicas for the replicated
-cases we consider below. The second factor that dictates Cyclone's performance
-is the size of the log entry being replicated. Figure~\ref{fig:payload} shows
-the effect of increasing the payload size from zero to 512 bytes. Peak
-throughput drops from 6M entries/s to approximately 2M entries/s. At this
-replication rate, the leader replica needs to transmit data at approximately 30
-Gbit/s. Coupled with the cost of network headers all four 10 GigE ports are now
-saturated and therefore Cyclone hits the network line rate bottleneck at this
-point.
+entries/s with 5 replicas. We note that a number of previous pieces of
+work~\cite{faast, farm} use three replicas and therefore we focus on three
+replicas for the replicated cases we consider below. The second factor that
+dictates Cyclone's performance is the size of the log entry being
+replicated. Figure~\ref{fig:payload} shows the effect of increasing the payload
+size from zero to 512 bytes. Peak throughput drops from 6M entries/s to
+approximately 2M entries/s. At this replication rate, the leader replica needs
+to transmit data at approximately 30 Gbit/s. Coupled with the cost of network
+headers all four 10 GigE ports are now saturated and therefore Cyclone hits the
+network line rate bottleneck at this point.
 
 \begin{figure}
 \includegraphics[scale=0.6]{results2/replicas.pdf}
@@ -691,7 +691,7 @@ point.
 
 We now turn our attention from the network component of Cyclone to the storage
 one by adding the second level flashlog. We evaluate the impact of adding
-storage to our hitherto pure packet switching scenario in
+block storage to our hitherto pure packet switching scenario in
 Figure~\ref{fig:flashlog}. Batching entries from the top level NVDIMM log to the
 second level flashlog is clearly beneficial as adding flash storage at the
 second level has almost no impact on peak performance in Cyclone for small
@@ -719,7 +719,7 @@ log case.
 
 \begin{figure}
 \includegraphics[scale=0.6]{results2/flashlog_512.pdf}
-\caption{Impact of adding second level log (512 bytes payload)}
+\caption{Second level log with 512 bytes payload}
 \label{fig:flashlog_512}
 \end{figure}
 
@@ -728,26 +728,28 @@ ganged operations is to avoid the need for distributed transactions to
 manipulate what is a single shared memory image and therefore we were most
 concerned about unloaded latency given the complexity of synchronizing different
 replication quorums as well executing our rendezvous protocol on multiple
-cores. We therefore setup an experiment where a single client reflecting the
-unloaded case made ganged requests to the replicas. We varied the number of
+cores. We therefore setup an experiment where a single client - reflecting the
+unloaded case - made ganged requests to the replicas. We varied the number of
 cores participating in the request from one to the full complement of 32
 application cores. Figure~\ref{fig:ganged} shows the results both using a single
 level log as well as a two level log. The primary takeaway is that unloaded
 latency increases slowly as we increase the number of active cores - to around
 40 us from the baseline of 20 us. There are two causes of this. First, there is
-a rapid increase from 1 to 8 active cores, the reason being that this
-corresponds to an increase in the number of quorums that must be synchronized
-on. There is some amount of synchronization involved in the userspace DPDK
-driver for access to common resources for accessing the NIC and this affects the
-ability to simultaneously issues replication messages on all quorums. The
-smaller contribution to increasing latency that continues past the 8 core case
-is due to cacheline pingponging when executing the rendevous. Both these sources
-of latency drift could be corrected using replication quorums mapped to
-dedicated NICs and more scalable rendezvous designs (such as with machine aware
-broadcast trees~\cite{broadcast_tree}). However we deemed the complexity of such
+a quicker rate of increase from 1 to 8 active cores, the reason being that this
+corresponds to an increase in the number of physical logs that must be
+synchronized on. There is some amount of synchronization involved in the
+userspace DPDK driver for access to common resources for accessing the NIC and
+this affects the ability to simultaneously issues replication messages on all
+quorums. The smaller contribution to increasing latency that continues past the
+8 core case is due to cacheline pingponging when executing the rendevous of
+Figure~\ref{fig:ganged_ops}. Both these sources of latency drift could be
+corrected using replication quorums mapped to dedicated NICs and more scalable
+rendezvous designs (such as with machine aware broadcast
+trees~\cite{broadcast_tree}). However we deemed the complexity of such
 optimizations unnecessary. The added latency for most cases is well under the
-extra round trip delay, which would the minimum needed for a solution using
-distributed transactions via two phase commit.
+extra round trip delay (including replication for all phases of a 2PC), which
+would the minimum needed for a solution using distributed transactions via two
+phase commit.
 
 \begin{figure}
 \includegraphics[scale=0.6]{results2/multi.pdf}
@@ -769,12 +771,12 @@ however - both Rocksdb's own write ahead log and the alternative of Cyclone's
 second level flashlog - are placed on the SSDs.
 
 We evaluate two different request sizes: 8 byte keys with 8 byte values and 8
-bytes keys with 256 byte values. We run 8 physical logs on 8 cores and devote 32
-cores to making requests to Rocksdb. Since we are interested in performance of
-the log, which is only used for update requests, our workload is 100\% writes.
+byte keys with 256 byte values. We run 8 physical logs on 8 cores and devote 32
+cores to Rocksdb. Since we are interested in performance of the log, which is
+only used for update requests, our workload is 100\% writes.
 
-Before evaluating with Rocksdb we measure the baseline performance of
-replicating the log with Cycloine for the given request sizes - Rocksdb performs
+Before evaluating with Rocksdb, we measure the baseline performance of
+replicating the log with Cyclone for the given request sizes - Rocksdb performs
 a no-op. We note that in addition to the key and value, we are also logging
 RocksDB specific request data such as operation type and the request header.
 Figure~\ref{fig:kv_baseline} shows the baseline performance for the chosen
@@ -791,22 +793,23 @@ how well Cyclone performs with Rocksdb.
 \end{figure}
 
 The performance of Rocksdb with Cyclone for the small update workload is shown
-in Figure~\ref{fig:rocksdb}. We consider four different settings. The line
-labeled Rocksdb is the key value store running with no logging whatsover - a
-system crash would lead to data loss. The line labeled Rocksdb/WAL is for
-Rocksdb running with its write ahead logging turned on. The large gap between
-these two is the overhead of the existing Rocksdb WAL solution. The line labeled
-Rocksdb/Cyclone 1 way is a two level Cyclone log but without any
-replication. The line almost exactly tracks the performance of Rockdb. As
-suggested by the baseline replication performance, Cyclone is able to provide a
-write ahead log with no overhead to Rocksdb. The line labeled Rocksdb/Cyclone 3
-way is with 3-way replication turned on. Other than a 20us delta due to the
-extra network round trip, the line almost exactly tracks the Rocksdb no logging
-case. Cyclone therefore provides high availability to Rocksdb at a fraction of
-the cost of its existing single machine write ahead log. We also repeat the
-experiment for the larger update size in Figure~\ref{fig:rocksdb_256}. The
-conclusions are identical: Cyclone solves Rocksdb's write ahead logging
-problem.
+in Figure~\ref{fig:rocksdb} - essentially presenting the solution to the problem
+description graph in Figure~\ref{fig:problem}.  We consider four different
+setups. The line labeled 'rocksdb' is the key value store running with no
+logging whatsover - a system crash would lead to data loss. The line labeled
+'rocksdb/wal' is for Rocksdb running with its write ahead logging turned on. The
+large gap between these two is the overhead of the existing Rocksdb WAL
+solution. The line labeled 'rocksdb/Cyclone 1 way' is a two level Cyclone log
+but without any replication. The line almost exactly tracks the performance of
+Rockdb. As suggested by the baseline replication performance, Cyclone is able to
+provide a write ahead log with no overhead to Rocksdb. The line labeled
+'rocksdb/Cyclone 3 way' is with 3-way replication turned on. Other than a 20us
+delta due to the extra network round trip, the line almost exactly tracks
+Rocksdb performance with no logging. Cyclone therefore provides high
+availability to Rocksdb at a fraction of the cost of its existing single machine
+write ahead log. We also repeat the experiment for the larger update size in
+Figure~\ref{fig:rocksdb_256}. The conclusions are identical: Cyclone solves
+Rocksdb's write ahead logging problem.
 
 \begin{figure}
 \includegraphics[scale=0.6]{results2/rocksdb.pdf}
@@ -830,13 +833,14 @@ operation due to the extra synchronization needed across replication quorums and
 participating application cores. We examine the problem for the unloaded case
 and small updates in Figure~\ref{fig:rocksdb_multi} for a single client with
 increasing number of keys in the batch - till 32 keys that covers all
-application cores. The line labeled Rocksdb is with no write-ahead logging. We
+application cores. The line labeled Rocksdb is with no write ahead logging. We
 note an increasing latency for this baseline indicating Rocksdb takes longer
-with larger key batches. For the other options - Rocksdb/wal has considerably
+with larger key batches. The existing option of Rocksdb/wal has considerably
 larger latency. Cyclone does an effective job of cutting down on this latency
 even as it needs to pay a price for synchronizing multiple quorums and
 application cores making it somewhat slower than running Rocksdb with no logging
-for batched writes.
+for batched writes. A distributed 2PC transaction still remains more expensive
+just in terms of network delay than using Cyclone.
 
 \begin{figure}
 \includegraphics[scale=0.6]{results2/rocksdb_multi.pdf}
@@ -844,7 +848,7 @@ for batched writes.
 \label{fig:rocksdb_multi}
 \end{figure}
 
-Finally we showcase the benefit of using Cyclone beyond pure performance as
+Finally, we showcase the benefit of using Cyclone beyond pure performance as
 compared to the existing single machine Rocksdb write ahead log. Cyclone brings
 multi-machine availability with the ability to automatically failover. We
 demonstrate this in Figure ~\ref{fig:timeline} that shows the timeline of a run
@@ -861,22 +865,22 @@ replicas in turn to locate the leader - in this case it fails over in about
 
 \section{Related Work}
 
-Cyclone takes a software only approach to improving replication performance over
-commodity network hardware. At the other end of the spectrum, Consensus in a
-box~\cite{consensus_box} implements the zookeeper atomic broadcast protocol
+Cyclone takes a software only approach to improving replication performance
+using commodity network hardware. At the other end of the spectrum, Consensus in
+a box~\cite{consensus_box} implements the Zookeeper atomic broadcast protocol
 together with a NIC on an FPGA. That work ignored durability focusing purely on
 replication performance. Latency numbers are impressive from the FPGA that cuts
-out the path from CPU caches to the NIC are as low as 3us for a round trip from
-leader to follower replica compared to the 7us we observe with DPDK. Notably
-however they reported 7us when using TCP/IP from the FPGA rather than their own
-connection oriented network protocol. On the other hand peak replication
-throughput appears to be 6M replications/sec on 66 Gbps of aggregate network
-bandwith, comparable to the mark obtained by Cyclone on an aggregate 40 Gbps of
-network bandwidth. We believe the general applicability afforded by our software
-only packes switching solution makes it attractive in comparison to an FPGA
-based solution even given the larger latency.
+out the path from CPU caches to the NIC and are reported to be as low as 3us for
+a round trip from leader to follower replica compared to the 7us we observe with
+DPDK. Notably however they reported 7us when using TCP/IP from the FPGA rather
+than their own connection oriented network protocol. On the other hand peak
+replication throughput appears to be 6M replications/sec on 66 Gbps of aggregate
+network bandwith, comparable to the mark obtained by Cyclone on an aggregate 40
+Gbps of network bandwidth. We believe the general applicability afforded by our
+software only packet switching solution makes it a compelling alternative to an
+FPGA based solution even given the larger latency.
 
-Networked Ordered Paxos~\cite{nopaxos} reprograms top of rack switches to order
+Network Ordered Paxos~\cite{nopaxos} reprograms top of rack switches to order
 client requests and multicast them to replicas - attacking replication latency
 by removing the need to direct requests through a leader replica. It is hard to
 compare performance due to the 1Gbps links used to leaf nodes in NoPaxos but we
@@ -891,41 +895,58 @@ of the key value store interface. Although CRANE is more generally applicable in
 that it makes no assumptions about the application API, deterministic
 multithreading comes with high overheads for applications that store large
 amounts of data - CRANE reports around a 2X slowdown for MySQL likely rendering
-it unsuitable as a replacement for the WAL in key value stores.
+it unsuitable as a replacement for the write ahead log in key value stores.
 
 A number of researchers have proposed using high performance networking hardware
-for improving the performance of various distributed system stacks such as
+for improving the performance of various distributed system primitives such as
 distributed transactions~\cite{farm} and replication~\cite{dare, mojim}. We note
 that the ideas in Cyclone are not specific to ethernet. The same ideas of packet
 switching and horizontal scaling can be equally applied to RDMA. However, we
-chose commodity ethernet due to the short term deployment plans that are a
+chose commodity ethernet due to short term deployment plans that are a
 priority design target. 
 
-The scalable commutativity rule~\cite{scalable_commutativity} generalized the
+The scalable commutativity rule~\cite{scalable_commutativity} generalizes the
 idea of commutativity in key value store interfaces that we have used for
-horizontal scaling in Cyclone. Conveniently it provides a tool for checking when
+horizontal scaling in Cyclone. Conveniently, it provides a tool for checking when
 API calls can commute in a history. It is a simple exercise to express a key
-value store in COMMUTER and check that operations to different keys
+value store API in COMMUTER and check that operations to different keys
 commute. This provides a theoretical basis for horizontal scaling, something we
 have omitted for brevity from this paper. The scalable commutativity rule also
-suggests that scalable key value store implementations would exploit
-commutativity something we have observed in the case of in-memory layers for key
-value stores such as Flodb and indeed in the way we distributed keys across
-physical logs in Cyclone.
+suggests that scalable key value store implementations would necessarily have
+commutative interfaces, something we confirm and exploit for key
+value stores.
 
-Finally, we note the in progress transformation of durable memory in datacenters
+There is an in progress transformation of durable memory in datacenters
 with the advents of 3DXPoint. Researchers have speculated on the impact of cheap
 and high volume directly attached 3DXPoint~\cite{tiering}. Memory vendors have
 also begun shipping software libraries such as NVML~\cite{nvml} for building durable
 in-memory data structures using undo logging. A durable key value store using
 3DXPoint would be an idea target for Cyclone because each NVM log entry can be
-discarded as soon as it is applied to the key value store, since the results are
-persistent. This would allow Cyclone to operate at pure packet switching speeds,
-a goal we hope to achieve in the future with a single level log for NVML
-applications.
+discarded as soon as it is applied to the persistent key value store removing
+the need for the flashlog. This would allow Cyclone to operate at pure packet
+switching speeds, a goal we hope to achieve in the future with a single level
+log for NVML data store applications.
+
+Cyclone provides a client library that automatically times out and retries
+requests to deal with failure. Protection against repeated execution of the same
+request if currently left to the key value store and client, since we felt that
+exactly once semantics is optional when updates such as put operations are
+idempotent. We have experimented with exactly once semantics as a basis for
+distributed transactions across shards running Cyclone integrated key value
+stores, along the lines of similar work~\cite{raft_lin}, using a fixed client
+space and maintaining information about last seen sequence numbers from clients
+in NVM. Distributed transactions on Cyclone shards however are outside the scope
+of this paper.
 
 \section{Conclusion}
-
+Persistent key values stores struggle today to provide high availability using a
+write ahead log without a significant impact to performance. Cyclone solves this
+problem by leveraging a small amount of directly attached non-volatile memory
+that transforms the replication problem into a software packet switching
+problem. Cyclone and its Rocksdb bindings are slated for release to the open
+source community and we hope both the code and the ideas in the system itself
+will help key value store builders and researchers deal with their logging
+problem.
 \newcommand\myurl[2]{\url{#1}}
 \bibliographystyle{plain}
 \bibliography{paper}
