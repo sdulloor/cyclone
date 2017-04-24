@@ -651,7 +651,7 @@ void* cyclone_setup(const char *config_quorum_path,
   close(fd);
   /* rounding errors here would be dwarfed by reboot time */
   cyclone_handle->nonce_base  = rtc_clock::current_time();
-  cyclone_handle->nonce_base += 1000000*atol(buffer);
+  cyclone_handle->nonce_base -= (1000000*atol(buffer));
   cyclone_handle->nonce_base *= (rte_get_tsc_hz()/1000000.0);
   /* Note: no support for recovery yet. */
   fd = open(path_raft.c_str(), O_CREAT|O_RDWR|O_TRUNC, S_IRWXU);

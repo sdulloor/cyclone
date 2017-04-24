@@ -103,7 +103,7 @@ int main(int argc, char *argv[])
   int server_id = atoi(argv[1]);
   char log_path[50];
   for(int i=0;i<executor_threads;i++) {
-    sprintf(log_path, "flash_log%d", i);
+    sprintf(log_path, "/mnt/ssd/flash_log%d", i);
     logs[i] = create_flash_log(log_path);
   }
   cyclone_network_init(argv[4],
