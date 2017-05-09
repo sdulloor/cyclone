@@ -3,6 +3,12 @@ def launch_cmds_startup():
 
 
 def launch_cmds_server_gen(f, q, r, m, quorums, replicas, clients, ports):
+    cmd='rm -rf /dev/shm/checkpoint\n'
+    f.write(cmd)
+    cmd='/root/cyclone/cyclone.git/test/rocksdb_checkpoint\n'
+    f.write(cmd)
+    cmd='rm -f /mnt/ssd/logs/*\n'
+    f.write(cmd)
     cmd=''
     if os.environ.has_key('RBT_SLEEP_USEC'):
         cmd=cmd + 'RBT_SLEEP_USEC=' + os.environ.get('RBT_SLEEP_USEC') + ' '
@@ -34,6 +40,8 @@ def launch_cmds_client_gen(f, m, c, quorums, replicas, clients, machines, ports)
                 cmd=cmd + 'KV_FRAC_READ=' + os.environ.get('KV_FRAC_READ') + ' '
             if os.environ.has_key('KV_KEYS'):
                 cmd=cmd + 'KV_KEYS=' + os.environ.get('KV_KEYS') + ' '    
+            if os.environ.has_key('ACTIVE'):
+                cmd=cmd + 'ACTIVE=' + os.environ.get('ACTIVE') + ' '    
             cmd=cmd + 'rocksdb_client '
             cmd=cmd + str(c_start) + ' '
             cmd=cmd + str(c_stop) + ' '
@@ -46,6 +54,7 @@ def launch_cmds_client_gen(f, m, c, quorums, replicas, clients, machines, ports)
         
 def killall_cmds_gen(f):
     f.write('killall -9 echo_server\n')
+    f.write('killall -9 echo_logserver\n')
     f.write('killall -9 counter_loader\n')
     f.write('killall -9 counter_driver\n')
     f.write('killall -9 counter_coordinator\n')
@@ -53,4 +62,5 @@ def killall_cmds_gen(f):
     f.write('killall -9 echo_client\n')
     f.write('killall -9 echo_client_multicore\n')
     f.write('killall -9 rocksdb_server\n')
+    f.write('killall -9 rocksdb_client_multicore\n')
     f.write('killall -9 rocksdb_client\n')
