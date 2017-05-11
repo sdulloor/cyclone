@@ -17,6 +17,8 @@ struct rte_ring ** to_quorums;
 struct rte_ring *from_cores;
 extern core_status_t *core_status;
 
+volatile unsigned long accepts_complete = 0;
+
 /** Raft callback for sending request vote message */
 static int __send_requestvote(raft_server_t* raft,
 			      void *user_data,
@@ -764,6 +766,7 @@ void cyclone_boot()
   for(int i=0;i<num_quorums;i++) {
     server_accept_server(sockets_raft[i], i, quorums[i]->replicas);
   }
+  accepts_complete = 1;
 }
 
 void cyclone_shutdown(void *cyclone_handle)

@@ -4,6 +4,7 @@
 #include<sys/socket.h>
 #include<netinet/in.h>
 #include<netinet/tcp.h>
+#include<fcntl.h>
 
 tunnel_t *server2server_tunnels;
 tunnel_t **server2client_tunnels;
@@ -113,6 +114,24 @@ void client_connect_server(int clientnum,
 			  << quorum;
 }
 
+static int make_socket_non_blocking (int sfd)
+{
+  int flags, s;
+  flags = fcntl (sfd, F_GETFL, 0);
+  if (flags == -1) {
+    perror ("fcntl");
+    return -1;
+  }
+  flags |= O_NONBLOCK;
+  s = fcntl (sfd, F_SETFL, flags);
+  if (s == -1) {
+    perror ("fcntl");
+    return -1;
+  }
+  return 0;
+}
+
+
 void server_open_ports(int me, int quorum)
 {
   struct sockaddr_in iface;
@@ -135,6 +154,7 @@ void server_open_ports(int me, int quorum)
 			     << " port = " << iface.sin_port;
     exit(-1);
   }
+  make_socket_non_blocking(sockets_raft[quorum]);
   if(listen(sockets_raft[quorum], 100) < 0) {
     BOOST_LOG_TRIVIAL(fatal) << "Unable to set listen state for raft socket "
 			     << " quorum =  " << quorum;
@@ -159,6 +179,7 @@ void server_open_ports(int me, int quorum)
 			     << " port = " << iface.sin_port;
     exit(-1);
   }
+  make_socket_non_blocking(sockets_client[quorum]);
   if(listen(sockets_client[quorum], 100) < 0) {
     BOOST_LOG_TRIVIAL(fatal) << "Unable to set listen state for client socket "
 			     << " quorum =  " << quorum;
@@ -176,11 +197,16 @@ void server_accept_server(int socket,
   int sock_rcv;
   tunnel_t *tun;
   for(int i=1;i<replicas;i++) {
-    sock_rcv = accept(socket, (struct sockaddr *)&sockaddr, &socklen);
+    do {
+      sock_rcv = accept(socket, (struct sockaddr *)&sockaddr, &socklen);
+    } while(sock_rcv == -1 && (errno == EAGAIN || errno == EWOULDBLOCK));
+    
     if(sock_rcv < 0) {
       BOOST_LOG_TRIVIAL(fatal) << "Server accept server call failed";
       exit(-1);
     }
+    // Make socket non-blocking
+    make_socket_non_blocking(sock_rcv);
     // Figure out who it is.
     tun = NULL;
     for(int j=0;j<replicas;j++) {
@@ -213,14 +239,17 @@ void server_accept_client(int socket, int quorum)
   for(int i=0;i<num_clients;i++) {
     tunnel_t *tun = (tunnel_t *)malloc(sizeof(tunnel_t));
     tun->init();
-    sock_rcv = accept(socket, (struct sockaddr *)&sockaddr, &socklen);
+    do {
+      sock_rcv = accept(socket, (struct sockaddr *)&sockaddr, &socklen);
+    } while(sock_rcv == -1 && (errno == EAGAIN || errno == EWOULDBLOCK));
     if(sock_rcv < 0) {
-      BOOST_LOG_TRIVIAL(fatal) << "Server accept server call failed";
+      BOOST_LOG_TRIVIAL(fatal) << "Server accept server call failed ";
       exit(-1);
     }
     BOOST_LOG_TRIVIAL(info) << "Quorum = "
 			    << quorum
 			    << " received connect from client"; 
+    make_socket_non_blocking(sock_rcv);
     tun->socket_rcv = sock_rcv;
     tun->socket_snd = sock_rcv;
     // Figure out who it is.

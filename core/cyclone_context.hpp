@@ -17,6 +17,9 @@ extern "C" {
 #include "cyclone.hpp"
 #include <rte_cycles.h>
 #include "tcp_tunnel.hpp"
+#include <sys/epoll.h>
+
+extern volatile unsigned long accepts_complete;
 
 /* Message format */
 
@@ -663,8 +666,53 @@ struct cyclone_monitor {
     server_connect_server(cyclone_handle->me_quorum, 
 			  cyclone_handle->me,
 			  cyclone_handle->replicas);
-    while(!terminate) {
+    while(!accepts_complete);
+    int epoll_fd = epoll_create(100);
+    if(epoll_fd == -1) {
+      BOOST_LOG_TRIVIAL(fatal) << "Unable to creat epoll fd";
+      exit(-1);
+    }
+    struct epoll_event event;
+    struct epoll_event events[cyclone_handle->replicas + num_clients];
+    for(int i=0;i<cyclone_handle->replicas;i++) {
+      if(i == cyclone_handle->me)
+	continue;
+      tunnel_t *tun = server2server_tunnel(i, cyclone_handle->me_quorum);
+      event.data.u32 = i;
+      event.events = EPOLLIN;
+      if(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, tun->socket_rcv, &event) != 0) {
+	BOOST_LOG_TRIVIAL(info) << "Add epoll fd failed for replica. " 
+				<< errno;
+	exit(-1);
+      }
+    }
+    
+    for(int i=0;i<num_clients;i++) {
+      tunnel_t *tun = server2client_tunnel(i, cyclone_handle->me_quorum);
+      event.data.u32 = cyclone_handle->replicas + i;
+      event.events = EPOLLIN;
+      if(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, tun->socket_rcv, &event) != 0) {
+	BOOST_LOG_TRIVIAL(info) << "Add epoll fd failed for client. ";
+	exit(-1);
+      }
+    }
 
+    while(!terminate) {
+      unsigned long replicas_active_flag = 0;
+      unsigned long clients_active_flag  = 0;
+      int seen_events = epoll_wait(epoll_fd, 
+				   &events[0], 
+				   cyclone_handle->replicas + num_clients,
+				   0);
+      for(int i=0;i<seen_events;i++) {
+	unsigned int x = events[i].data.u32;
+	if(x < cyclone_handle->replicas) {
+	  replicas_active_flag |= (1UL << x);
+	}
+	else {
+	  clients_active_flag |= (1UL << (x - cyclone_handle->replicas));
+	}
+      }
 #ifdef WORKAROUND0
       // Clean queue 0
       for(int i=0;i < global_dpdk_context->ports;i++) {
@@ -682,10 +730,15 @@ struct cyclone_monitor {
       int monitor_queue = queue_index_at_port(cyclone_handle->my_q(q_raft), global_dpdk_context->ports);
       available = cyclone_rx_burst(monitor_port, monitor_queue,	&pkt_array[0], PKT_BURST);
       */
+
+      
+
       int monitor_queue = queue_index_at_port(cyclone_handle->my_q(q_raft), global_dpdk_context->ports);
       available = 0;
       for(int i=0;i<cyclone_handle->replicas;i++) {
 	if(i == cyclone_handle->me)
+	  continue;
+	if((replicas_active_flag & (1UL << i)) == 0)
 	  continue;
 	tunnel_t *tun = server2server_tunnel(i, 
 					     cyclone_handle->me_quorum);
@@ -768,6 +821,8 @@ struct cyclone_monitor {
       available = 0;
       monitor_queue = queue_index_at_port(cyclone_handle->my_q(q_dispatcher), global_dpdk_context->ports);
       for(int i=0;i<num_clients;i++) {
+	if((clients_active_flag & (1UL << i)) == 0)
+	  continue;
 	tunnel_t *tun = server2client_tunnel(i, cyclone_handle->me_quorum);
 	if(tun->receive()) {
 	  rte_mbuf *mb = rte_pktmbuf_alloc(global_dpdk_context->mempools[monitor_queue]);
