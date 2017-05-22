@@ -154,6 +154,12 @@ void server_open_ports(int me, int quorum)
 			     << " port = " << iface.sin_port;
     exit(-1);
   }
+  else {
+    BOOST_LOG_TRIVIAL(info) << " quorum = " 
+			    << quorum
+			    << " RAFT port " 
+			    << iface.sin_port;
+  }
   make_socket_non_blocking(sockets_raft[quorum]);
   if(listen(sockets_raft[quorum], 100) < 0) {
     BOOST_LOG_TRIVIAL(fatal) << "Unable to set listen state for raft socket "
@@ -178,6 +184,10 @@ void server_open_ports(int me, int quorum)
 			     << " address = " << iface.sin_addr.s_addr
 			     << " port = " << iface.sin_port;
     exit(-1);
+  }
+  else {
+    BOOST_LOG_TRIVIAL(info) << " quorum = " << quorum
+			    << " CLIENT port " << iface.sin_port;
   }
   make_socket_non_blocking(sockets_client[quorum]);
   if(listen(sockets_client[quorum], 100) < 0) {
