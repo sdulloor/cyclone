@@ -1,30 +1,19 @@
-\documentclass[10pt, preprint, nonatbib]{sigplanconf}
-\usepackage{times,epsfig,endnotes,graphicx, verbatim}
-\usepackage{datetime, url, pdfpages, parskip}
+\documentclass[pageno]{jpaper}
 
-\conferenceinfo{SOSP'17}{October 29--31, 2017, Shanghai, China}
-\copyrightyear{2017} 
+%replace XXX with the submission number you are given from the ASPLOS submission site.
+\newcommand{\asplossubmissionnumber}{XXX}
 
-
-% These only appear when the 'preprint' option is specified.
-% Enabling these will cause the first page of the document to fail the 
-% format check on HotCRP :-(
-%\titlebanner{Under submission to SOSP 2017 - do not cite or distribute}
-%\preprintfooter{Draft of {\currenttime}, \today{}}
-
-% No date in title area.
-\date{}
-
-% Paper number and no. of pages as author
-\authorinfo{Paper \textbf{\#224}}{13 pages}
-
+\usepackage[normalem]{ulem}
 
 \begin{document}
 
-%make title bold and 14 pt font (Latex default is non-bold, 16 pt)
 \title{\Large \bf Cyclone: Warp Speed Replication for Key Value Stores}
 
+
+\date{}
 \maketitle
+
+\thispagestyle{empty}
 
 % Use the following at camera-ready time to suppress page numbers.
 % Comment it out when you first submit the paper for review.
@@ -35,24 +24,21 @@ Persistent key value stores are rapidly becoming an important component of many
 distributed data serving solutions with innovations targeted at taking advantage
 of growing flash speeds. Unfortunately their performance is hampered by the need
 to maintain and replicate a write ahead log to guarantee availability in the
-face of machine and storage failures. Cyclone offers a solution to this problem
-by leveraging a small amount of directly attached non-volatile memory (NVM) such
-as NVDIMMs to maintain a two level log: the upper level in a small amount of NVM
-draining into a larger lower level log maintained on flash. Replicating the
-smaller log kept in NVMs transforms the replication problem into a packet
-switching problem as the leader sends the exact same packet to all follower
-replicas. We solve this problem by using the RAFT protocol implemented
-as a software multicast module on the Data Plane Development Kit (DPDK). In addition,
-we leverage the observation that key value store interfaces are commutative for
-operations to different keys to scale our two level log horizontally into a
-number of physical two level logs. A hash of the key is used to choose
-the physical log. Each log is replicated by an independent instance of RAFT,
-thereby leveraging the scalability afforded by classic software packet switching
-when using multiple CPU cores. Cyclone is able to replicate millions of small
-updates a second using only commodity 10 gigabit ethernet adapters, improving
-the performance and availability of RocksDB, a popular persistent key value
-store by an order of magnitude when compared to its own write ahead log without
-replication.
+face of machine and storage failures. Cyclone is a replicated log plug-in for
+key value stores that systematically addresses various sources of this
+bottleneck. It uses a small amount of non-volatile memory directly addressable
+by the CPU - such as in the form of NVDIMMs - to remove block oriented IO
+devices such as SSDs from the critical path for appending to the log. It then
+addresses network overheads using an implementation of the RAFT consensus
+protocol that is designed around a userspace network stack to relieve the CPU of
+the burden of data copies. Finally, it provides a way to efficiently map the
+commutativity in key-value store APIs to the parallelism available in commodity
+NICs via multiple transmit receive queues to scale replication performance on
+multicore machines. Cyclone is able to replicate millions of small updates a
+second using only commodity 10 gigabit ethernet adapters. As a practical
+application, we use it to improve the performance and availability of RocksDB, a
+popular persistent key value store by an order of magnitude when compared to its
+own write ahead log without replication.
 \end{abstract}
 
 \section{Introduction}
@@ -70,9 +56,9 @@ unavailability of data is unacceptable in many internet scale services where
 high availabilty and revenue are often interconnected. Key value stores
 therefore usually incorporate support for a write ahead log that if replicated
 and kept durable for every appended update provides the necessary high
-availability. Unfortunately the write ahead is a performance achilles heel for
-these systems - eclipsing much of the work on improving the performance of the LSM
-component. To illustrate the impact of the write ahead log, consider
+availability. Unfortunately, the write ahead log is a performance achilles heel
+for these systems - eclipsing much of the work on improving the performance of
+the LSM component. To illustrate the impact of the write ahead log, consider
 Figure~\ref{fig:problem}. The line marked 'Rocksdb' shows the performance of
 Rocksdb without the write ahead log. The performance when persisting the write
 ahead log without replicating it is shown as the line marked 'rocksdb/WAL'. The
@@ -80,14 +66,15 @@ line marked 'rocksdb/3 way rep.' is for simply replicating the log three ways
 without persisting it, using RAFT~\cite{raft} running over TCP/IP. Either
 persisting every update to the log or replicating it using TCP/IP causes
 performance to drop by an order of magnitude (note the log scale on the
-x-axis). It is therefore no suprise that deployments of Rocksdb often turn off
+x-axis). It is therefore no surprise that deployments of Rocksdb often turn off
 the write ahead log~\cite{samza}. On the other side of the spectrum, key value
-store research such as FloDB~\cite{flodb} turns off the write ahead log to be
-able to showcase benefits of sophisticated extensions to LSM datastructures.
+store research prototypes such as FloDB~\cite{flodb} turns off the write ahead
+log to be able to showcase benefits of sophisticated extensions to LSM
+datastructures.
+
 
 \begin{figure}
-\centering
-\includegraphics[scale=0.6]{results2/problem.pdf}
+\centering \includegraphics[scale=0.6]{results2/problem.pdf}
 \caption{Rocksdb write ahead logging impact}
 \label{fig:problem}
 \end{figure}
@@ -97,36 +84,71 @@ Cyclone is a high speed strongly consistent replicated write ahead logging
 service specialized for key value stores such as Rocksdb. Cyclone provides the
 order of magnitude better performance required to close the performance gap in
 Figure~\ref{fig:problem} both on the storage and network side. Cyclone requires
-\emph{a small amount of} directly attached Non Volatile Memory (NVM) on the
-host - such as in the form of NVDIMMs~\cite{farm} or directly attached
-persistent memory~\cite{pmfs}.
+\emph{a small amount of} directly attached Non Volatile Memory (NVM) on the host
+- such as in the form of NVDIMMs~\cite{farm} or directly attached persistent
+memory~\cite{pmfs}. Cyclone logs update operations to the key value store and
+calls on the key value store to execute the update only when it has been
+successfully replicated to majority quorum of replicas. All reads and write to
+the key value store are always executed by the leader replica. A client side
+stub provided by Cyclone automatically locates and directs read and write
+requests to the leader replica, ensuring linearizable semantics from the key
+value store. Using a replicated write ahead log to build a linearizable and
+highly available key value store is not new [find some examples here]. The
+novelty in Cyclone is that it accomplishes this without compromising on the
+performance baseline of no logging or replication. Cyclone does this by
+systematically addressing the sources of performance degradation in
+Figure~\ref{fig:problem}.
 
-Cyclone makes use of a limited amount of attached NVM using two ideas. First, it
-leverages the observation that with persistence being a first class property of
-a subset of directly addressable DRAM, replicating the same log entry from the
-leader to follower replicas is no different from multicast using software packet
-switching techniques. It directly leverages this observation to implement a
-version of RAFT that replicates the NVM log using classic packet switching
-techniques such as separation of control and data planes. Second, Cyclone uses a
-two level log structure where it drains entries from the NVM log in IO friendly
-batches to a log placed on a flash drive. This allows Cyclone to use only a
-limited amount of NVM following the reasoning that current forms of NVM such as
-NVDIMMs are more expensive than DRAM. Our experiments use an NVM footprint of a
-mere 64 MB to achieve performance comparable to placing the entire log in
-NVM. This allows Cyclone to be used in deployments where the key value store is
-maintained entirely in main memory rather than as a multi-level LSM tree
-structure, with the log serving as the source for recovery in the event of
-failure.
+The primary cause of slowdown when turning on a write ahead log on a single
+machine is the need to do synchronous block IO for every update. For even
+moderately sized updates, this leads to severe write amplification as a 4KB page
+must be synchronously written to the log file on flash. Cyclone avoids this by
+making use of directly attached persistent memory on the server. This can be in
+the form of NVDIMMs (DIMMs with an added ultracapacitor to dump state to a small
+amount of attached flash) or newer forms of persistent memory~\cite{pmfs}. For
+current deployments, NVDIMMs are expensive - retailing at approximately 2X the
+price of a standard DIMM [find ref]. This means that they will likely be
+available in small quantities. We compensate for this by periodically draining
+the NVDIMM log into a log placed on a standard SSD on the system. We describe
+this two level log structure in Section~\ref{sec:storage}.
 
-We discuss the two level structure focusing on the packet switching components
-in Section~\ref{sec:2level}. We then describe how we can horizontally scale this
-basic idea across multiple cores by leveraging the commutativity of key value
-store APIs across different keys in Section~\ref{sec:horizontal}. We then
-demonstrate in the evaluation in Section~\ref{sec:evaluation} that Cyclone can
-replicate millions of updates a second using only commodity 10 Gigabit ethernet
-adapters thereby closing the performance gap between key value store performance
-and write ahead logging performance using only a small amount of directly
-attached NVM. A discussion of related work follows before we conclude.
+The network overheads for replicating a log entry to a quorum of machines stems
+from the overhead of the TCP/IP stack in the linux kernel - itself the topic of
+much research [dataplane OS stuff]. We therefore replase the TCP/IP stack with
+DPDK, a userspace network library that allows direct IO of raw ethernet frames
+to and from the network interface card (NIC) eliminating all overheads. We no
+longer use TCP - since the rare network errors encountered in a typical
+datacenter network are automatically handled by the replication protocol (RAFT)
+as part of its failure model. Finally, we carefully design our implementation of
+RAFT to relieve the CPU of all data copy operations, leaving the core to only
+run the protocol and return an accept/reject decision for each received
+packet. The set of optimizations to the network stack is decribed in
+Section~\ref{sec:network}.
+
+Both the storage (NVM, SSD) as well as the NIC expose significant parallelism
+that is left unused when Cyclone is used to replicate a single log. To exploit
+this parallelism we use Cyclone to replicate multiple logs, each using a
+different instance of the RAFT consensus protocol. We show how to exploit the
+commutativity inherent in key-value store interfaces to make use of this
+parallelism in Cyclone's design in Section~\ref{parallelism}.
+
+A detailed evaluation of Cyclone's replication is provided in the context of
+RocksDB - a popular persistent key value store in
+Section~\ref{sec:evaluation}. We show that Cyclone achieves performance
+transparent replication in that it can provide both a persistent write ahead log
+and replication without compromising on RocksDB's performance.
+
+\section{System Architecture}
+
+\section{Storage}
+
+
+\section{Network}
+
+
+\section{Parallelism}
+
+
 
 \section{Two Level Log}
 \label{sec:2level}
