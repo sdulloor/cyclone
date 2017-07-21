@@ -81,8 +81,9 @@ datastructures.
 
 
 Cyclone is a high speed strongly consistent replicated write ahead logging
-service specialized for key value stores such as Rocksdb. Cyclone provides the
-order of magnitude better performance required to close the performance gap in
+service specialized for key value stores such as Rocksdb. We describe Cyclone's
+system architecture in Section~\ref{sec:sysarch}. Cyclone provides the order of
+magnitude better performance required to close the performance gap in
 Figure~\ref{fig:problem} both on the storage and network side. Cyclone requires
 \emph{a small amount of} directly attached Non Volatile Memory (NVM) on the host
 - such as in the form of NVDIMMs~\cite{farm} or directly attached persistent
@@ -120,7 +121,7 @@ to and from the network interface card (NIC) eliminating all overheads. We no
 longer use TCP - since the rare network errors encountered in a typical
 datacenter network are automatically handled by the replication protocol (RAFT)
 as part of its failure model. Finally, we carefully design our implementation of
-RAFT to relieve the CPU of all data copy operations, leaving the core to only
+RAFT to relieve the CPU of all data copy operations, leaving the CPU to only
 run the protocol and return an accept/reject decision for each received
 packet. The set of optimizations to the network stack is decribed in
 Section~\ref{sec:network}.
@@ -130,7 +131,7 @@ that is left unused when Cyclone is used to replicate a single log. To exploit
 this parallelism we use Cyclone to replicate multiple logs, each using a
 different instance of the RAFT consensus protocol. We show how to exploit the
 commutativity inherent in key-value store interfaces to make use of this
-parallelism in Cyclone's design in Section~\ref{parallelism}.
+parallelism in Cyclone's design in Section~\ref{sec:parallelism}.
 
 A detailed evaluation of Cyclone's replication is provided in the context of
 RocksDB - a popular persistent key value store in
@@ -139,19 +140,11 @@ transparent replication in that it can provide both a persistent write ahead log
 and replication without compromising on RocksDB's performance.
 
 \section{System Architecture}
+\label{sec:sysarch}
+
 
 \section{Storage}
-
-
-\section{Network}
-
-
-\section{Parallelism}
-
-
-
-\section{Two Level Log}
-\label{sec:2level}
+\label{sec:storage}
 A fundamental challenge in building an efficient replicated log is dealing with
 network overheads. Cyclone's construction is predicated on the observation that
 in the common case, protocols such as RAFT simply multicast the same entry
@@ -195,6 +188,10 @@ NVM log across a set of replicas. The software packet switching idea we apply is
 to separate the control plane from the data plane using the Data Plane
 Development Kit (DPDK~\cite{dpdk}) library for direct userspace access to the
 network interface.
+
+
+\section{Network}
+\label{sec:network}
 
 \subsubsection{Dataplane Separation}
 We use RAFT~\cite{raft} as the underlying protocol for log replication. RAFT
@@ -373,6 +370,10 @@ attached NVM with a two level log removes the need to make this tradeoff.
   \caption{Race with multiple physical logs}
   \label{fig:race}
 \end{figure}
+
+
+\section{Parallelism}
+\label{sec:parallelism}
 
 \section{Horizontal Scaling}
 \label{sec:horizontal}
