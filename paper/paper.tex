@@ -4,6 +4,7 @@
 \newcommand{\asplossubmissionnumber}{XXX}
 
 \usepackage[normalem]{ulem}
+\usepackage{parskip}
 
 \begin{document}
 
@@ -14,10 +15,6 @@
 \maketitle
 
 \thispagestyle{empty}
-
-% Use the following at camera-ready time to suppress page numbers.
-% Comment it out when you first submit the paper for review.
-%\thispagestyle{empty}
 
 \begin{abstract}
 Persistent key value stores are rapidly becoming an important component of many
@@ -52,13 +49,13 @@ performance from flash-based solid state drives (SSDs).
 
 These key value stores however tend to ignore an important component: the write
 ahead log. A machine or storage failure leading to total loss or temporary
-unavailability of data is unacceptable in many internet scale services where
-high availabilty and revenue are often interconnected. Key value stores
-therefore usually incorporate support for a write ahead log that if replicated
-and kept durable for every appended update provides the necessary high
-availability. Unfortunately, the write ahead log is a performance achilles heel
-for these systems - eclipsing much of the work on improving the performance of
-the LSM component. To illustrate the impact of the write ahead log, consider
+unavailability of data is unacceptable in services where high availabilty and
+revenue are interconnected. Key value stores therefore usually incorporate
+support for a write ahead log that if replicated and kept durable for every
+appended update provides the necessary high availability. Unfortunately, the
+write ahead log is a performance achilles heel for these systems - eclipsing
+much of the work on improving the performance of the LSM component. To
+illustrate the impact of the write ahead log, consider
 Figure~\ref{fig:problem}. The line marked 'Rocksdb' shows the performance of
 Rocksdb without the write ahead log. The performance when persisting the write
 ahead log without replicating it is shown as the line marked 'rocksdb/WAL'. The
@@ -93,11 +90,9 @@ successfully replicated to majority quorum of replicas. All reads and write to
 the key value store are always executed by the leader replica. A client side
 stub provided by Cyclone automatically locates and directs read and write
 requests to the leader replica, ensuring linearizable semantics from the key
-value store. Using a replicated write ahead log to build a linearizable and
-highly available key value store is not new [find some examples here]. The
-novelty in Cyclone is that it accomplishes this without compromising on the
-performance baseline of no logging or replication. Cyclone does this by
-systematically addressing the sources of performance degradation in
+value store. The novelty in Cyclone is that it accomplishes this without
+compromising on the performance baseline of no logging or replication. Cyclone
+does this by systematically addressing the sources of performance degradation in
 Figure~\ref{fig:problem}.
 
 The primary cause of slowdown when turning on a write ahead log on a single
@@ -134,37 +129,172 @@ commutativity inherent in key-value store interfaces to make use of this
 parallelism in Cyclone's design in Section~\ref{sec:parallelism}.
 
 A detailed evaluation of Cyclone's replication is provided in the context of
-RocksDB - a popular persistent key value store in
+RocksDB - a popular persistent key value store - in
 Section~\ref{sec:evaluation}. We show that Cyclone achieves performance
 transparent replication in that it can provide both a persistent write ahead log
 and replication without compromising on RocksDB's performance.
 
 \section{System Architecture}
 \label{sec:sysarch}
+A persistent key value store durably stores key-value mappings accessible through a
+simple interface:
 
+\begin{itemize}
+\item GET(K): returns value corresponding to key K
+\item PUT(K, V): sets the value of key K to value V
+\end{itemize}
+
+A key value store typically serves multiple client requests concurrently and is
+linearizable~\cite{linearizability}. This means any history of requests and
+responses can be rearranged such that responses immediately follow corresponding
+requests and if a response precedes a request in the original history it also
+does so in the rearranged history. Key value stores such as RocksDB also
+support atomic writes to multiple keys and snapshots. 
+
+Cyclone integrates with key value stores as both a client and server side
+library. Cyclone replicates the key value store across a set of replica
+servers. The client side library sends requests to a distinguished leader
+replica.  On the server side Cyclone accepts requests from clients and calls
+into the key value store. It then returns a response to the client. Before
+executing any PUT request, Cyclone appends it to a durable log and replicates
+the request to the logs of follower replicas. The request is considered
+replicated once acknowledged by a majority of replicas.
+
+Cyclone uses RAFT~\cite{raft} to keep the logs in sync across the replicas. On a
+failure of the leader replica a new leader is automatically elected - RAFT
+ensures that the new leader has the most up to date logs. The Cyclone client
+library automatically locates the new leader on a failover - clients therefore
+see only a brief interruption in service. Although read requests (GET
+operations) are not logged, they are serviced in FIFO order with the write requests
+(PUT operations) currently in Cyclone's log. This ensures linearizability in the
+face of failovers.
 
 \section{Storage}
 \label{sec:storage}
-A fundamental challenge in building an efficient replicated log is dealing with
-network overheads. Cyclone's construction is predicated on the observation that
-in the common case, protocols such as RAFT simply multicast the same entry
-received from a client, from the leader replica to all follower replicas. This
-suggests that an efficient way to implement a replicated log is to treat it as a
-software packet switching problem. However peristing logs on flash represents an
-impediment in that block storage devices are not good candidates to hold packets
-being software switched. Our solution is to split the log into two levels. The
-upper level is held in directly attached non-volatile memory (NVM)
-such as NVDIMMs. The lower level is held on a flash SSD - we term the lower
-level log as the flashlog. We periodically drain entries in batches from the NVM
-log to the backing flashlog. An important consequence of this two level approach
-is that we need only a limited amounts of NVM with the bulk of the log residing
-on flash - an arrangement that maps well to the current relative costs of the
-two types of memory. We begin by describing the NVM log and how we implement the
-RAFT consensus protocol in the packet switching paradigm around it. We then
-describe the flashlog and how we drain entries in batches from the NVM level to
-the flash level.
+Storage devices such as flash-based SSDs export a block IO interface. Appending
+a small update to the write-ahead log requires a synchronous update of an entire
+4KB page. This leads to a high baseline latency at even low load, as shown in
+Figure~\ref{fig:problem}.  On the other hand small updates (in the order of 100s
+of bytes for both the key and value taken together) are commonplace in many
+workloads [find refs]. This problem leads many system designers to
+underprovision key-value store shards ensuring that it operates at moderate to
+high load, using group-commit to batch additions to the log. They therefore pay
+a price in latency to ensure the bandwidth to storage is fully utilized to
+prevent it from becoming a bottleneck.
 
-\subsection{NVM Log}
+Cyclone adopts a different strategy by making use of novel memory technologies
+to obviate the need to make this tradeoff in the first place. We assume a small
+amount of non-volatile memory directly addressable by the CPU rather than placed
+behind a block oriented IO interface. Log appends are done to the ``NVM log''
+placed in this non-volatile memory. While we designed Cyclone to leverage new
+non-volatile memory technologies that might be available in the
+future~\cite{3dxpoint} current non-volatile memory options such are NVDIMMs
+are more expensive that DRAM. Therefore, for Cyclone to be economical
+we cannot assume that a sufficient amount of NVM is available to hold the entire
+log. The log entries can only be garbage collected when the in-memory component
+of the key value store is checkpointed to secondary storage. The growing size of
+available DRAM means that also provisioning sufficient NVDIMMs to hold the
+corresponding log of updates is not feasible given that NVDIMMs cost at least
+twice as much as volatile DRAM. We therefore resort to using a second larger log
+level placed on a flash SSD. Entries are drained from the NVM log to this flash
+log in conveniently large units that are a multiple of 4KB - the optimum IO unit
+for flash SSDs. This ensures we get the best
+possible throughput from a flash device without paying the price of synchronous
+IO for small key-value pairs. At the same time, the amount of non-volatile
+memory required is small enough to not add undue cost of the server.
+
+The flashlog is written out in segments of configurable size (we use 128KB
+segments). A segment buffer is prepared in memory (volatile DRAM) using the
+layout shown in Figure~\ref{fig:flashlog_page}. We do not allow objects in the
+flashlog to cross a 4KB boundary - linking multiple objects together with a
+special flag encoded into the size if necessary. We flush log segments out to
+the log file using asynchronous direct IO, and therefore we fill one log segment
+buffer while keeping IO to another one outstanding to the flash drive. To avoid
+having to do a synchronous metadata flush, we preallocate (using the
+posix\_fallocate call) a gigabyte worth of zero filled disk pages at the end of
+the log file whenever we hit its end.
+
+In order to recover from a crash, we make two important assumptions about the
+underlying SSD. First, we assume that 4KB is the \emph{minimum} atomic unit for
+updating pages on the SSD even under power failure i.e. there are no shorn
+writes (otherwise known as torn writes) on a 4KB page~\cite{shorn_writes}. We
+also assume that the SSD has power loss data protection meaning that writes
+cached in the drive's volatile cache are written to the SSD using a backup
+capacitor in the event of power failure - a property of many data center class
+SSDs today, including the Intel DC P3600 SSD~\cite{ssd_spec} we use in our
+evaluation. Together these two assumptions mean that we can recover a consistent
+prefix of the log on a power failure.
+
+We move log entries from the head of the NVM log to the flashlog buffers in FIFO
+order. The NVM log entry is only actually removed when the IO for the
+corresponding flashlog page is complete. This means that during recovery we can
+have the same log entry both in the NVM log and the flashlog, a condition that
+can be detected by examining the log sequence number that we embed in each log
+entry.
+
+\begin{figure}
+  \centering
+  \includegraphics[scale=0.4]{figures2/flashlog_page.pdf}
+  \caption{Flashlog segment}
+  \label{fig:flashlog_page}
+\end{figure}
+
+The two level log design in Cyclone lays the foundation for improvements to the
+network stack that we discuss next - a significant contributor to the overheads
+in Figure~\ref{fig:problem}. We use RAFT to replicate the NVM log from the
+leader replica to the followers. Each replica \emph{independently} drains
+committed entries (in terms of RAFT consensus) from the NVM log to the
+flashlog. Block IO therefore is no longer a consideration when optimizing data
+movement over the network, unlike systems that need to deal with such
+problems~\cite{reflex}. Replication reduces to efficiently sending a block of
+data already present in directly attached memory over the network. 
+
+\section{Network}
+\label{sec:network}
+
+The core network operation in replication is to receive a request from the
+client at the leader replica and send that exact same request (as a log entry)
+to all follower replicas. The leader therefore \emph{multicasts} a received
+request packet to follower replicas, a problem well studied in the networking
+community when building software packet switches. Software packet switches reach
+impressive speeds of millions of packets forwarded per core [find refs], a
+number far in excess of the few hundreds of packets we manage in
+Figure~\ref{fig:problem}. We therefore proceed by approximating a software
+packet switch for the networking component of Cyclone. However software packet
+switching does not need to deal with failure - usually requiring only a simple
+decision for each packet at the node. RAFT introduces significant
+protocol level work for each forwarded packet a challenge that we need to deal
+with to approach the desired software packet switching efficiency in the common
+case.
+
+\subsection{DPDK}
+The Data Plane Development Kit~\cite{dpdk} provides low latency userspace access
+to an ethernet NIC, permitting the application to directly send and receive raw
+ethernet frames via the transmit and receive queues on the NIC. DPDK is often
+used by developers of software packet switches and therefore we also leverage
+DPDK as a library for building Cyclone.
+
+DPDK does not by itself provide a TCP stack. This is not a problem. RAFT (and
+indeed most consensus protocols) tolerate network losses and reordering by
+design due to the need to support asynchronous communication. In addition, most
+datacenter networks rarely drop or reorder packets and provide full bisection
+bandwith between servers that might serve as Cyclone replicas. We therefore
+jettisoned TCP and chose to send raw IP packets encapsulated in ethernet
+frames. We currently follow this communication model both for server to server
+communication between replicas as well as client server communication for
+requests and responses. Although a detailed evaluation is made later, switching
+from the kernel TCP/IP stack to DPDK reduces the latency between machines in our
+testbed from {\tt 24 us} to as low as {\tt 7 us}, providing a significant boost
+to performance.
+
+\subsection{Eliminating Data Movement}
+
+
+Another key problem we had to solve with DPDK was teaching it about persistent
+memory. DPDK allows one to plug in a memory allocator. We required the allocator
+to support various features such as allowing multiple entities (the cpu core and
+NIC driver) to hold reference to DPDK packets and allocate/free in parallel. 
+
 The NVM log is maintained as a circular log of fixed sized pointers (a pointer
 log) to memory buffers - each of which holds a client request. This arrangement
 is shown in Figure~\ref{fig:nvm_log} that also illustrates the advantage of such
@@ -188,10 +318,6 @@ NVM log across a set of replicas. The software packet switching idea we apply is
 to separate the control plane from the data plane using the Data Plane
 Development Kit (DPDK~\cite{dpdk}) library for direct userspace access to the
 network interface.
-
-
-\section{Network}
-\label{sec:network}
 
 \subsubsection{Dataplane Separation}
 We use RAFT~\cite{raft} as the underlying protocol for log replication. RAFT
@@ -318,44 +444,6 @@ transmit packets to replicas. Therefore, we never tradeoff latency for
 throughput when batching. 
 
 \subsection{Flash Log}
-Cyclone is designed to use only limited amounts of NVM and drains log entries
-down into a log placed on a flash SSD - that we term the flashlog. The flashlog
-is written out in segments of configurable size (we use 128KB segments). A
-segment buffer is prepared in memory (volatile DRAM) using the layout shown in
-Figure~\ref{fig:flashlog_page}. We do not allow objects in the flashlog to cross
-a 4KB boundary - linking multiple objects together with a special flag encoded
-into the size if necessary. We flush log segments out to the log file using
-asynchronous direct IO, and therefore we fill one log segment buffer while
-keeping IO to another one outstanding to the flash drive. To avoid having to do
-a synchronous metadata flush, we preallocate (using the posix\_fallocate call) a
-gigabyte worth of zero filled disk pages at the end of the log file whenever we
-hit its end.
-
-In order to recover from a crash, we make two important assumptions about the
-underlying SSD. First, we assume that 4KB is the \emph{minimum} atomic unit for
-updating pages on the SSD even under power failure i.e. there are no shorn
-writes (otherwise known as torn writes) on a 4KB page~\cite{shorn_writes}. We
-also assume that the SSD has power loss data protection meaning that writes
-cached in the drive's volatile cache are written to the SSD using a backup
-capacitor in the event of power failure - a property of many data center class
-SSDs today, including the Intel DC P3600 SSD~\cite{ssd_spec} we use in our
-evaluation. Together these two assumptions mean that we can recover a consistent
-prefix of the log on a power failure.
-
-We move log entries from the head of the NVM log to the flashlog buffers in FIFO
-order. The NVM log entry is only actually removed when the IO for the
-corresponding flashlog page is complete. This means that during recovery we can
-have the same log entry both in the NVM log and the flashlog, a condition that
-can be detected by examining the RAFT related information that is embedded as
-part of the logged packet.
-
-
-\begin{figure}
-  \centering
-  \includegraphics[scale=0.4]{figures2/flashlog_page.pdf}
-  \caption{Flashlog segment}
-  \label{fig:flashlog_page}
-\end{figure}
 
 The fact that we can immedately absorb updates into an NVM log and only move
 them to the flashlog in suitable units for block IO sidesteps a common problem
