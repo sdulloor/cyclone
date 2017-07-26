@@ -17,6 +17,7 @@
 \thispagestyle{empty}
 
 \begin{abstract}
+\vspace{0.1in}
 Persistent key value stores are rapidly becoming an important component of many
 distributed data serving solutions with innovations targeted at taking advantage
 of growing flash speeds. Unfortunately their performance is hampered by the need
@@ -76,63 +77,67 @@ datastructures.
 \label{fig:problem}
 \end{figure}
 
-
 Cyclone is a high speed strongly consistent replicated write ahead logging
-service specialized for key value stores such as Rocksdb. We describe Cyclone's
-system architecture in Section~\ref{sec:sysarch}. Cyclone provides the order of
-magnitude better performance required to close the performance gap in
-Figure~\ref{fig:problem} both on the storage and network side. Cyclone requires
-\emph{a small amount of} directly attached Non Volatile Memory (NVM) on the host
-- such as in the form of NVDIMMs~\cite{farm} or directly attached persistent
-memory~\cite{pmfs}. Cyclone logs update operations to the key value store and
-calls on the key value store to execute the update only when it has been
-successfully replicated to majority quorum of replicas. All reads and write to
-the key value store are always executed by the leader replica. A client side
-stub provided by Cyclone automatically locates and directs read and write
-requests to the leader replica, ensuring linearizable semantics from the key
-value store. The novelty in Cyclone is that it accomplishes this without
-compromising on the performance baseline of no logging or replication. Cyclone
-does this by systematically addressing the sources of performance degradation in
-Figure~\ref{fig:problem}.
+service specialized for key value stores such as Rocksdb. Cyclone entirely
+closes the performance gap due to both the storage and the network shown in
+Figure~\ref{fig:problem}. We show that Cyclone achieves performance transparent
+replication in that it can provide both a persistent write ahead log and
+replication without compromising on RocksDB's performance.
 
-The primary cause of slowdown when turning on a write ahead log on a single
-machine is the need to do synchronous block IO for every update. For even
-moderately sized updates, this leads to severe write amplification as a 4KB page
-must be synchronously written to the log file on flash. Cyclone avoids this by
-making use of directly attached persistent memory on the server. This can be in
-the form of NVDIMMs (DIMMs with an added ultracapacitor to dump state to a small
-amount of attached flash) or newer forms of persistent memory~\cite{pmfs}. For
-current deployments, NVDIMMs are expensive - retailing at approximately 2X the
-price of a standard DIMM [find ref]. This means that they will likely be
-available in small quantities. We compensate for this by periodically draining
-the NVDIMM log into a log placed on a standard SSD on the system. We describe
-this two level log structure in Section~\ref{sec:storage}.
+The first key contribution of Cyclone is in showing how a small amount of
+non-volatile memory can be combined with the flash SSD based persistent logs
+when providing high availability.  The primary cause of slowdown when turning on
+a write ahead log on a single machine in Figure~\ref{fig:problem} is the need to
+do synchronous block IO for every update. For evenmoderately sized updates, this
+leads to severe write amplification as a 4KB page must be synchronously written
+to the log file on flash. Cyclone avoids this by making use of directly attached
+persistent memory on the server. This can be in the form of NVDIMMs (DIMMs with
+an added ultracapacitor to dump state to a small amount of attached flash) or
+newer forms of persistent memory~\cite{pmfs}. For current deployments, NVDIMMs
+are expensive - retailing at approximately 2X the price of a standard DIMM [find
+  ref]. This means that they will likely be available in small quantities. We
+compensate for this by periodically draining the NVDIMM log into a log placed on
+a standard SSD on the system.
 
-The network overheads for replicating a log entry to a quorum of machines stems
-from the overhead of the TCP/IP stack in the linux kernel - itself the topic of
-much research [dataplane OS stuff]. We therefore replase the TCP/IP stack with
-DPDK, a userspace network library that allows direct IO of raw ethernet frames
-to and from the network interface card (NIC) eliminating all overheads. We no
-longer use TCP - since the rare network errors encountered in a typical
-datacenter network are automatically handled by the replication protocol (RAFT)
-as part of its failure model. Finally, we carefully design our implementation of
-RAFT to relieve the CPU of all data copy operations, leaving the CPU to only
-run the protocol and return an accept/reject decision for each received
-packet. The set of optimizations to the network stack is decribed in
-Section~\ref{sec:network}.
+The second key contribution of this work is in showing that the performance
+overheads in the network stack can be mitigated entirely in software. Existing
+work on log replication using state machine replication protocols such as
+Paxos~\cite{paxos} and RAFT~\cite{raft} has not - thus far - addressed high
+performance replication in the local area network of a datacenter using
+commodity networks.  Research focusing on addressing wide area network latencies
+by reducing the number of network hops with new protocols such as Fast
+Paxos~\cite{fast-paxos} or network switch modifications such as No
+Paxos~\cite{nopaxos} do not address throughput bottlenecks due to network stack
+related inefficiencies in the participating nodes of the quorum - a more urgent
+problem with local area replication. On the other hand, work done to address
+network related inefficiencies start with the assumption that the bottleneck to
+good throughput on the network is the CPU and therefore one must either resort
+to offload mechanisms such as RDMA~\cite{dare, farm, faast} or offload the
+protocol entirely to an FPGA~\cite{consensus_box}. We demonstrate in this paper
+that this is not the case. Rather, once persistence is provided by directly
+attached non-volatile memory eliminating block IO from the persistence step in
+replication protocols, the problem becomes equivalent to multicasting the same
+log entry from the leader to all followers. We design Cyclone's network stack
+around well known principles in the software packet switching community. In
+particular, a careful implementation of a consensus protocol that relieves the
+CPU of the responsibility of data movement permits a high performance
+implementation entirely in software that addresses the order of magnitude
+network related performance gap in Figure~\ref{fig:problem} using only commodity
+10 Gigabit ethernet.
 
-Both the storage (NVM, SSD) as well as the NIC expose significant parallelism
-that is left unused when Cyclone is used to replicate a single log. To exploit
-this parallelism we use Cyclone to replicate multiple logs, each using a
-different instance of the RAFT consensus protocol. We show how to exploit the
-commutativity inherent in key-value store interfaces to make use of this
-parallelism in Cyclone's design in Section~\ref{sec:parallelism}.
+The rest of the paper is organized as follows. We describe Cyclone's system
+architecture in Section~\ref{sec:sysarch}. We describe this two level log
+structure in Section~\ref{sec:storage}. The set of optimizations to the network
+stack is decribed in Section~\ref{sec:network}. Both the storage (NVM, SSD) as
+well as the NIC expose significant parallelism that is left unused when Cyclone
+is used to replicate a single log. To exploit this parallelism we use Cyclone to
+replicate multiple logs, each using a different instance of the RAFT consensus
+protocol. We show how to exploit the commutativity inherent in key-value store
+interfaces to make use of this parallelism in Cyclone's design in
+Section~\ref{sec:parallelism}.  A detailed evaluation of Cyclone's replication
+is provided in the context of RocksDB - a popular persistent key value store -
+in Section~\ref{sec:evaluation}. We then discuss related work before concluding.
 
-A detailed evaluation of Cyclone's replication is provided in the context of
-RocksDB - a popular persistent key value store - in
-Section~\ref{sec:evaluation}. We show that Cyclone achieves performance
-transparent replication in that it can provide both a persistent write ahead log
-and replication without compromising on RocksDB's performance.
 
 \section{System Architecture}
 \label{sec:sysarch}
