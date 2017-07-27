@@ -88,10 +88,11 @@ The first key contribution of Cyclone is demonstrating the benefit of a small
 amount of non-volatile memory when combined with the flash SSD based persistent
 logs.  The primary cause of slowdown when turning on a write ahead log on a
 single machine in Figure~\ref{fig:problem} is the need to do synchronous block
-IO for every update. Mordern NVMe SSDs advertise a synchronous write latency of
-the order of around 20us, capping throughput at 50K ops/sec, even with write coalescing 
-in the SSDs own internal write cache. Cyclone avoids this by making use of directly attached persistent
-memory on the server. This can be in the form of NVDIMMs (DIMMs with an added
+IO for every update \emph{regardless of the size of the update}. SSDs provide
+the maximum throughput when writing large chunks (usually more than 4KB) of
+data. For small updates, the synchronous write latency dominates the time for
+IO.  Cyclone avoids this by making use of directly attached persistent memory on
+the server. This can be in the form of NVDIMMs (DIMMs with an added
 ultracapacitor to dump state to a small amount of attached flash) or newer forms
 of persistent memory~\cite{pmfs}. For current deployments, NVDIMMs are expensive
 - retailing at approximately 2X the price of a standard DIMM [find ref]. This
@@ -177,12 +178,12 @@ face of failovers.
 \section{Storage}
 \label{sec:storage}
 Storage devices such as flash-based SSDs export a block IO interface. Appending
-a small update to the write-ahead log requires a synchronous access to the SSD. Even with 
-write coalescing using a write cache on the SSD, the round  trip time to a current generation NVMe 
-SSD such as the one we use in this paper~\cite{ssd_spec}, is of the order of 20 us, limiting the throughput to under 50K ops/sec. 
-
-This leads to a high baseline latency at even low load, as shown in
-Figure~\ref{fig:problem}. This problem leads many system designers to
+a small update to the write-ahead log requires a synchronous access to the
+SSD. Even with write coalescing using a write cache on the SSD, the round trip
+time to a current generation NVMe SSD such as the one we use in this
+paper~\cite{ssd_spec}, is of the order of 20 us, limiting the throughput to
+under 50K ops/sec. This leads to a high baseline latency at even low load, as
+shown in Figure~\ref{fig:problem}. This problem leads many system designers to
 underprovision key-value store shards ensuring that it operates at moderate to
 high load, using group-commit to batch additions to the log. They therefore pay
 a price in latency to ensure the bandwidth to storage is fully utilized to
@@ -852,7 +853,7 @@ store data structures need to be maintained largely on flash. Nevertheless we
 can compare their replication performance for the case where we use only the NVM
 log in Cyclone. On 40Gbps infiniband, Mojim reported being able to mirror data
 at 4GB/s. In contrast, Cyclone can replicate data three ways using 4*10 Gbps
-commodity ethernet NICs at a peak of roughly 3.7 GB/s. Notably this is while
+commodity ethernet NICs at a peak of roughly 3.7 GB/s. This is with
 Cyclone is also running the RAFT consensus protocol, while Mojim is doing simple
 mirroring of main memory. One can conclude that network offload via RDMA and
 Infiniband is not an a-priori requirement for high throughput replication. This
@@ -863,12 +864,12 @@ Infiniband. Depending on the use case for the key value store application the
 extra 6us with ethernet for the round trip to the replica might be a concern for
 some applications. We note that mapping the commutativity of key value store
 interfaces to multiple logs in Cyclone is a technique that can also be applied
-to RDMA. The authors of Mojim confirm that concurrency is a significant
+to RDMA. Mojim confirms that concurrency is a significant
 determinant of performance when replicating over RDMA.
 
 Consensus in a box~\cite{consensus_box} implements the Zookeeper atomic
 broadcast protocol together with a NIC on an FPGA. That work ignored durability,
-focusing purely on network performance for replication. Latency numbers are
+focusing purely on network performance for replication. Latency is
 excellent due to the FPGA that cuts out the path from CPU caches to the NIC and
 are reported to be as low as 3us for a round trip from leader to follower
 replica compared to the 6us we observe with DPDK. Notably however they reported
