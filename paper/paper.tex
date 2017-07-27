@@ -8,7 +8,7 @@
 
 \begin{document}
 
-\title{\Large \bf Cyclone: Warp Speed Replication for Key Value Stores}
+\title{\Large \bf Cyclone: Warp Speed Replication for Persistent Key Value Stores}
 
 
 \date{}
@@ -84,22 +84,22 @@ Figure~\ref{fig:problem}. We show that Cyclone achieves performance transparent
 replication in that it can provide both a persistent write ahead log and
 replication without compromising on RocksDB's performance.
 
-The first key contribution of Cyclone is in showing how a small amount of
-non-volatile memory can be combined with the flash SSD based persistent logs
-when providing high availability.  The primary cause of slowdown when turning on
-a write ahead log on a single machine in Figure~\ref{fig:problem} is the need to
-do synchronous block IO for every update. For evenmoderately sized updates, this
-leads to severe write amplification as a 4KB page must be synchronously written
-to the log file on flash. Cyclone avoids this by making use of directly attached
-persistent memory on the server. This can be in the form of NVDIMMs (DIMMs with
-an added ultracapacitor to dump state to a small amount of attached flash) or
-newer forms of persistent memory~\cite{pmfs}. For current deployments, NVDIMMs
-are expensive - retailing at approximately 2X the price of a standard DIMM [find
-  ref]. This means that they will likely be available in small quantities. We
-compensate for this by periodically draining the NVDIMM log into a log placed on
-a standard SSD on the system.
+The first key contribution of Cyclone is demonstrating the benefit of a small
+amount of non-volatile memory when combined with the flash SSD based persistent
+logs.  The primary cause of slowdown when turning on a write ahead log on a
+single machine in Figure~\ref{fig:problem} is the need to do synchronous block
+IO for every update. For small to moderately sized updates, this leads to severe
+write amplification as a 4KB page must be synchronously written to the log file
+on flash. Cyclone avoids this by making use of directly attached persistent
+memory on the server. This can be in the form of NVDIMMs (DIMMs with an added
+ultracapacitor to dump state to a small amount of attached flash) or newer forms
+of persistent memory~\cite{pmfs}. For current deployments, NVDIMMs are expensive
+- retailing at approximately 2X the price of a standard DIMM [find ref]. This
+means that they will likely be available in small quantities. We compensate for
+this by periodically draining the NVDIMM log into a log placed on a standard SSD
+on the system.
 
-The second key contribution of this work is in showing that the performance
+The second key contribution of this work is in showing that the throughput
 overheads in the network stack can be mitigated entirely in software. Existing
 work on log replication using state machine replication protocols such as
 Paxos~\cite{paxos} and RAFT~\cite{raft} has not - thus far - addressed high
@@ -843,23 +843,27 @@ replicas in turn to locate the leader - in this case it fails over in about
 
 Cyclone takes a software only approach to improving replication performance
 using commodity network hardware. In contrast, Mojim~\cite{mojim} pairs directly
-attached persistent memory with RDMA to replicate persistent data structures. On
-40Gbps infiniband, Mojim reported being able to mirror data at 4GB/s. In
-contrast, Cyclone can replicate data three ways using 4*10 Gbps commodity
-ethernet NICs at a peak of roughly 3.7 GB/s. Notably this is while Cyclone is
-also running the RAFT consensus protocol and draining the log to a high capacity
-flash SSD, while Mojim is doing simple mirroring of main memory. One can
-conclude that network offload via RDMA and Infiniband is not an a-priori
-requirement for high throughput replication. This is made possible by Cyclone's
-approach that relieves the CPU from the burden of data copies. Of course, the
-latency of a hop on commodity ethernet at 5 us with our DPDK stack is larger
-than the close to 2us latency with Infiniband. Depending on the use case for the
-key value store application the extra 6us with ethernet for the round trip to
-the replica might be a concern for some applications. We note that mapping the
-commutativity of key value store interfaces to multiple logs in Cyclone is a
-technique that can also be applied to RDMA. The authors of Mojim confirm that
-concurrency is a significant determinant of performance when replicating over
-RDMA.
+attached persistent memory with RDMA to replicate persistent data structures. A
+comparison is hard since Mojim is designed for the hypothetical scenario where
+there is enough persistent memory to hold all persistent data, while Cyclone is
+designed for the practical case where both the write-ahead log and key value
+store data structures need to be maintained largely on flash. Nevertheless we
+can compare their replication performance for the case where we use only the NVM
+log in Cyclone. On 40Gbps infiniband, Mojim reported being able to mirror data
+at 4GB/s. In contrast, Cyclone can replicate data three ways using 4*10 Gbps
+commodity ethernet NICs at a peak of roughly 3.7 GB/s. Notably this is while
+Cyclone is also running the RAFT consensus protocol, while Mojim is doing simple
+mirroring of main memory. One can conclude that network offload via RDMA and
+Infiniband is not an a-priori requirement for high throughput replication. This
+is made possible by Cyclone's approach that relieves the CPU from the burden of
+data copies. Of course, the latency of a hop on commodity ethernet at 5 us with
+our DPDK stack is larger than the close to 2us latency with
+Infiniband. Depending on the use case for the key value store application the
+extra 6us with ethernet for the round trip to the replica might be a concern for
+some applications. We note that mapping the commutativity of key value store
+interfaces to multiple logs in Cyclone is a technique that can also be applied
+to RDMA. The authors of Mojim confirm that concurrency is a significant
+determinant of performance when replicating over RDMA.
 
 Consensus in a box~\cite{consensus_box} implements the Zookeeper atomic
 broadcast protocol together with a NIC on an FPGA. That work ignored durability,
@@ -870,10 +874,11 @@ replica compared to the 6us we observe with DPDK. Notably however they reported
 7us when using TCP/IP from the FPGA rather than their own connection oriented
 network protocol. On the other hand their peak replication throughput is 6M
 replications/sec on 66 Gbps of aggregate network bandwith, comparable to the
-same mark obtained by Cyclone on an aggregate 40 Gbps of network bandwidth. We
-believe the general applicability afforded by our software only solution
-together with the fact that we provide persistence by design makes it a
-compelling alternative to an FPGA based solution even given the larger latency.
+same mark obtained by Cyclone on an aggregate 40 Gbps of network bandwidth when
+not using the log on the SSD. We believe the general applicability afforded by
+our software only solution together with the fact that we provide persistence by
+design makes it a compelling alternative to an FPGA based solution even given
+the larger latency.
 
 {CRANE}~\cite{crane} is a system for replicating mutithreaded programs using
 Paxos. It uses deterministic multi-threading to ensure replicas converge to the
@@ -906,16 +911,22 @@ the need for the flashlog. This would allow Cyclone to operate at pure packet
 switching speeds, a goal we hope to achieve in the future with a single level
 log for NVML data store applications.
 
+Using non-volatile memory to cache writes to flash is also employed in the
+internal architecture of flash SSDs - including the SSD we use in the evaluation
+of the paper. This ``write cache'' however does not help with small appends to
+the write ahead log, as experiments with Rocksdb's own write-ahead log has shown
+in this paper.
+
 Cyclone provides a client library that automatically times out and retries
 requests to deal with failure. Protection against repeated execution of the same
 request is currently left to the key value store and client, since we felt that
 exactly once semantics is optional when updates such as put operations are
 idempotent. We have experimented with exactly once semantics as a basis for
 distributed transactions across shards running Cyclone integrated key value
-stores, along the lines of similar work~\cite{raft_lin}, using a fixed client
-space and maintaining information about last seen sequence numbers from clients
-in NVM. Distributed transactions on Cyclone shards however are outside the scope
-of this paper.
+stores. This is along the lines of similar work~\cite{raft_lin}, using a fixed
+client space and maintaining information about last seen sequence numbers from
+clients in NVM. Distributed transactions on Cyclone shards however are outside
+the scope of this paper.
 
 \section{Conclusion}
 Persistent key value stores struggle today to provide high availability using a
