@@ -289,7 +289,7 @@ frames. We currently follow this communication model both for server to server
 communication between replicas as well as client server communication for
 requests and responses. Although a detailed evaluation is made later, switching
 from the kernel TCP/IP stack to DPDK reduces the latency between machines in our
-testbed from {\tt 24 us} to as low as {\tt 7 us}, providing a significant boost
+testbed from {\tt 24 us} to as low as {\tt 5 us}, providing a significant boost
 to performance.
 
 We direct DPDK to use pages backed by NVM for packet buffers. DPDK uses a
@@ -842,27 +842,38 @@ replicas in turn to locate the leader - in this case it fails over in about
 \section{Related Work}
 
 Cyclone takes a software only approach to improving replication performance
-using commodity network hardware. At the other end of the spectrum, Consensus in
-a box~\cite{consensus_box} implements the Zookeeper atomic broadcast protocol
-together with a NIC on an FPGA. That work ignored durability focusing purely on
-replication performance. Latency numbers are impressive due to the FPGA that cuts
-out the path from CPU caches to the NIC and are reported to be as low as 3us for
-a round trip from leader to follower replica compared to the 7us we observe with
-DPDK. Notably however they reported 7us when using TCP/IP from the FPGA rather
-than their own connection oriented network protocol. On the other hand peak
-replication throughput appears to be 6M replications/sec on 66 Gbps of aggregate
-network bandwith, comparable to the mark obtained by Cyclone on an aggregate 40
-Gbps of network bandwidth. We believe the general applicability afforded by our
-software only packet switching solution makes it a compelling alternative to an
-FPGA based solution even given the larger latency.
+using commodity network hardware. In contrast, Mojim~\cite{mojim} pairs directly
+attached persistent memory with RDMA to replicate persistent data structures. On
+40Gbps infiniband, Mojim reported being able to mirror data at 4GB/s. In
+contrast, Cyclone can replicate data three ways using 4*10 Gbps commodity
+ethernet NICs at a peak of roughly 3.7 GB/s. Notably this is while Cyclone is
+also running the RAFT consensus protocol and draining the log to a high capacity
+flash SSD, while Mojim is doing simple mirroring of main memory. One can
+conclude that network offload via RDMA and Infiniband is not an a-priori
+requirement for high throughput replication. This is made possible by Cyclone's
+approach that relieves the CPU from the burden of data copies. Of course, the
+latency of a hop on commodity ethernet at 5 us with our DPDK stack is larger
+than the close to 2us latency with Infiniband. Depending on the use case for the
+key value store application the extra 6us with ethernet for the round trip to
+the replica might be a concern for some applications. We note that mapping the
+commutativity of key value store interfaces to multiple logs in Cyclone is a
+technique that can also be applied to RDMA. The authors of Mojim confirm that
+concurrency is a significant determinant of performance when replicating over
+RDMA.
 
-Network Ordered Paxos~\cite{nopaxos} reprograms top of rack switches to order
-client requests and multicast them to replicas - attacking replication latency
-by removing the need to direct requests through a leader replica. It is hard to
-compare performance due to the 1Gbps links used to leaf nodes in NoPaxos but we
-note that avoiding changes to switching infrastructure was a specific constraint
-in the design of Cyclone due to the difficulty we encountered in convincing
-public cloud customers to allow such changes to be made.
+Consensus in a box~\cite{consensus_box} implements the Zookeeper atomic
+broadcast protocol together with a NIC on an FPGA. That work ignored durability,
+focusing purely on network performance for replication. Latency numbers are
+excellent due to the FPGA that cuts out the path from CPU caches to the NIC and
+are reported to be as low as 3us for a round trip from leader to follower
+replica compared to the 6us we observe with DPDK. Notably however they reported
+7us when using TCP/IP from the FPGA rather than their own connection oriented
+network protocol. On the other hand their peak replication throughput is 6M
+replications/sec on 66 Gbps of aggregate network bandwith, comparable to the
+same mark obtained by Cyclone on an aggregate 40 Gbps of network bandwidth. We
+believe the general applicability afforded by our software only solution
+together with the fact that we provide persistence by design makes it a
+compelling alternative to an FPGA based solution even given the larger latency.
 
 {CRANE}~\cite{crane} is a system for replicating mutithreaded programs using
 Paxos. It uses deterministic multi-threading to ensure replicas converge to the
@@ -870,16 +881,8 @@ same state as opposed to semantic equivalence in Cyclone using the commutativity
 of the key value store interface. Although CRANE is more generally applicable in
 that it makes no assumptions about the application API, deterministic
 multithreading comes with high overheads for applications that store large
-amounts of data - CRANE reports around a 2X slowdown for MySQL likely rendering
+amounts of data - CRANE reports around a 2X slowdown for MySQL, likely rendering
 it unsuitable as a replacement for the write ahead log in key value stores.
-
-A number of researchers have proposed using high performance networking hardware
-for improving the performance of various distributed system primitives such as
-distributed transactions~\cite{farm} and replication~\cite{dare, mojim}. We note
-that the ideas in Cyclone are not specific to ethernet. The same ideas of packet
-switching and horizontal scaling can be equally applied to RDMA. However, we
-chose commodity ethernet due to short term deployment plans that are a
-priority design target. 
 
 The scalable commutativity rule~\cite{scalable_commutativity} generalizes the
 idea of commutativity in key value store interfaces that we have used for
@@ -913,13 +916,6 @@ stores, along the lines of similar work~\cite{raft_lin}, using a fixed client
 space and maintaining information about last seen sequence numbers from clients
 in NVM. Distributed transactions on Cyclone shards however are outside the scope
 of this paper.
-
-Finally, we note that scaling a log horizontally for concurrency is also an idea
-adopted by filesystems. NOVA~\cite{nova} is an example that uses a per-inode log
-to improve concurrency when the filesystem is placed on NVM attached to the
-memory bus. Cyclone also uses a distinct NVM log per control plane core in a
-similar vein but does not maintain a namespace since the number of NVM logs is a
-small fixed number equal to the number of control plane cores.
 
 \section{Conclusion}
 Persistent key value stores struggle today to provide high availability using a
