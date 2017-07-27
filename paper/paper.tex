@@ -88,9 +88,9 @@ The first key contribution of Cyclone is demonstrating the benefit of a small
 amount of non-volatile memory when combined with the flash SSD based persistent
 logs.  The primary cause of slowdown when turning on a write ahead log on a
 single machine in Figure~\ref{fig:problem} is the need to do synchronous block
-IO for every update. For small to moderately sized updates, this leads to severe
-write amplification as a 4KB page must be synchronously written to the log file
-on flash. Cyclone avoids this by making use of directly attached persistent
+IO for every update. Mordern NVMe SSDs advertise a synchronous write latency of
+the order of around 20us, capping throughput at 50K ops/sec, even with write coalescing 
+in the SSDs own internal write cache. Cyclone avoids this by making use of directly attached persistent
 memory on the server. This can be in the form of NVDIMMs (DIMMs with an added
 ultracapacitor to dump state to a small amount of attached flash) or newer forms
 of persistent memory~\cite{pmfs}. For current deployments, NVDIMMs are expensive
@@ -177,11 +177,12 @@ face of failovers.
 \section{Storage}
 \label{sec:storage}
 Storage devices such as flash-based SSDs export a block IO interface. Appending
-a small update to the write-ahead log requires a synchronous update of an entire
-4KB page. This leads to a high baseline latency at even low load, as shown in
-Figure~\ref{fig:problem}.  On the other hand small updates (in the order of 100s
-of bytes for both the key and value taken together) are commonplace in many
-workloads [find refs]. This problem leads many system designers to
+a small update to the write-ahead log requires a synchronous access to the SSD. Even with 
+write coalescing using a write cache on the SSD, the round  trip time to a current generation NVMe 
+SSD such as the one we use in this paper~\cite{ssd_spec}, is of the order of 20 us, limiting the throughput to under 50K ops/sec. 
+
+This leads to a high baseline latency at even low load, as shown in
+Figure~\ref{fig:problem}. This problem leads many system designers to
 underprovision key-value store shards ensuring that it operates at moderate to
 high load, using group-commit to batch additions to the log. They therefore pay
 a price in latency to ensure the bandwidth to storage is fully utilized to
@@ -189,7 +190,7 @@ prevent it from becoming a bottleneck.
 
 Cyclone adopts a different strategy by making use of novel memory technologies
 to obviate the need to make this tradeoff in the first place. We assume a small
-amount of non-volatile memory directly addressable by the CPU rather than placed
+amount of non-volatile memory directly addressable by the CPU rather than being placed
 behind a block oriented IO interface. Log appends are done to the ``NVM log''
 placed in this non-volatile memory. While we designed Cyclone to leverage new
 non-volatile memory technologies that might be available in the
@@ -910,12 +911,6 @@ discarded as soon as it is applied to the persistent key value store removing
 the need for the flashlog. This would allow Cyclone to operate at pure packet
 switching speeds, a goal we hope to achieve in the future with a single level
 log for NVML data store applications.
-
-Using non-volatile memory to cache writes to flash is also employed in the
-internal architecture of flash SSDs - including the SSD we use in the evaluation
-of the paper. This ``write cache'' however does not help with small appends to
-the write ahead log, as experiments with Rocksdb's own write-ahead log has shown
-in this paper.
 
 Cyclone provides a client library that automatically times out and retries
 requests to deal with failure. Protection against repeated execution of the same
