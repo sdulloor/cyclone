@@ -1,7 +1,7 @@
 #ifndef _CYCLONE_COMM_DPDK_
 #define _CYCLONE_COMM_DPDK_
 
-
+#include <cinttypes>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -86,6 +86,7 @@ static void init_port_conf()
   //port_conf.rx_adv_conf.rss_conf.rss_hf = ETH_RSS_IP;
 }
 
+/*
 static struct rte_fdir_conf fdir_conf;
 static void init_fdir_conf()
 {
@@ -104,7 +105,7 @@ static void init_fdir_conf()
   fdir_conf.mask.tunnel_id_mask = 0xFFFFFFFF;
   fdir_conf.drop_queue = 127;
 };
-
+*/
 
 
 typedef struct {
