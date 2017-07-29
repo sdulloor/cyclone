@@ -268,7 +268,7 @@ client at the leader replica and send that exact same request (as a log entry)
 to all follower replicas. The leader therefore \emph{multicasts} a received
 request packet to follower replicas, a problem well studied in the networking
 community when building software packet switches. Software packet switches reach
-impressive speeds of millions of packets forwarded per core [find refs], a
+impressive speeds of millions of packets forwarded per second~\cite{dpdk_perf}, a
 number far in excess of the few hundreds of packets we manage in
 Figure~\ref{fig:problem}. We therefore proceed by approximating a software
 packet switch for the networking component of Cyclone. However software packet
