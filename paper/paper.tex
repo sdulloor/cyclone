@@ -97,10 +97,9 @@ synchronously persisted. Cyclone avoids this by making use of directly attached
 persistent memory on the server. This can be in the form of NVDIMMs (DIMMs with
 an added ultracapacitor to dump state to a small amount of attached flash) or
 newer forms of persistent memory~\cite{pmfs}. For current deployments, NVDIMMs
-are expensive - retailing at approximately 2X the price of a standard DIMM [find
-  ref]. This means that they will likely be available in small quantities. We
-compensate for this by periodically draining the NVDIMM log into a log placed on
-a standard SSD on the system.
+are significantly more expensive than standard DIMMs. This means that they will
+likely be available in small quantities. We compensate for this by periodically
+draining the NVDIMM log into a log placed on a standard SSD on the system.
 
 The second key contribution of this work is in showing that the throughput
 overheads in the network stack can be mitigated entirely in software. Existing
@@ -204,14 +203,16 @@ assume that a sufficient amount of NVM is available to hold the entire log. The
 log entries can only be garbage collected when the in-memory component of the
 key value store is checkpointed to secondary storage. The growing size of
 available DRAM means that also provisioning sufficient NVDIMMs to hold the
-corresponding log of updates is not feasible given that NVDIMMs cost at least
-twice as much as volatile DRAM. We therefore resort to using a second larger log
-level placed on a flash SSD. Entries are drained from the NVM log to this flash
-log in conveniently large units that are a multiple of 4KB - the optimum IO unit
-for flash SSDs. This ensures we get the best possible throughput from a flash
-device without paying the price of synchronous IO for small key-value pairs. At
-the same time, the amount of non-volatile memory required is small enough to not
-add undue cost of the server.
+corresponding log of updates is not feasible given that NVDIMMs are
+significantly more expensive than standard volatile DIMMs.  To illustrate this,
+at the time of writing this paper, an 8 GB DDR4 NVDIMM was retailing at \$612,
+while a plain 8 GB DD4 DIMM was retailing at \$178.  We therefore resort to
+using a second larger log level placed on a flash SSD. Entries are drained from
+the NVM log to this flash log in conveniently large units that are a multiple of
+4KB - the optimum IO unit for flash SSDs. This ensures we get the best possible
+throughput from a flash device without paying the price of synchronous IO for
+small key-value pairs. At the same time, the amount of non-volatile memory
+required is small enough to not add undue cost of the server.
 
 The flashlog is written out in segments of configurable size (we use 128KB
 segments). A segment buffer is prepared in memory (volatile DRAM) using the
