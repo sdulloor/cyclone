@@ -874,7 +874,7 @@ Cyclone is also running the RAFT consensus protocol, while Mojim is doing simple
 mirroring of main memory. One can conclude that network offload via RDMA and
 Infiniband is not an a-priori requirement for high throughput replication. This
 is made possible by Cyclone's approach that relieves the CPU from the burden of
-data copies. Of course, the latency of a hop on commodity ethernet at 5 us with
+data copies. On the other hand, the latency of a hop on commodity ethernet at 5 us with
 our DPDK stack is larger than the close to 2us latency with
 Infiniband. Depending on the use case for the key value store application the
 extra 6us with ethernet for the round trip to the replica might be a concern for
@@ -899,16 +899,19 @@ design makes it a compelling alternative to an FPGA based solution even given
 the larger latency.
 
 DARE~\cite{dare} implements state machine replication over RDMA, using a custom
-replication protocol. It is worthwhile to point out that since DARE allows any
-replica to become the leader it requires a log adjustment protocol for the
-leader to bring its logs up to date, a situation we avoid by using RAFT as
-described in Section~\ref{sec:dm}. Using 40 Gb/s speeds, and 3-way replication
-DARE reported being able to replicate 500K requests/sec. This is without
-persisting the log of updates. In contrast, Cyclone replicates upwards of 6
-million similarly sized requests each second with 4*10 Gbps ethernet (without the
-second level flashlog). The conclusions we can draw are similar to the
-comparison with Mojim: a carefully implemented log replication system obviates
-the need for network offload.
+replication protocol. DARE does not consider persistence in its design. It is
+worthwhile to point out that since DARE allows any replica to become the leader
+it requires a log adjustment protocol for the leader to bring its logs up to
+date, a situation we avoid by using RAFT as described in
+Section~\ref{sec:dm}. Using 40 Gb/s speeds, and 3-way replication DARE reported
+being able to replicate 500K requests/sec. This is without persisting the log of
+updates. In contrast, Cyclone replicates upwards of 6 million similarly sized
+requests each second with 4*10 Gbps ethernet (without the second level
+flashlog). DARE reports an unloaded write latency of 15us, which is lower than
+the unloaded write latency of Cyclone at 20us, thanks to infiniband. The
+conclusions we can draw are similar to the comparison with Mojim: a carefully
+implemented log replication system obviates the need for network offload when
+doing replication.
 
 {CRANE}~\cite{crane} is a system for replicating mutithreaded programs using
 Paxos. It uses deterministic multi-threading to ensure replicas converge to the
