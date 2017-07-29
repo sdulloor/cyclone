@@ -188,8 +188,7 @@ under 50K ops/sec. This leads to a high baseline latency at even low load, as
 shown in Figure~\ref{fig:problem}. This problem leads many system designers to
 underprovision key-value store shards ensuring that it operates at moderate to
 high load, using group-commit to batch additions to the log. They therefore pay
-a price in latency to ensure the bandwidth to storage is fully utilized to
-prevent it from becoming a bottleneck.
+a price in latency to ensure the bandwidth to storage is fully utilized.
 
 Cyclone adopts a different strategy by making use of novel memory technologies
 to obviate the need to make this tradeoff in the first place. We assume a small
@@ -295,7 +294,7 @@ frames. We currently follow this communication model both for server to server
 communication between replicas as well as client server communication for
 requests and responses. Although a detailed evaluation is made later, switching
 from the kernel TCP/IP stack to DPDK reduces the latency between machines in our
-testbed from {\tt 24 us} to as low as {\tt 5 us}, providing a significant boost
+testbed from {\tt 18 us} to as low as {\tt 5 us}, providing a significant boost
 to performance.
 
 We direct DPDK to use pages backed by NVM for packet buffers. DPDK uses a
@@ -359,14 +358,13 @@ persistent log. Finally, it transmits the packet to follower replicas.
 
 This entire process is done without making any copies of the received packet.
 To illustrate how this is achieved, Figure~\ref{fig:packet_layout} shows how
-Cyclone manipulates packet
-layouts across the two steps of prepending a RAFT header and transmitting to
-follower replicas. DPDK describes packets using an ``mbuf'' data
-structure. Roughly speaking, an ``mbuf'' consists of a flat array of bytes
-actually containing the packet and a fixed size piece of external metadata that
-describes various aspects of the packet, most crucially a pointer to the start
-and end of the packet in the byte array. DPDK's userspace drivers receive
-packets from the NIC such that they are offset in the byte array by a
+Cyclone manipulates packet layouts across the two steps of prepending a RAFT
+header and transmitting to follower replicas. DPDK describes packets using an
+``mbuf'' data structure. Roughly speaking, an ``mbuf'' consists of a flat array
+of bytes actually containing the packet and a fixed size piece of external
+metadata that describes various aspects of the packet, most crucially a pointer
+to the start and end of the packet in the byte array. DPDK's userspace drivers
+receive packets from the NIC such that they are offset in the byte array by a
 configurable amount referred to as ``headroom''. We strip off the existing
 network headers in the packet and prepend RAFT related information specific to
 each log entry in the headroom by shifting the start pointer appropriately.
@@ -450,7 +448,7 @@ represent the log.
 %  \label{fig:race}
 %\end{figure}
 
-Althought the work described in the previous section significantly boosts the
+Although the work described in the previous section significantly boosts the
 network performance of replication in Cyclone, it still does not come close to
 saturating the capabilities of even the commodity network interface card that we
 use. This is because NICs today encapsulate significant parallelism in terms of
@@ -957,14 +955,15 @@ clients in NVM. Distributed transactions on Cyclone shards however are outside
 the scope of this paper.
 
 \section{Conclusion}
-Persistent key value stores struggle today to provide high availability using a
-write ahead log without a significant impact to performance. Cyclone solves this
-problem by leveraging a small amount of directly attached non-volatile memory
-that transforms the replication problem into a software packet switching
-problem. Cyclone and its Rocksdb bindings are slated for release to the open
+Cyclone addresses two fundamental difficulties in adding high availability to
+persistent key value stores. It leverage a small amount of non-volatile memory
+to avoid paying the cost of the block IO interface for every update
+operation. It also leverages software packet switching principles to replicate
+the write ahead log thus avoiding any need for offload capable network
+interfaces.  Cyclone and its Rocksdb bindings are slated for release to the open
 source community and we hope both the code and the ideas in the system itself
-will help key value store builders and researchers overcome their logging
-problem.
+will help key value store builders and researchers deal with high availabilty
+without compromising performance.
 \newcommand\myurl[2]{\url{#1}}
 \bibliographystyle{plain}
 \bibliography{paper}
