@@ -65,9 +65,10 @@ without persisting it, using RAFT~\cite{raft} running over TCP/IP. Either
 persisting every update to the log or replicating it using TCP/IP causes
 performance to drop by an order of magnitude (note the log scale on the
 x-axis). It is therefore no surprise that deployments of Rocksdb often turn off
-the write ahead log~\cite{samza}. On the other side of the spectrum, key value
-store research prototypes such as FloDB~\cite{flodb} turns off the write ahead
-log to be able to showcase benefits of sophisticated extensions to LSM
+the write ahead log~\cite{samza}, depending on upper layers to provide
+availability by co-ordinating replicas. On the other side of the spectrum, key
+value store research prototypes such as FloDB~\cite{flodb} turn off the write
+ahead log to be able to showcase benefits of sophisticated extensions to LSM
 datastructures.
 
 
@@ -90,15 +91,16 @@ logs.  The primary cause of slowdown when turning on a write ahead log on a
 single machine in Figure~\ref{fig:problem} is the need to do synchronous block
 IO for every update \emph{regardless of the size of the update}. SSDs provide
 the maximum throughput when writing large chunks (usually more than 4KB) of
-data. For small updates, the synchronous write latency dominates the time for
-IO.  Cyclone avoids this by making use of directly attached persistent memory on
-the server. This can be in the form of NVDIMMs (DIMMs with an added
-ultracapacitor to dump state to a small amount of attached flash) or newer forms
-of persistent memory~\cite{pmfs}. For current deployments, NVDIMMs are expensive
-- retailing at approximately 2X the price of a standard DIMM [find ref]. This
-means that they will likely be available in small quantities. We compensate for
-this by periodically draining the NVDIMM log into a log placed on a standard SSD
-on the system.
+data. This is due to the fixed cost of a round trip to the SSD through the IO
+interface (NVMe in our case), regardless of the volume of data being
+synchronously persisted. Cyclone avoids this by making use of directly attached
+persistent memory on the server. This can be in the form of NVDIMMs (DIMMs with
+an added ultracapacitor to dump state to a small amount of attached flash) or
+newer forms of persistent memory~\cite{pmfs}. For current deployments, NVDIMMs
+are expensive - retailing at approximately 2X the price of a standard DIMM [find
+  ref]. This means that they will likely be available in small quantities. We
+compensate for this by periodically draining the NVDIMM log into a log placed on
+a standard SSD on the system.
 
 The second key contribution of this work is in showing that the throughput
 overheads in the network stack can be mitigated entirely in software. Existing
@@ -136,9 +138,9 @@ replicate multiple logs, each using a different instance of the RAFT consensus
 protocol. We show how to exploit the commutativity inherent in key-value store
 interfaces to make use of this parallelism in Cyclone's design in
 Section~\ref{sec:parallelism}.  A detailed evaluation of Cyclone's replication
-is provided in the context of RocksDB - a popular persistent key value store -
-in Section~\ref{sec:evaluation}. We then discuss related work before concluding.
-
+performance is provided in the context of RocksDB - a popular persistent key
+value store - in Section~\ref{sec:evaluation}. We then discuss related work
+before concluding.
 
 \section{System Architecture}
 \label{sec:sysarch}
@@ -159,21 +161,22 @@ support atomic writes to multiple keys and snapshots.
 
 Cyclone integrates with key value stores as both a client and server side
 library. Cyclone replicates the key value store across a set of replica
-servers. The client side library sends requests to a distinguished leader
-replica.  On the server side Cyclone accepts requests from clients and calls
+servers. The client side library sends \emph{all} requests to a distinguished
+leader replica.  On the server side Cyclone accepts requests from clients and calls
 into the key value store. It then returns a response to the client. Before
 executing any PUT request, Cyclone appends it to a durable log and replicates
 the request to the logs of follower replicas. The request is considered
-replicated once acknowledged by a majority of replicas.
+replicated once acknowledged by a majority of replicas. Follower replicas apply
+updates from the log in order.
 
 Cyclone uses RAFT~\cite{raft} to keep the logs in sync across the replicas. On a
 failure of the leader replica a new leader is automatically elected - RAFT
-ensures that the new leader has the most up to date logs. The Cyclone client
+ensures that the new leader has the most up to date log. The Cyclone client
 library automatically locates the new leader on a failover - clients therefore
 see only a brief interruption in service. Although read requests (GET
 operations) are not logged, they are serviced in FIFO order with the write requests
-(PUT operations) currently in Cyclone's log. This ensures linearizability in the
-face of failovers.
+(PUT operations) currently in Cyclone's log at the moment the read request is
+received. This ensures linearizability in the face of failovers.
 
 \section{Storage}
 \label{sec:storage}
@@ -191,24 +194,24 @@ prevent it from becoming a bottleneck.
 
 Cyclone adopts a different strategy by making use of novel memory technologies
 to obviate the need to make this tradeoff in the first place. We assume a small
-amount of non-volatile memory directly addressable by the CPU rather than being placed
-behind a block oriented IO interface. Log appends are done to the ``NVM log''
-placed in this non-volatile memory. While we designed Cyclone to leverage new
-non-volatile memory technologies that might be available in the
-future~\cite{3dxpoint} current non-volatile memory options such are NVDIMMs
-are more expensive that DRAM. Therefore, for Cyclone to be economical
-we cannot assume that a sufficient amount of NVM is available to hold the entire
-log. The log entries can only be garbage collected when the in-memory component
-of the key value store is checkpointed to secondary storage. The growing size of
+amount of non-volatile memory directly addressable by the CPU rather than being
+placed behind a block oriented IO interface. Log appends are done to the ``NVM
+log'' placed in this non-volatile memory. While we designed Cyclone to leverage
+new non-volatile memory technologies that might be available in the
+future~\cite{3dxpoint}, current non-volatile memory options such are NVDIMMs are
+more expensive that DRAM. Therefore, for Cyclone to be economical we cannot
+assume that a sufficient amount of NVM is available to hold the entire log. The
+log entries can only be garbage collected when the in-memory component of the
+key value store is checkpointed to secondary storage. The growing size of
 available DRAM means that also provisioning sufficient NVDIMMs to hold the
 corresponding log of updates is not feasible given that NVDIMMs cost at least
 twice as much as volatile DRAM. We therefore resort to using a second larger log
 level placed on a flash SSD. Entries are drained from the NVM log to this flash
 log in conveniently large units that are a multiple of 4KB - the optimum IO unit
-for flash SSDs. This ensures we get the best
-possible throughput from a flash device without paying the price of synchronous
-IO for small key-value pairs. At the same time, the amount of non-volatile
-memory required is small enough to not add undue cost of the server.
+for flash SSDs. This ensures we get the best possible throughput from a flash
+device without paying the price of synchronous IO for small key-value pairs. At
+the same time, the amount of non-volatile memory required is small enough to not
+add undue cost of the server.
 
 The flashlog is written out in segments of configurable size (we use 128KB
 segments). A segment buffer is prepared in memory (volatile DRAM) using the
@@ -229,7 +232,7 @@ also assume that the SSD has power loss data protection meaning that writes
 cached in the drive's volatile cache are written to the SSD using a backup
 capacitor in the event of power failure - a property of many data center class
 SSDs today, including the Intel DC P3600 SSD~\cite{ssd_spec} we use in our
-evaluation. Together these two assumptions mean that we can recover a consistent
+evaluation. Together, these two assumptions mean that we can recover a consistent
 prefix of the log on a power failure.
 
 We move log entries from the head of the NVM log to the flashlog buffers in FIFO
@@ -250,7 +253,7 @@ The two level log design in Cyclone lays the foundation for improvements to the
 network stack that we discuss next - a significant contributor to the overheads
 in Figure~\ref{fig:problem}. We use RAFT to replicate the NVM log from the
 leader replica to the followers. Each replica \emph{independently} drains
-committed entries (in terms of RAFT consensus) from the NVM log to the
+committed (in terms of RAFT consensus) entries from the NVM log to the
 flashlog. Block IO therefore is no longer a consideration when optimizing data
 movement over the network, unlike systems that need to deal with such
 problems~\cite{reflex}. Replication reduces to efficiently sending a block of
@@ -316,6 +319,7 @@ in use by the log.
 \end{figure}
 
 \subsection{Eliminating Data Movement}
+\label{sec:dm}
 Software packet switches built on DPDK try to touch as little of the packet data
 as possible, minimizing movement of data up and down the cache and memory
 hierarchy. Log replication looks like multicast that does not require deep
@@ -422,6 +426,18 @@ immediately with whatever number of packets is available, including zero. We
 always flush the transmit buffer after every call to DPDK to transmit packets to
 replicas. Therefore, we never tradeoff latency for throughput when batching. 
 
+Finally, we discuss our choice of RAFT as a consensus protocol. A key advantage
+of RAFT is that unlike alternatives such as MultiPaxos~\cite{multipaxos} or
+Quorum based replication~\cite{quorum}, the leader is guaranteed to have the
+most up to date logs. There is therefore no case where a leader needs to receive
+log entries to ``fill'' holes in its logs from follower replicas, simplifying
+the protocol state machine we need to implement. A leader can immediately reject
+any responses that are not more current than its view (term). In turn, the
+persistent log operates as a double ended queue, with entries either being
+appended (or possibly deleted at followers) at the end and being deleted from
+the front (after commit). This is critical to efficient operation of Cyclone, as
+it allows a simple top level structure (a circular buffer of pointers) to
+represent the log.
 
 \section{Parallelism}
 \label{sec:parallelism}
@@ -882,6 +898,18 @@ our software only solution together with the fact that we provide persistence by
 design makes it a compelling alternative to an FPGA based solution even given
 the larger latency.
 
+DARE~\cite{dare} implements state machine replication over RDMA, using a custom
+replication protocol. It is worthwhile to point out that since DARE allows any
+replica to become the leader it requires a log adjustment protocol for the
+leader to bring its logs up to date, a situation we avoid by using RAFT as
+described in Section~\ref{sec:dm}. Using 40 Gb/s speeds, and 3-way replication
+DARE reported being able to replicate 500K requests/sec. This is without
+persisting the log of updates. In contrast, Cyclone replicates upwards of 6
+million similarly sized requests each second with 4*10 Gbps ethernet (without the
+second level flashlog). The conclusions we can draw are similar to the
+comparison with Mojim: a carefully implemented log replication system obviates
+the need for network offload.
+
 {CRANE}~\cite{crane} is a system for replicating mutithreaded programs using
 Paxos. It uses deterministic multi-threading to ensure replicas converge to the
 same state as opposed to semantic equivalence in Cyclone using the commutativity
@@ -898,9 +926,9 @@ API calls can commute in a history. It is a simple exercise to express a key
 value store API in COMMUTER and check that operations to different keys
 commute. This provides a theoretical basis for horizontal scaling, something we
 have omitted for brevity from this paper. The scalable commutativity rule also
-suggests that scalable key value store implementations would necessarily have
-commutative interfaces, something we confirm and exploit for key
-value stores.
+suggests that scalable key value store implementations such as
+FloDB~\cite{flodb} would necessarily have commutative interfaces, enabling more
+general applicability of Cyclone.
 
 There is an in progress transformation of durable memory in datacenters
 with the advents of 3DXPoint. Researchers have speculated on the impact of cheap
