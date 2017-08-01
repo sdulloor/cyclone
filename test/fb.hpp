@@ -28,7 +28,7 @@ static double access_probs[] = { 0.309278,
 				 0.247423,
 				 0.020619 };
 
-const double prob_rd = 0.9;
+const double prob_rd = 0.95;
 
 // 8 byte key
 // most significant byte is index into value size array
@@ -41,7 +41,7 @@ class load_gen {
   {
     return (*rng)(*base_rng);
   }
-
+public:
   // 0 == read
   // 1 == wr
   int select_op()
@@ -62,7 +62,7 @@ class load_gen {
     return index_itr - cdf.begin();
   }
 
-public:
+
   load_gen(int client_seed)
   {
     array<unsigned int, mt19937::state_size> seeds;
