@@ -62,9 +62,9 @@ void load()
       for(int k=j;k<j + BATCH_SIZE && k < keys;k++) {
 	unsigned long key = i << 56;
 	key += k;
-	rocksdb::Slice key((const char *)&key, 8);
-	rocksdb::Slice value((const char *)&value_base[0], VALUE_SZ_ARR[i]);
-	batch.Put(key, value);
+	rocksdb::Slice rdb_key((const char *)&key, 8);
+	rocksdb::Slice rdb_value((const char *)&value_base[0], VALUE_SIZE_ARR[i]);
+	batch.Put(rdb_key, rdb_value);
       }
       rocksdb::WriteOptions write_options;
       write_options.sync = false;
@@ -118,7 +118,7 @@ void closedb()
 int main(int argc, char *argv[])
 {
   opendb();
-  load(rocks_keys);
+  load();
   closedb();
 }
 
