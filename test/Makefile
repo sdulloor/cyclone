@@ -2,7 +2,8 @@
 counter_loader counter_add_node counter_delete_node\
 counter_coordinator_driver counter_driver_mt counter_driver_noop_mt
 #all: counter_server counter_driver_noop_mt counter_delete_node counter_add_node counter_loader counter_driver_mt
-all: echo_server echo_client echo_client_multicore rocksdb_client rocksdb_client_multicore rocksdb_merge_client echo_logserver rocksdb_server rocksdb_merge_server rocksdb_loader fb_loader rocksdb_checkpoint
+all: echo_server echo_client echo_client_multicore rocksdb_client rocksdb_client_multicore rocksdb_merge_client echo_logserver rocksdb_server\
+ rocksdb_merge_server rocksdb_loader fb_loader rocksdb_checkpoint fb_server
 
 
 
@@ -41,6 +42,9 @@ echo_logserver:echo_logserver.cpp
 
 rocksdb_server:rocksdb_server.cpp
 	$(CXX) $(CXXFLAGS) $(ROCKS_CXXFLAGS) rocksdb_server.cpp $(BOOST_THREAD_LIB) $(LIBS) $(ROCKS_LIBS) -o $@
+
+fb_server:fb_server.cpp
+	$(CXX) $(CXXFLAGS) $(ROCKS_CXXFLAGS) fb_server.cpp $(BOOST_THREAD_LIB) $(LIBS) $(ROCKS_LIBS) -o $@
 
 rocksdb_merge_server:rocksdb_merge_server.cpp
 	$(CXX) $(CXXFLAGS) $(ROCKS_CXXFLAGS) rocksdb_merge_server.cpp $(BOOST_THREAD_LIB) $(LIBS) $(ROCKS_LIBS) -o $@
