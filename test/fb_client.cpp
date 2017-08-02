@@ -92,17 +92,20 @@ int driver(void *arg)
   srand(tx_begin_time);
   int partition;
   while(true) {
+    int idx = test.select_index();
+    int sz;
     if(test.select_op() == 0) {
       rpc_flags = RPC_FLAG_RO;
       kv->op    = OP_GET;
+      sz = sizeof(fb_kv_t);
     }
     else {
       rpc_flags = 0;
       kv->op    = OP_PUT;
+      sz = sizeof(fb_kv_t) + VALUE_SIZE_ARR[idx];
     }
-    int idx = test.select_index();
-    int sz = sizeof(fb_kv_t) + VALUE_SIZE_ARR[idx];
-    kv->key   = 0;
+    kv->key   = ((unsigned long)idx) << 56;
+    kv->key   = kv->key + test.gen_key(idx);
     my_core = kv->key % executor_threads;
     sz = make_rpc(handles[0],
 		  buffer,

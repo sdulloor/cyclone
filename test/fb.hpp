@@ -37,6 +37,7 @@ class load_gen {
   vector<double> cdf;
   mt19937* base_rng;
   uniform_real_distribution<double> * rng;
+  vector<uniform_int_distribution<unsigned long>*> rng_array;
   double flip_coin()
   {
     return (*rng)(*base_rng);
@@ -62,6 +63,10 @@ public:
     return index_itr - cdf.begin();
   }
 
+  int gen_key(int idx)
+  {
+    return (*(rng_array[idx]))(*base_rng);
+  }
 
   load_gen(int client_seed)
   {
@@ -76,6 +81,7 @@ public:
     for(int i=0;i<values;i++) {
       sum = sum + access_probs[i];
       cdf.push_back(sum);
+      rng_array.push_back(new uniform_int_distribution<unsigned long>(0, NUM_OPS_ARR[i]));
     }
     cdf.back() = 1.0;
   }
