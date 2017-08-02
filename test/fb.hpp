@@ -12,6 +12,7 @@
 #include<vector>
 #include<algorithm>
 #include<iostream>
+#include<array>
 using namespace std;
 static int values = 6;
 static int VALUE_SIZE_ARR[] = { 16, 32, 64, 128, 256, 512 };
@@ -38,7 +39,7 @@ class load_gen {
   mt19937* base_rng;
   double flip_coin()
   {
-    return  ((double)(*base_rng)() - mt19937::min())/(mt19937::max() - mt19937::min());
+    return  ((double)(*base_rng)() - base_rng->min())/(base_rng->max() - base_rng->min());
   }
 public:
   // 0 == read
@@ -68,12 +69,7 @@ public:
 
   load_gen(int client_seed)
   {
-    array<unsigned int, mt19937::state_size> seeds;
-    for(int i=0;i<mt19937::state_size;i++) {
-      seeds[i] = client_seed*(i + 1); // seed as a deterministic fn of client_seed
-    }
-    seed_seq seeds_in_seq(begin(seeds), end(seeds));
-    base_rng = new mt19937(seeds_in_seq);
+    base_rng = new mt19937(client_seed);
     double sum = 0.0;
     for(int i=0;i<values;i++) {
       sum = sum + access_probs[i];

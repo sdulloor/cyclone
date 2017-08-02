@@ -80,7 +80,7 @@ rocksdb_client:rocksdb_client.cpp
 	$(CXX) $(CXXFLAGS) rocksdb_client.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
 
 fb_client:fb_client.cpp 
-	$(CXX) $(CXXFLAGS) -std=c++11 fb_client.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
+	$(CXX) $(CXXFLAGS) -std=c++0x fb_client.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
 
 rocksdb_merge_client:rocksdb_merge_client.cpp 
 	$(CXX) $(CXXFLAGS) rocksdb_merge_client.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
