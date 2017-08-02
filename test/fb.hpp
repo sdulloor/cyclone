@@ -36,11 +36,9 @@ const double prob_rd = 0.95;
 class load_gen {
   vector<double> cdf;
   mt19937* base_rng;
-  uniform_real_distribution<double> * rng;
-  vector<uniform_int_distribution<unsigned long>*> rng_array;
   double flip_coin()
   {
-    return (*rng)(*base_rng);
+    return  ((double)(*base_rng)() - mt19937::min())/(mt19937::max() - mt19937::min());
   }
 public:
   // 0 == read
@@ -63,9 +61,9 @@ public:
     return index_itr - cdf.begin();
   }
 
-  int gen_key(int idx)
+  unsigned long gen_key(int idx)
   {
-    return (*(rng_array[idx]))(*base_rng);
+    return NUM_OPS_ARR[idx]*flip_coin();
   }
 
   load_gen(int client_seed)
@@ -76,12 +74,10 @@ public:
     }
     seed_seq seeds_in_seq(begin(seeds), end(seeds));
     base_rng = new mt19937(seeds_in_seq);
-    rng = new uniform_real_distribution<double>(0.0, 1.0);
     double sum = 0.0;
     for(int i=0;i<values;i++) {
       sum = sum + access_probs[i];
       cdf.push_back(sum);
-      rng_array.push_back(new uniform_int_distribution<unsigned long>(0, NUM_OPS_ARR[i]));
     }
     cdf.back() = 1.0;
   }
