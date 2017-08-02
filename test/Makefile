@@ -2,8 +2,8 @@
 counter_loader counter_add_node counter_delete_node\
 counter_coordinator_driver counter_driver_mt counter_driver_noop_mt
 #all: counter_server counter_driver_noop_mt counter_delete_node counter_add_node counter_loader counter_driver_mt
-all: echo_server echo_client echo_client_multicore rocksdb_client rocksdb_client_multicore rocksdb_merge_client echo_logserver rocksdb_server\
- rocksdb_merge_server rocksdb_loader fb_loader rocksdb_checkpoint fb_server fb_client
+all: echo_server echo_client echo_client_multicore rocksdb_client fb_client rocksdb_client_multicore rocksdb_merge_client echo_logserver rocksdb_server\
+ rocksdb_merge_server rocksdb_loader fb_loader rocksdb_checkpoint fb_server
 
 
 
