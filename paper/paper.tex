@@ -221,9 +221,9 @@ special flag encoded into the size if necessary. We flush log segments out to
 the log file using asynchronous direct IO, and therefore we continue to fill log
 segment buffers while keeping IO to previously filled buffers outstanding to the
 flash drive. We allocate enough buffers to keep a maximum of 32 outstanding
-requests to the SSD. To avoid having to do a synchronous metadata flush, we preallocate (using the
-posix\_fallocate call) a gigabyte worth of zero filled disk pages at the end of
-the log file whenever we hit its end.
+requests to the SSD. To avoid having to do a synchronous metadata flush, we
+preallocate (using the posix\_fallocate call) a gigabyte worth of zero filled
+disk pages at the end of the log file whenever we hit its end.
 
 In order to recover from a crash, we make two important assumptions about the
 underlying SSD. First, we assume that 4KB is the \emph{minimum} atomic unit for
@@ -291,7 +291,10 @@ design due to the need to support asynchronous communication. In addition, most
 datacenter networks rarely drop or reorder packets and provide full bisection
 bandwith between servers that might serve as Cyclone replicas. We therefore
 jettisoned TCP and chose to send raw IP packets encapsulated in ethernet
-frames. We currently follow this communication model both for server to server
+frames. Cyclone takes complete control of an ethernet interface, receiving all
+packets directed to it, while the IP and ethernet addresses provide sufficient
+information to route the packet if necessary through multiple switches. We
+currently follow this communication model both for server to server
 communication between replicas as well as client server communication for
 requests and responses. Although a detailed evaluation is made later, switching
 from the kernel TCP/IP stack to DPDK reduces the latency between machines in our
@@ -372,7 +375,7 @@ each log entry in the headroom by shifting the start pointer appropriately.
 These operations are standard enough for software packet switches that DPDK
 provides convenient library calls for it. For the final step, we need to prepare
 the packet for transmission to the various follower replicas. To do this we
-prepare a different packet containing an ethernet header for \emph{each}
+prepare a different packet containing a network header for \emph{each}
 targeted replica and ``chain'' the data packet to each of these headers. Each
 header is then separately handed off to the driver for transmission via the NIC,
 carrying the data packet with it by association.
@@ -501,25 +504,31 @@ to break linearizability - that we discuss next.
 \subsection{Ganged Operations}
 Supporting reads or writes to multiple keys that map to different physical logs
 requires a ganged operation across those logs such that all the operations
-complete together in the face of failures. Since our starting point is a single
-key value store, we constrained Cyclone's design early on to avoid the need for
-any two phase commit.
+complete together in the face of failures. One option is to have an external
+co-ordinator run a distributed transaction using two phase commit. In addition
+to requiring extra external resources to host the co-ordinator one must also
+worry about failure recovery. In addition this requires two round trips to the
+leader to complete what should have been a single batched write request from a
+client that is stateless and allowed to fail - such as with key value stores
+like Rocksdb~\cite{rocksdb}. We therefore describe a simpler and more performant
+solution called ganged operations integrated into Cyclone. This allows a client
+to issue a batch of {\tt PUT} operations as a gang simultaneously and atomically
+updating a batch of keys in a single call.
 
 The first key problem we need to deal with is that the leaders for the different
-RAFT instances can be located on different machines. To avoid having a client
-co-ordinate different machines for a single operation, we constrain the RAFT
-leader election algorithm for the different RAFT instances to converge to the
-same machine. We do this by triggering re-elections for a RAFT instance other
-than that of the first physical log until it is on the same machine as the
-\emph{first} physical log. This process is therefore resilient to failed
-machines. RAFT requires that the leader have the most up to date log. To ensure
-that the process converges we therefore ensure that the currently elected leader
-brings a majority quroum up to date before triggering a relection. We also do
-not accept any requests from clients until all leaders are co-located. This
-process is guaranteed to converge as long as all no network partitions occur
-\emph{within a machine} i.e. some RAFT instances are able to send and receive
-packets, while others are not, a possiblity we discount due to our single
-process design.
+RAFT instances to which the keys map can be located on different machines. To
+avoid having a client co-ordinate different machines for a single operation, we
+constrain the RAFT leader election algorithm for the different RAFT instances to
+converge to the same machine. We do this by triggering re-elections for a RAFT
+instance other than that of the first physical log until it is on the same
+machine as the \emph{first} physical log. This process is therefore resilient to
+failed machines. RAFT requires that the leader have the most up to date log. To
+ensure that the process converges we therefore ensure that the currently elected
+leader brings a majority quroum up to date before triggering a relection. We
+also do not accept any requests from clients until all leaders are
+co-located. We assume that no network partitions occur \emph{within a machine}
+i.e. some RAFT instances are able to send and receive packets, while others are
+not, a possiblity we discount due to our single process design.
 
 Next, we need to simultaneously inject the ganged operation into all
 participating physical logs on the machine hosting the leaders. Clients always
@@ -551,10 +560,10 @@ waiting for ever as ganged operation might never successfully replicate in the
 failed over RAFT instance. We detect failure on any RAFT instance by having each
 instance publish its current term and continuously comparing the view in the
 ganged operation to it. If any RAFT instance has moved past that term, the
-ganged operation is then terminated by having one of the still alive participants set a
-failure flag and write the appropriate bit in the barrier mask on behalf of the
-failed participant, moving execution past the barrier wait - a technique we
-borrow from lock-free data structures~\cite{lock-free}.
+ganged operation is then terminated by having one of the still alive
+participants set a failure flag and write the appropriate bit in the barrier
+mask on behalf of the failed participant, moving execution past the barrier wait
+- a technique we borrow from lock-free data structures~\cite{lock-free}.
 
 \begin{figure*}
   \centering
@@ -578,7 +587,7 @@ borrow from lock-free data structures~\cite{lock-free}.
       else
         wait until 
          public_data[co-ordinator].view > packet.view OR
-         barrier.mask == mask of participating KV cores
+         barrier.mask == mask of participating cores
         if public_data[co-ordinator].view > packet.view OR
            barrier.failed
          Ganged replication failed. Send retry to client. return.
