@@ -14,6 +14,9 @@
 #include<iostream>
 #include<array>
 using namespace std;
+
+#if 0
+// ETC trace
 static int values = 6;
 static int VALUE_SIZE_ARR[] = { 16, 32, 64, 128, 256, 512 };
 static int NUM_OPS_ARR [] = { 2013286, 
@@ -30,6 +33,20 @@ static double access_probs[] = { 0.309278,
 				 0.020619 };
 
 const double prob_rd = 0.95;
+#else
+// VAR trace
+static int values = 3;
+static int VALUE_SIZE_ARR[] = { 32, 64, 128 };
+// For 10M ops
+static int NUM_OPS_ARR [] = { 1048576, 	// 0.1 
+			      7340032, 				// 0.7 
+			      2097152 }; 			// 0.2
+static double access_probs[] = { 0.05, 
+				 0.40, 
+				 0.55 };
+
+const double prob_rd = 0.20;
+#endif
 
 // 8 byte key
 // most significant byte is index into value size array
