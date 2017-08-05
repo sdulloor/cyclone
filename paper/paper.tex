@@ -945,18 +945,18 @@ determinant of performance when replicating over RDMA.
 
 Consensus in a box~\cite{consensus_box} implements the Zookeeper atomic
 broadcast protocol together with a NIC on an FPGA. That work ignored durability,
-focusing purely on network performance for replication. Latency is
-excellent due to the FPGA that cuts out the path from CPU caches to the NIC and
-are reported to be as low as 3us for a round trip from leader to follower
-replica compared to the 6us we observe with DPDK. Notably however they reported
-7us when using TCP/IP from the FPGA rather than their own connection oriented
-network protocol. On the other hand their peak replication throughput is 6M
-replications/sec on 66 Gbps of aggregate network bandwith, comparable to the
-same mark obtained by Cyclone on an aggregate 40 Gbps of network bandwidth when
-not using the log on the SSD. We believe the general applicability afforded by
-our software only solution together with the fact that we provide persistence by
-design makes it a compelling alternative to an FPGA based solution even given
-the larger latency.
+focusing purely on network performance for replication. Latency is excellent due
+to the FPGA that cuts out the path from CPU caches to the NIC and are reported
+to be as low as 3us for a round trip from leader to follower replica compared to
+the 6us we observe with DPDK. Notably however they reported 7us when using
+TCP/IP from the FPGA rather than their own connection oriented network
+protocol. On the other hand their peak replication throughput is 4M
+replications/sec on 66 Gbps of aggregate network bandwith for small messages,
+comparable to the 6M replications/sec mark obtained by Cyclone on an aggregate
+40 Gbps of network bandwidth when \emph{also persisting the log on the SSD}. We
+believe the general applicability afforded by our software only solution
+together with the fact that we provide persistence by design makes it a
+compelling alternative to an FPGA based solution even given the larger latency.
 
 DARE~\cite{dare} implements state machine replication over RDMA, using a custom
 replication protocol. DARE does not consider persistence in its design. It is
