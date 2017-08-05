@@ -671,17 +671,20 @@ performance to close to 2M entries/s. Finally using all 4 ethernet ports on the
 machine to replicate entries improves performance considerably to 6M
 entries/s. In all, performance improves by 200X over the TCP/IP single log
 baseline. Cyclone also considerably improves the latency for replication, from
-close to 100us with TCP/IP to around 30us at peak throughput.
+close to 100us with TCP/IP to around 30us at peak throughput. 
 
-One can draw two important conclusions from
+One can draw three important conclusions from
 Figure~\ref{fig:network_opts}. First, one can indeed treat log replication as a
 software packet switching problem \emph{provided} the persistent log can be held
 in directly attached memory eliminating the block interface from the critical
 path. Second, relieving the CPU from the overhead of data copies has a
-significant positive effect on performance. Finally, using multiple physical
+significant positive effect on performance. Second, using multiple physical
 logs is essential to exploiting the concurrency available at the level of the
 network interface card (even a single one!) that would otherwise go wasted due
-to the serializing abstraction of a single log. 
+to the serializing abstraction of a single log. Finally we note that Cyclone
+achieves about 50\% of the linerate across the four ethernet
+ports. This is essentially the cost of running a consensus protocol in
+software.
 
 \begin{figure}
 \includegraphics[scale=0.6]{results2/network_opts.pdf}
@@ -705,7 +708,9 @@ size from zero to 512 bytes. Peak throughput drops from 6M entries/s to
 approximately 2M entries/s. At this replication rate, the leader replica needs
 to transmit data at approximately 30 Gbit/s. Coupled with the cost of network
 headers all four 10 GigE ports are now saturated and therefore Cyclone hits the
-network line rate bottleneck at this point. 
+network line rate bottleneck at this point. It is worthwhile to compare this to
+the case with small updates, where running the consensus protocol was a
+bottleneck to reaching line rate.
 
 \begin{figure}
 \includegraphics[scale=0.6]{results2/replicas.pdf}
