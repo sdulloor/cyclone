@@ -894,12 +894,24 @@ trace~\cite{fb_workload_analysis,fb_scaling_memcache} and are read
 heavy (95\% reads). Figure~\ref{fig:fb} illustrates that even with a
 read-dominated workload, Cyclone is effective at providing a write ahead log
 with 3 way replication with a lower performance overhead than Rocksdb's own
-write ahead logging.
+write ahead logging. We consider the case of a workload that more write
+intensive at 80\% writes with a smaller range of value sizes, derived from
+Facebook's VAR trace~~\cite{fb_workload_analysis,fb_scaling_memcache}, in
+Figure~\ref{fig:fb2}. One can similarly conclude that Cyclone provides more
+functionality (replicated write ahead log) at a far lower performance penalty
+that Rocksdb's existing single machine write ahead log solution.
+
 
 \begin{figure}
 \includegraphics[scale=0.6]{results2/fb.pdf}
 \caption{Rocksdb - read heavy workload}
 \label{fig:fb}
+\end{figure}
+
+\begin{figure}
+  \includegraphics[scale=0.6]{results2/fb2.pdf}
+\caption{Rocksdb - write heavy workload}
+\label{fig:fb2}
 \end{figure}
 
 Finally, we showcase the benefit of using Cyclone beyond pure performance as
