@@ -681,14 +681,7 @@ path. Second, relieving the CPU from the overhead of data copies has a
 significant positive effect on performance. Finally, using multiple physical
 logs is essential to exploiting the concurrency available at the level of the
 network interface card (even a single one!) that would otherwise go wasted due
-to the serializing abstraction of a single log. Finally, we note that DPDKs raw
-packet forwarding capability on that configuration is close to 12M packets per
-second. We do not reach that mark due to the overhead of running the replication
-protocol rather than a simple switching decision per packet. Although batching
-goes some way in amortizing this overhead it cannot be eliminated entirely
-because consensus protocols are more complex than a simple packet switching
-decision.
-
+to the serializing abstraction of a single log. 
 
 \begin{figure}
 \includegraphics[scale=0.6]{results2/network_opts.pdf}
@@ -712,9 +705,7 @@ size from zero to 512 bytes. Peak throughput drops from 6M entries/s to
 approximately 2M entries/s. At this replication rate, the leader replica needs
 to transmit data at approximately 30 Gbit/s. Coupled with the cost of network
 headers all four 10 GigE ports are now saturated and therefore Cyclone hits the
-network line rate bottleneck at this point. One can contrast this with the
-previous experiment where the bottleneck to throughput was the cost of running
-the consensus protocol for batches of packets.
+network line rate bottleneck at this point. 
 
 \begin{figure}
 \includegraphics[scale=0.6]{results2/replicas.pdf}
