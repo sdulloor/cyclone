@@ -759,12 +759,6 @@ shifts to the secondary storage device for larger request sizes.
 \label{fig:flashlog}
 \end{figure}
 
-\begin{figure}
-\includegraphics[scale=0.6]{results2/flashlog_512.pdf}
-\caption{Second level log with 512 bytes payload}
-\label{fig:flashlog_512}
-\end{figure}
-
 We now evaluate ganged operations. The primary purpose of
 ganged operations is to avoid the need for distributed transactions to
 manipulate what is a single shared memory image and therefore we were most
@@ -785,11 +779,23 @@ underlines the value of our ganged operation design over a distributed
 transaction that would need 8 network hops for the two phase commit (and
 replication) using an external co-ordinator, a minimum of 80us.
 
-\begin{figure}
-\includegraphics[scale=0.6]{results2/multi.pdf}
-\caption{Ganged Operations}
-\label{fig:ganged}
-\end{figure}
+\begin{figure*}
+\begin{minipage}{0.33\textwidth}
+  \includegraphics[scale=0.45]{results2/flashlog_512.pdf}
+  \caption{Second level log with 512 bytes payload}
+  \label{fig:flashlog_512}
+\end{minipage}
+\begin{minipage}{0.33\textwidth}
+  \includegraphics[scale=0.45]{results2/multi.pdf}
+  \caption{Ganged Operations}
+  \label{fig:ganged}
+\end{minipage}
+\begin{minipage}{0.33\textwidth}
+  \includegraphics[scale=0.45]{results2/kv_baseline.pdf}
+  \caption{Baseline KV replication performance}
+  \label{fig:kv_baseline}
+\end{minipage}
+\end{figure*}
 
 Next, we evaluate Cyclone integrated with the Rocksdb persistent key value
 store. Rocksdb is a complex industrial strength persistent key value store and
@@ -825,12 +831,6 @@ larger request size, Cyclone can sustain around 350K requests a second, again at
 a latency of just under 25 us. Armed with these baseline numbers we now examine
 how well Cyclone performs with Rocksdb.
 
-\begin{figure}
-\includegraphics[scale=0.6]{results2/kv_baseline.pdf}
-\caption{Baseline KV replication performance}
-\label{fig:kv_baseline}
-\end{figure}
-
 The performance of Rocksdb with Cyclone for the small update workload is shown
 in Figure~\ref{fig:rocksdb} - essentially presenting the solution to the problem
 description graph in Figure~\ref{fig:problem}.  We consider four different
@@ -849,17 +849,24 @@ single machine write ahead log. We also repeat the experiment for the larger
 update size in Figure~\ref{fig:rocksdb_256}. The conclusions are identical:
 Cyclone solves Rocksdb's write ahead logging problem.
 
-\begin{figure}
-\includegraphics[scale=0.6]{results2/rocksdb.pdf}
-\caption{Rocksdb - small updates}
-\label{fig:rocksdb}
-\end{figure}
-
-\begin{figure}
-\includegraphics[scale=0.6]{results2/rocksdb_256.pdf}
-\caption{Rocksdb - large updates}
-\label{fig:rocksdb_256}
-\end{figure}
+\begin{figure*}
+  \begin{minipage}{0.33\textwidth}
+    \centering
+    \includegraphics[scale=0.45]{results2/rocksdb.pdf}
+    \caption{Rocksdb - small updates}
+    \label{fig:rocksdb}
+  \end{minipage} 
+  \begin{minipage}{0.33\textwidth}
+    \includegraphics[scale=0.45]{results2/rocksdb_256.pdf}
+    \caption{Rocksdb - large updates}
+    \label{fig:rocksdb_256}
+  \end{minipage} 
+  \begin{minipage}{0.33\textwidth}
+    \includegraphics[scale=0.45]{results2/rocksdb_multi.pdf}
+    \caption{Rocksdb - batched writes}
+    \label{fig:rocksdb_multi}
+  \end{minipage}
+\end{figure*}
 
 Next, we consider the problem of supporting Rocksdb's write-batch operation that
 atomically writes a set of key-value pairs into the KV store. This is a
@@ -881,11 +888,6 @@ logs. Cyclone therefore provides effective replicated logging for batched
 operations using its idea of ganged operations, while scaling the performance of
 single operations using its multiple physical logs.
 
-\begin{figure}
-\includegraphics[scale=0.6]{results2/rocksdb_multi.pdf}
-\caption{Rocksdb - batched writes}
-\label{fig:rocksdb_multi}
-\end{figure}
 
 Our evaluation has, thus far, focused on synthetic write heavy
 workloads. To illustrate that Cyclone can also be useful for read-heavy
@@ -902,18 +904,26 @@ Figure~\ref{fig:fb2}. One can similarly conclude that Cyclone provides more
 functionality (replicated write ahead log) at a far lower performance penalty
 that Rocksdb's existing single machine write ahead log solution.
 
-
-\begin{figure}
-\includegraphics[scale=0.6]{results2/fb.pdf}
+\begin{figure*}
+\begin{minipage}{0.33\textwidth}
+\includegraphics[scale=0.45]{results2/fb.pdf}
 \caption{Rocksdb - read heavy workload}
 \label{fig:fb}
-\end{figure}
+\end{minipage}
+\begin{minipage}{0.33\textwidth}
+  \includegraphics[scale=0.45]{results2/fb2.pdf}
+  \caption{Rocksdb - write heavy workload}
+  \label{fig:fb2}
+\end{minipage}
+\begin{minipage}{0.33\textwidth}
+  \includegraphics[scale=0.45]{results2/failover.pdf}
+  \caption{Rocksdb - failover}
+  \label{fig:timeline}
+\end{minipage}
+\end{figure*}
 
-\begin{figure}
-  \includegraphics[scale=0.6]{results2/fb2.pdf}
-\caption{Rocksdb - write heavy workload}
-\label{fig:fb2}
-\end{figure}
+
+
 
 Finally, we showcase the benefit of using Cyclone beyond pure performance as
 compared to the existing single machine Rocksdb write ahead log. Cyclone brings
@@ -923,12 +933,6 @@ where we kill the server process on the leader replica. Cyclone is configured to
 with a 30ms failure detection timeout after which the client library tries
 replicas in turn to locate the leader - in this case it fails over in about
 60ms.
-
-\begin{figure}
-\includegraphics[scale=0.6]{results2/failover.pdf}
-\caption{Rocksdb - failover}
-\label{fig:timeline}
-\end{figure}
 
 \section{Related Work}
 
@@ -995,16 +999,12 @@ multithreading comes with high overheads for applications that store large
 amounts of data - CRANE reports around a 2X slowdown for MySQL, likely rendering
 it unsuitable as a replacement for the write ahead log in key value stores.
 
-The scalable commutativity rule~\cite{scalable_commutativity} generalizes the
-idea of commutativity in key value store interfaces that we have used for
-horizontal scaling in Cyclone. Conveniently, it provides a tool for checking when
-API calls can commute in a history. It is a simple exercise to express a key
-value store API in COMMUTER and check that operations to different keys
-commute. This provides a theoretical basis for horizontal scaling, something we
-have omitted for brevity from this paper. The scalable commutativity rule also
-suggests that scalable key value store implementations such as
-FloDB~\cite{flodb} would necessarily have commutative interfaces, enabling more
-general applicability of Cyclone.
+The scalable commutativity rule~\cite{scalable_commutativity} states that for a
+shared memory program to scale in performance with concurrency it must also have
+an interface that is commutative for common case invocations. We have also used
+interface level commutativity to extract parallelism for the purpose of scaling
+replication performance. Others have used the same commutativity to create
+per-cpu data structures to scale KV store performance~\cite{flodb}.
 
 There is an in progress transformation of durable memory in datacenters
 with the advents of 3DXPoint. Researchers have speculated on the impact of cheap
