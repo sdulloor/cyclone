@@ -78,12 +78,13 @@ of sophisticated extensions to LSM data structures.
 \end{figure}
 
 These two performance bottlenecks illustrated in Figure~\ref{fig:problem} are
-not \emph{independent}. In particular, durability semantics mean that the
-key-value store  cannot respond to the client until the operation has been
-persisted to the log, since it must be completed even on a crash and subsequent
-recovery. Therefore, addressing the network bottleneck is pointless without also
-addressing the storage bottleneck. Cyclone shows how a small amount of
-non-volatile memory can be used to address both bottlenecks.
+\emph{not independent}, they cannot be addressed in isolation. In particular,
+durability semantics mean that the key-value store cannot respond to the client
+until the operation has been persisted to the log, since it must be completed
+even on a crash and subsequent recovery. Therefore, addressing the network
+bottleneck is pointless without also addressing the storage bottleneck. Cyclone
+shows how a small amount of non-volatile memory can be used to address both
+bottlenecks.
 
 Cyclone is a high speed strongly consistent replicated write ahead logging
 service specialized for key value stores such as Rocksdb. Cyclone entirely
@@ -382,7 +383,9 @@ simply manipulate packet headers to produce new packets to send on the output
 ports. We designed our implementation of the RAFT protocol based on the same
 principle.
 
-\begin{figure}
+\begin{figure*}
+  \begin{minipage}{.2\textwidth}
+    \scriptsize
 \begin{verbatim}
     event_receive_client_req()
     {
@@ -395,9 +398,22 @@ principle.
       Transmit to follower replicas
     }
 \end{verbatim}
-\caption{Cyclone event handling}
+\caption{Event handling}
 \label{fig:control_plane}
-\end{figure}
+\end{minipage}
+\begin{minipage}{.5\textwidth}
+  \centering
+  \includegraphics[scale=0.3]{figures2/network_packet.pdf}
+  \caption{Cyclone network packet layout}
+  \label{fig:packet_layout}
+\end{minipage}
+\begin{minipage}{.3\textwidth}
+  \centering
+  \includegraphics[scale=0.3]{figures2/batching.pdf}
+  \caption{Batching}
+  \label{fig:batching}
+\end{minipage}
+\end{figure*}
 
 
 The pseudocode in Figure~\ref{fig:control_plane} describes part of the packet
@@ -431,13 +447,6 @@ targeted replica and ``chain'' the data packet to each of these headers. Each
 header is then separately handed off to the driver for transmission via the NIC,
 carrying the data packet with it by association.
 
-\begin{figure}
-  \centering
-  \includegraphics[scale=0.35]{figures2/network_packet.pdf}
-  \caption{Cyclone network packet layout}
-  \label{fig:packet_layout}
-\end{figure}
-
 We now turn our attention to the persistence step in
 Figure~\ref{fig:control_plane}. RAFT requires that the log entry be persisted
 \emph{before} it is multicast out to follower replicas. DPDK userspace NIC
@@ -458,14 +467,6 @@ header manipulation related writes from the CPU are sent to cache.
 
 \subsection{Batching}
 
-\begin{figure}
-  \centering
-  \includegraphics[scale=0.4]{figures2/batching.pdf}
-  \caption{Batching}
-  \label{fig:batching}
-\end{figure}
-
-
 Although RAFT is an efficient consensus protocol in the common case, the
 protocol state machine still adds significant overhead to each packet, relative
 to the time for the packet to flow in from the NIC and back out to the replicas.
@@ -482,8 +483,6 @@ systems~\cite{ix-dataplane}. The batch receive call we use in DPDK returns
 immediately with whatever number of packets is available, including zero. We
 always flush the transmit buffer after every call to DPDK to transmit packets to
 replicas. Therefore, we never tradeoff latency for throughput when batching. 
-
-
 
 \section{Parallelism}
 \label{sec:parallelism}
@@ -742,17 +741,25 @@ network line rate bottleneck at this point. It is worthwhile to compare this to
 the case with small updates, where running the consensus protocol was a
 bottleneck to reaching line rate.
 
-\begin{figure}
-\includegraphics[scale=0.6]{results2/replicas.pdf}
-\caption{Impact of replica count}
-\label{fig:replicas}
-\end{figure}
+\begin{figure*}
+\begin{minipage}{.33\textwidth}
+  \includegraphics[scale=0.45]{results2/replicas.pdf}
+  \caption{Impact of replica count}
+  \label{fig:replicas}
+\end{minipage}
+\begin{minipage}{.33\textwidth}
+  \includegraphics[scale=0.45]{results2/512.pdf}
+  \caption{Impact of payload size}
+  \label{fig:payload}
+\end{minipage}
+\begin{minipage}{.33\textwidth}
+  \includegraphics[scale=0.45]{results2/flashlog.pdf}
+  \caption{Adding second level log}
+  \label{fig:flashlog}
+\end{minipage}
+\end{figure*}
 
-\begin{figure}
-\includegraphics[scale=0.6]{results2/512.pdf}
-\caption{Impact of payload size}
-\label{fig:payload}
-\end{figure}
+
 
 We now turn our attention from the network component of Cyclone to the storage
 one by adding the second level flashlog. We evaluate the impact of adding the
@@ -782,12 +789,6 @@ criticial path of replication. Further, for small updates the throughput
 bottleneck is the capability of the software to run the consensus protocol but
 shifts to the secondary storage device for larger request sizes.
 
-\begin{figure}
-\includegraphics[scale=0.6]{results2/flashlog.pdf}
-\caption{Impact of adding second level log}
-\label{fig:flashlog}
-\end{figure}
-
 We now evaluate ganged operations. The primary purpose of
 ganged operations is to avoid the need for distributed transactions to
 manipulate what is a single shared memory image and therefore we were most
@@ -811,7 +812,7 @@ replication) using an external co-ordinator, a minimum of 80us.
 \begin{figure*}
 \begin{minipage}{0.33\textwidth}
   \includegraphics[scale=0.45]{results2/flashlog_512.pdf}
-  \caption{Second level log with 512 bytes payload}
+  \caption{Second level log - 512 bytes payload}
   \label{fig:flashlog_512}
 \end{minipage}
 \begin{minipage}{0.33\textwidth}
@@ -821,7 +822,7 @@ replication) using an external co-ordinator, a minimum of 80us.
 \end{minipage}
 \begin{minipage}{0.33\textwidth}
   \includegraphics[scale=0.45]{results2/kv_baseline.pdf}
-  \caption{Baseline KV replication performance}
+  \caption{Baseline KV replication}
   \label{fig:kv_baseline}
 \end{minipage}
 \end{figure*}
@@ -964,27 +965,36 @@ replicas in turn to locate the leader - in this case it fails over in about
 
 Cyclone takes a software only approach to improving replication performance
 using commodity network hardware. In contrast, Mojim~\cite{mojim} pairs directly
-attached persistent memory with RDMA to replicate persistent data structures. A
-comparison is hard since Mojim is designed for the hypothetical scenario where
-there is enough persistent memory to hold all persistent data, while Cyclone is
-designed for the practical case where both the write-ahead log and key value
-store data structures need to be maintained largely on flash. Nevertheless we
-can compare their replication performance for the case where we use only the NVM
-log in Cyclone. On 40Gbps infiniband, Mojim reported being able to mirror data
-at 4GB/s. In contrast, Cyclone can replicate data three ways using 4*10 Gbps
-commodity ethernet NICs at a peak of roughly 3.7 GB/s. This is with Cyclone is
-also running the RAFT consensus protocol, while Mojim is doing simple mirroring
-of main memory. One can conclude that network offload via RDMA and Infiniband is
-not an a-priori requirement for high throughput replication. This is made
-possible by Cyclone's approach that relieves the CPU from the burden of data
-copies. On the other hand, the latency of a hop on commodity ethernet at 5 us
-with our DPDK stack is larger than the close to 2us latency with
-Infiniband. Depending on the use case for the key value store application the
-extra 6us with ethernet for the round trip to the replica might be a concern for
-some. We note that mapping the commutativity of key value store interfaces to
-multiple logs in Cyclone is a technique that can also be applied to RDMA. Mojim
-confirms that concurrency is a significant determinant of performance when
-replicating over RDMA.
+attached persistent memory with RDMA to replicate persistent data
+structures. Mojim is a weak replication scheme in that none of the numerous
+\emph{evaluated} modes of Mojim provide any means to keep more than two replicas in
+strong synchronization. Its multi-tiered replication could lose committed
+updates and therefore its guarantees are too weak to be used as a replacement
+for RocksDB's write ahead log. Further, Mojim makes the somewhat strange claim
+that ``Paxos-like protocols'' require two networking round trips and therefore
+are somehow inefficient compared to mirroring. This is not true, as we have
+demonstrated with Cyclone where the leader responds as soon as it hears back
+from a majority quorum, the critical path to replication therefore being one
+network round trip.  A performance comparison with Mojim is hard, since it is
+designed for the hypothetical scenario where there is enough persistent memory
+to hold all persistent data, while Cyclone is designed for the practical case
+where both the write-ahead log and key value store data structures need to be
+maintained largely on flash. Nevertheless we can compare their replication
+performance for the case where we use only the NVM log in Cyclone. On 40Gbps
+infiniband, Mojim reported being able to mirror data at 4GB/s. In contrast,
+Cyclone can replicate data three ways using 4*10 Gbps commodity ethernet NICs at
+a peak of roughly 3.7 GB/s. This is with Cyclone is also running the RAFT
+consensus protocol, while Mojim is doing simple mirroring of main memory. One
+can conclude that network offload via RDMA and Infiniband is not an a-priori
+requirement for high throughput replication. This is made possible by Cyclone's
+approach that relieves the CPU from the burden of data copies. On the other
+hand, the latency of a hop on commodity ethernet at 5 us with our DPDK stack is
+larger than the close to 2us latency with Infiniband. Depending on the use case
+for the key value store application the extra 6us with ethernet for the round
+trip to the replica might be a concern for some. We note that mapping the
+commutativity of key value store interfaces to multiple logs in Cyclone is a
+technique that can also be applied to RDMA. Mojim confirms that concurrency is a
+significant determinant of performance when replicating over RDMA.
 
 Consensus in a box~\cite{consensus_box} implements the Zookeeper atomic
 broadcast protocol together with a NIC on an FPGA. That work ignored durability,
@@ -1018,11 +1028,8 @@ doing replication.
 
 {CRANE}~\cite{crane} is a system for replicating mutithreaded programs using
 Paxos. It uses deterministic multi-threading to ensure replicas converge to the
-same state as opposed to semantic equivalence in Cyclone using the commutativity
-of the key value store interface. Although CRANE is more generally applicable in
-that it makes no assumptions about the application API, deterministic
-multithreading comes with high overheads for applications that store large
-amounts of data - CRANE reports around a 2X slowdown for MySQL, likely rendering
+same state as opposed to semantic equivalence in Cyclone using API
+commutativity.  CRANE reports around a 2X slowdown for MySQL, likely rendering
 it unsuitable as a replacement for the write ahead log in key value stores.
 
 The scalable commutativity rule~\cite{scalable_commutativity} states that for a
