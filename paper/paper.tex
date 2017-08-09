@@ -305,19 +305,23 @@ impressive speeds of millions of packets forwarded per second~\cite{dpdk_perf},
 a number far in excess of the few hundreds of packets we manage in
 Figure~\ref{fig:problem}. The key insight in removing network overheads in
 Cyclone is therefore to approximate a software packet switch for the networking
-component of Cyclone.
+component of Cyclone. We do this by implementing Cyclone's network stack on top
+of the Data Plane Development Kit (DPDK)~\cite{dpdk}, that provides low latency
+userspace access to an ethernet NIC. We discuss Cyclone's network protocol in
+Section~\ref{sec:netprot}. There are two key challenges in implementing a
+consensus protocol as a software packet switch.
 
-This is however not a straightforward mapping. Software packet switches make a
-simple (usually stateless or sometimes flow associated) decision for each
-packet. In contrast, the role of replicas in Cyclone is asymmetric. Log entries
-flow from the leader replica to followers and acknowledgments flow
-back. Further, the assigned role to a replica can change on reconfiguration
-after a failure. A replica must also reject packets from old configurations. The
-action associated with a received packet therefore is far more complex than
-simply forwarding it to a log.  The \emph{challenge} is to do this efficiently
-in software.
+Software packet switches make a simple (usually stateless or
+sometimes flow associated) decision for each packet. In contrast, running a
+consensus protocol requires a relatively complex decision process for each
+packet. The direction of flow of log entries depends on the role of the
+replicas. Further, the assigned role to a replica can change on reconfiguration
+after a failure. A replica must also reject packets from old configurations. In
+Section~\ref{sec:dm} we cover the techniques we use in Cyclone to ameliorate
+these overheads.
 
 \subsection{DPDK}
+\label{sec:netprot}
 The Data Plane Development Kit~\cite{dpdk} provides low latency userspace access
 to an ethernet NIC, permitting the application to directly send and receive raw
 ethernet frames via the transmit and receive queues on the NIC. DPDK is often
@@ -340,43 +344,7 @@ from the kernel TCP/IP stack to DPDK reduces the latency between machines in our
 testbed from {\tt 18 us} to as low as {\tt 5 us}, providing a significant boost
 to performance.
 
-\subsection{Memory Management}
-\label{sec:mm}
-We direct DPDK to use pages backed by NVM for packet buffers. DPDK uses a
-concurrent memory allocator based on reference counting - used by both the NIC
-driver and CPU cores. This means that packet allocation and deallocation does
-not happen in the same order as their corresponding position in the replicated
-RAFT log. To deal with this, we use a level of indirection as shown in
-Figure~\ref{fig:nvm_log}. The NVM log is maintained as a circular log of fixed
-sized pointers to the actual packets. Adding a level of indirection in the NVM
-log allows us to separate the FIFO ordered circular log being manipulated by
-RAFT from packet data being managed by the memory allocator of DPDK. Both the
-circular log and packet data are in NVM. An advantage of this scheme is that it
-makes recovery from NVM easy -- appends to the circular pointer log are atomic
-and we can use the pointer log to recover allocator state i.e. what pieces of
-NVM are currently in use by the log.
-
-\begin{figure}
-\centering
-\includegraphics[scale=0.3]{figures2/nvm_log.pdf}
-\caption{NVM log structure}
-\label{fig:nvm_log}
-\end{figure}
-
-A key advantage of RAFT is that unlike alternatives such as
-MultiPaxos~\cite{multipaxos} or Quorum based replication~\cite{quorum}, the
-leader is guaranteed to have the most up to date logs. There is therefore no
-case where a leader needs to receive log entries to ``fill'' holes in its logs
-from follower replicas, simplifying the protocol state machine we need to
-implement. A leader can immediately reject any responses that are not more
-current than its view (term). In turn, the persistent log operates as a double
-ended queue, with entries either being appended (or possibly deleted at
-followers) at the end and being deleted from the front (after commit). This is
-critical to efficient operation of Cyclone, as it allows a simple top level
-structure (a circular buffer of pointers) to represent the log.
-
-
-\subsection{Data Movement}
+\subsection{Addressing Overheads}
 \label{sec:dm}
 Software packet switches built on DPDK try to touch as little of the packet data
 as possible, minimizing movement of data up and down the cache and memory
@@ -450,25 +418,22 @@ targeted replica and ``chain'' the data packet to each of these headers. Each
 header is then separately handed off to the driver for transmission via the NIC,
 carrying the data packet with it by association.
 
-We now turn our attention to the persistence step in
-Figure~\ref{fig:control_plane}. RAFT requires that the log entry be persisted
-\emph{before} it is multicast out to follower replicas. DPDK userspace NIC
-drivers operate in DDIO mode~\cite{ddio} where the packet is directly written
-into the CPU cache rather than first being DMAed into DRAM and then fetched by
-the CPU on demand. Since the NVM is directly attached we need to persist the
-packet to it by executing a cacheline flush ({\tt clflush}) instruction for
-every cacheline in the packet and the pointer in the pointer buffer to persist
-these via the memory bus. This is not too onerous a burden because we can use
-the newly introduced {\tt clflush-opt}~\cite{clflush_opt} instruction
-specifically intended to efficiently flush to persistent memory without the
-overhead of the serialization normally introduced by {\tt clflush}. This allows
-us to hit full memory bandwidth on current generation platforms, a quantity in
-excess of 200 Gb/s per core which is well above the near term speeds of 
-commodity NICs. We execute a single serializing {\tt sfence} 
-before the sequence of {\tt clflushes} to make sure any dirty cachelines due to
-header manipulation related writes from the CPU are sent to cache.
-
-\subsection{Batching}
+RAFT requires that the log entry be persisted \emph{before} it is multicast out
+to follower replicas. DPDK userspace NIC drivers operate in DDIO
+mode~\cite{ddio} where the packet is directly written into the CPU cache rather
+than first being DMAed into DRAM and then fetched by the CPU on demand. Since
+the NVM is directly attached we need to persist the packet to it by executing a
+cacheline flush ({\tt clflush}) instruction for every cacheline in the packet
+and the pointer in the pointer buffer to persist these via the memory bus. This
+is not too onerous a burden because we can use the newly introduced {\tt
+  clflush-opt}~\cite{clflush_opt} instruction specifically intended to
+efficiently flush to persistent memory without the overhead of the serialization
+normally introduced by {\tt clflush}. This allows us to hit full memory
+bandwidth on current generation platforms, a quantity in excess of 200 Gb/s per
+core which is well above the near term speeds of commodity NICs. We execute a
+single serializing {\tt sfence} before the sequence of {\tt clflushes} to make
+sure any dirty cachelines due to header manipulation related writes from the CPU
+are sent to cache.
 
 Although RAFT is an efficient consensus protocol in the common case, the
 protocol state machine still adds significant overhead to each packet, relative
@@ -486,6 +451,40 @@ systems~\cite{ix-dataplane}. The batch receive call we use in DPDK returns
 immediately with whatever number of packets is available, including zero. We
 always flush the transmit buffer after every call to DPDK to transmit packets to
 replicas. Therefore, we never tradeoff latency for throughput when batching. 
+
+We direct DPDK to use pages backed by NVM for packet buffers. DPDK uses a
+concurrent memory allocator based on reference counting - used by both the NIC
+driver and CPU cores. This means that packet allocation and deallocation does
+not happen in the same order as their corresponding position in the replicated
+RAFT log. To deal with this, we use a level of indirection as shown in
+Figure~\ref{fig:nvm_log}. The NVM log is maintained as a circular log of fixed
+sized pointers to the actual packets. Adding a level of indirection in the NVM
+log allows us to separate the FIFO ordered circular log being manipulated by
+RAFT from packet data being managed by the memory allocator of DPDK. Both the
+circular log and packet data are in NVM. An advantage of this scheme is that it
+makes recovery from NVM easy -- appends to the circular pointer log are atomic
+and we can use the pointer log to recover allocator state i.e. what pieces of
+NVM are currently in use by the log.
+
+\begin{figure}
+\centering
+\includegraphics[scale=0.3]{figures2/nvm_log.pdf}
+\caption{NVM log structure}
+\label{fig:nvm_log}
+\end{figure}
+
+Our choice of RAFT as a consensus protocol is driven by the need to efficiently
+maintain this log datastructure. Unlike alternatives such as
+MultiPaxos~\cite{multipaxos} or Quorum based replication~\cite{quorum}, the
+leader is guaranteed to have the most up to date logs. There is therefore no
+case where a leader needs to receive log entries to ``fill'' holes in its logs
+from follower replicas, simplifying the protocol state machine we need to
+implement. A leader can immediately reject any responses that are not at least as
+current as its view (term). In turn, the persistent log operates as a double
+ended queue, with entries either being appended (or possibly deleted at
+followers) at the end and being deleted from the front (after commit). This is
+critical to efficient operation of Cyclone, as it allows a simple top level
+structure (a circular buffer of pointers) to represent the log.
 
 \section{Parallelism}
 \label{sec:parallelism}
@@ -1013,14 +1012,17 @@ comparable to the 6M replications/sec mark obtained by Cyclone on an aggregate
 40 Gbps of network bandwidth when \emph{also persisting the log on the SSD}. We
 believe the general applicability afforded by our software only approach
 together with the fact that we provide persistence by design makes it a
-compelling alternative to an FPGA based solution, even given the larger latency.
+compelling alternative to an FPGA based solution, even given the larger
+latency. Also, these results demonstrate that a general purpose CPU core can be
+as efficient as an FPGA in running a consensus protocol using the techniques
+described in this paper.
 
 DARE~\cite{dare} implements state machine replication over RDMA, using a custom
 replication protocol. DARE does not consider persistence in its design. It is
 worthwhile to point out that since DARE allows any replica to become the leader
 it requires a log adjustment protocol for the leader to bring its logs up to
 date, a situation we avoid by using RAFT as described in
-Section~\ref{sec:mm}. Using 40 Gb/s speeds, and 3-way replication DARE reported
+Section~\ref{sec:dm}. Using 40 Gb/s speeds, and 3-way replication DARE reported
 being able to replicate 500K requests/sec. This is without persisting the log of
 updates. In contrast, Cyclone replicates upwards of 6 million similarly sized
 requests per second with 4*10 Gbps ethernet (without the second level
@@ -1050,15 +1052,13 @@ in NVM, presuming sufficient availability of such memory. It also does not
 consider replication.
 
 Cyclone provides a client library that automatically times out and retries
-requests to deal with failure. Protection against repeated execution of the same
-request is currently left to the key value store and client, since we felt that
-exactly once semantics is optional when updates such as put operations are
-idempotent. We have experimented with exactly once semantics as a basis for
-distributed transactions across shards running Cyclone integrated key value
-stores. This is along the lines of similar work~\cite{raft_lin}, using a fixed
-client space and maintaining information about last seen sequence numbers from
-clients in NVM. Distributed transactions on Cyclone shards is however outside
-the scope of this paper.
+requests to deal with failure. We do not provide exactly once semantics as we
+believe that exactly once semantics are better provided by the key value store
+itself by persisting necessary request markers - as done in systems such as
+Kafka~\cite{kafka}. A possible direction of future work however is to add
+exactly once semantics to Cyclone's client-server protocol itself to serve as a
+building block for distributed transactions across key-value shards, each
+running Cyclone, in a manner similar to other systems~\cite{raft_lin}.
 
 \section{Conclusion}
 Cyclone shows how one can leverage a small amount of non-volatile memory to
