@@ -26,7 +26,7 @@ storage failures. Cyclone is a replicated log plug-in for key value stores that
 systematically addresses various sources of this bottleneck. It uses a small
 amount of non-volatile memory directly addressable by the CPU - such as in the
 form of NVDIMMs or Intel 3DXPoint - to remove block oriented IO devices such as
-SSDs from the critical path for appending to the log. It then addresses network
+SSDs from the critical path for appending to the log. This enables it to address network
 overheads using an implementation of the RAFT consensus protocol that is
 designed around a userspace network stack to relieve the CPU of the burden of
 data copies. Finally, it provides a way to efficiently map the commutativity in
@@ -117,31 +117,31 @@ In cases where the log does not entirely fit in NVM, we periodically drain the
 NVM log into a log placed on a standard SSD on the system.
 
 The second key contribution of this work is in showing that the throughput
-bottlenecks in the network stack can be mitigated entirely in software. Existing
-work on log replication using state machine replication protocols such as
-Paxos~\cite{paxos} and RAFT~\cite{raft} has not - thus far - addressed high
-performance replication in the local area network of a datacenter using
-commodity networks.  Research focusing on addressing wide area network latencies
-by reducing the number of network hops with new protocols such as Fast
-Paxos~\cite{fast-paxos} or network switch modifications such as No
-Paxos~\cite{nopaxos} do not address throughput bottlenecks due to network stack
-related inefficiencies in the participating nodes of the quorum -- a more urgent
-problem with local area replication. On the other hand, work done to address
-network related inefficiencies start with the assumption that the bottleneck to
-good throughput on the network is the CPU and therefore one must either resort
-to offload mechanisms such as RDMA~\cite{dare, farm, faast} or offload the
-protocol entirely to an FPGA~\cite{consensus_box}. We demonstrate in this paper
-that this is not the case. Rather, once persistence is provided by directly
-attached non-volatile memory, thereby eliminating block IO from the persistence 
-step in
-replication protocols, the problem becomes equivalent to multicasting the same
-log entry from the leader to all followers. We design Cyclone's network stack
-around well known principles in the software packet switching community. In
-particular, a careful implementation of a consensus protocol that relieves the
-CPU of the responsibility of data movement permits a high performance
-implementation entirely in software that addresses the order of magnitude
-network related performance gap in Figure~\ref{fig:problem} using only commodity
-10 Gigabit ethernet.
+bottlenecks in the network stack can be mitigated entirely in software, once
+block IO is removed from the critical path. Existing work on log replication
+using state machine replication protocols such as Paxos~\cite{paxos} and
+RAFT~\cite{raft} has not - thus far - addressed high performance replication in
+the local area network of a datacenter using commodity networks.  Research
+focusing on addressing wide area network latencies by reducing the number of
+network hops with new protocols such as Fast Paxos~\cite{fast-paxos} or network
+switch modifications such as No Paxos~\cite{nopaxos} do not address throughput
+bottlenecks due to network stack related inefficiencies in the participating
+nodes of the quorum -- a more urgent problem with local area replication. On the
+other hand, work done to address network related inefficiencies start with the
+assumption that the bottleneck to good throughput on the network is the CPU and
+therefore one must either resort to network offload mechanisms such as RDMA~\cite{dare,
+  farm, faast} or offload the protocol entirely to an
+FPGA~\cite{consensus_box}. We demonstrate in this paper that this is not the
+case. Rather, once persistence is provided by directly attached non-volatile
+memory, thereby eliminating block IO from the persistence step in replication
+protocols, the problem becomes akin to multicasting the same log entry
+from the leader to all followers. We design Cyclone's network stack around well
+known principles in the software packet switching community. In particular, a
+careful implementation of a consensus protocol that relieves the CPU of the
+responsibility of data movement permits a high performance implementation
+entirely in software that addresses the order of magnitude network related
+performance gap in Figure~\ref{fig:problem} using only commodity 10 Gigabit
+ethernet.
 
 Both the storage (NVM, SSD) as well as the NIC expose significant parallelism
 that is left unused when Cyclone is used to replicate a single log. The third
@@ -184,7 +184,7 @@ library. Cyclone replicates the key value store across a set of replica
 servers. The client side library sends \emph{all} requests to a distinguished
 leader replica.  On the server side Cyclone accepts requests from clients, calls
 into the key value store, and returns a response to the client. Before
-executing any PUT request, Cyclone appends it to a durable log and replicates
+executing any PUT or DELETE request, Cyclone appends it to a durable log and replicates
 the request to the logs of follower replicas. The request is considered
 replicated once acknowledged by a majority of replicas. Follower replicas apply
 updates from the log in order.
@@ -277,7 +277,7 @@ Cyclone uses the RAFT~\cite{raft} consensus protocol to replicate the log of
 operations across machines. Cyclone provides guarantee to the client that any
 operation responded
 to is durable and its results \emph{available} as long as a majority of replicas
-continue to function. Cyclone's failure model therefore is \emph{fail-recovery},
+continue to function. Cyclone's failure model is \emph{fail-recovery},
 where nodes that can recover from failure simply continue to participate in
 the protocol. This
 requires RAFT to persist every log entry \emph{before} it sends it out for
