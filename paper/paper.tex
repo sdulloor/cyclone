@@ -14,10 +14,10 @@
 \date{}
 \maketitle
 
-\thispagestyle{empty}
+%\thispagestyle{empty}
 
 \begin{abstract}
-\vspace{0.1in}
+\vspace{0.05in}
 Persistent key value stores are an important component of many distributed data
 serving solutions with innovations targeted at taking advantage of growing flash
 speeds. Unfortunately their performance is hampered by the need to maintain and
@@ -30,9 +30,8 @@ SSDs from the critical path for appending to the log. It then addresses network
 overheads using an implementation of the RAFT consensus protocol that is
 designed around a userspace network stack to relieve the CPU of the burden of
 data copies. Finally, it provides a way to efficiently map the commutativity in
-key-value store APIs to the parallelism available in commodity NICs via multiple
-transmit receive queues to scale replication performance on multicore
-machines. Cyclone is able to replicate millions of small updates per second
+key-value store APIs to the parallelism available in commodity NICs.
+Cyclone is able to replicate millions of small updates per second
 using only commodity 10 gigabit ethernet adapters. As a practical application,
 we use it to improve the performance (and availability) of RocksDB, a popular
 persistent key value store by an order of magnitude when compared to its own
@@ -302,7 +301,7 @@ to all follower replicas. The leader therefore \emph{multicasts} a received
 request packet to follower replicas, a problem well studied in the networking
 community when building software packet switches. Software packet switches reach
 impressive speeds of millions of packets forwarded per second~\cite{dpdk_perf}, 
-a number far in excess of the few hundreds of packets we manage in
+a number far in excess of the few thousands of packets we manage in
 Figure~\ref{fig:problem}. The key insight in removing network overheads in
 Cyclone is therefore to approximate a software packet switch for the networking
 component of Cyclone. We do this by implementing Cyclone's network stack on top
