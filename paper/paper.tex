@@ -307,8 +307,7 @@ Cyclone is therefore to approximate a software packet switch for the networking
 component of Cyclone. We do this by implementing Cyclone's network stack on top
 of the Data Plane Development Kit (DPDK)~\cite{dpdk}, that provides low latency
 userspace access to an ethernet NIC. We discuss Cyclone's network protocol in
-Section~\ref{sec:netprot}. There are two key challenges in implementing a
-consensus protocol as a software packet switch.
+Section~\ref{sec:netprot}.
 
 Software packet switches make a simple (usually stateless or
 sometimes flow associated) decision for each packet. In contrast, running a
@@ -378,10 +377,10 @@ principle.
   \label{fig:packet_layout}
 \end{minipage}
 \begin{minipage}{.3\textwidth}
-  \centering
-  \includegraphics[scale=0.3]{figures2/batching.pdf}
-  \caption{Batching}
-  \label{fig:batching}
+\centering
+\includegraphics[scale=0.3]{figures2/nvm_log.pdf}
+\caption{NVM log structure}
+\label{fig:nvm_log}
 \end{minipage}
 \end{figure*}
 
@@ -417,6 +416,20 @@ targeted replica and ``chain'' the data packet to each of these headers. Each
 header is then separately handed off to the driver for transmission via the NIC,
 carrying the data packet with it by association.
 
+We direct DPDK to use pages backed by NVM for packet buffers. DPDK uses a
+concurrent memory allocator based on reference counting - used by both the NIC
+driver and CPU cores. This means that packet allocation and deallocation does
+not happen in the same order as their corresponding position in the replicated
+RAFT log. To deal with this, we use a level of indirection as shown in
+Figure~\ref{fig:nvm_log}. The NVM log is maintained as a circular log of fixed
+sized pointers to the actual packets. Adding a level of indirection in the NVM
+log allows us to separate the FIFO ordered circular log being manipulated by
+RAFT from packet data being managed by the memory allocator of DPDK. Both the
+circular log and packet data are in NVM. An advantage of this scheme is that it
+makes recovery from NVM easy -- appends to the circular pointer log are atomic
+and we can use the pointer log to recover allocator state i.e. what pieces of
+NVM are currently in use by the log.
+
 RAFT requires that the log entry be persisted \emph{before} it is multicast out
 to follower replicas. DPDK userspace NIC drivers operate in DDIO
 mode~\cite{ddio} where the packet is directly written into the CPU cache rather
@@ -451,35 +464,21 @@ immediately with whatever number of packets is available, including zero. We
 always flush the transmit buffer after every call to DPDK to transmit packets to
 replicas. Therefore, we never tradeoff latency for throughput when batching. 
 
-We direct DPDK to use pages backed by NVM for packet buffers. DPDK uses a
-concurrent memory allocator based on reference counting - used by both the NIC
-driver and CPU cores. This means that packet allocation and deallocation does
-not happen in the same order as their corresponding position in the replicated
-RAFT log. To deal with this, we use a level of indirection as shown in
-Figure~\ref{fig:nvm_log}. The NVM log is maintained as a circular log of fixed
-sized pointers to the actual packets. Adding a level of indirection in the NVM
-log allows us to separate the FIFO ordered circular log being manipulated by
-RAFT from packet data being managed by the memory allocator of DPDK. Both the
-circular log and packet data are in NVM. An advantage of this scheme is that it
-makes recovery from NVM easy -- appends to the circular pointer log are atomic
-and we can use the pointer log to recover allocator state i.e. what pieces of
-NVM are currently in use by the log.
-
 \begin{figure}
-\centering
-\includegraphics[scale=0.3]{figures2/nvm_log.pdf}
-\caption{NVM log structure}
-\label{fig:nvm_log}
+  \centering
+  \includegraphics[scale=0.3]{figures2/batching.pdf}
+  \caption{Batching}
+  \label{fig:batching}
 \end{figure}
 
 Our choice of RAFT as a consensus protocol is driven by the need to efficiently
-maintain this log datastructure. Unlike alternatives such as
+maintain the log datastructure. Unlike alternatives such as
 MultiPaxos~\cite{multipaxos} or Quorum based replication~\cite{quorum}, the
 leader is guaranteed to have the most up to date logs. There is therefore no
 case where a leader needs to receive log entries to ``fill'' holes in its logs
 from follower replicas, simplifying the protocol state machine we need to
-implement. A leader can immediately reject any responses that are not at least as
-current as its view (term). In turn, the persistent log operates as a double
+implement. A leader can immediately reject any responses that are not at least
+as current as its view (term). In turn, the persistent log operates as a double
 ended queue, with entries either being appended (or possibly deleted at
 followers) at the end and being deleted from the front (after commit). This is
 critical to efficient operation of Cyclone, as it allows a simple top level
@@ -946,12 +945,12 @@ that Rocksdb's existing single machine write ahead log solution.
 \begin{figure*}
 \begin{minipage}{0.33\textwidth}
 \includegraphics[scale=0.45]{results2/fb.pdf}
-\caption{Rocksdb - read heavy workload}
+\caption{Rocksdb - read heavy}
 \label{fig:fb}
 \end{minipage}
 \begin{minipage}{0.33\textwidth}
   \includegraphics[scale=0.45]{results2/fb2.pdf}
-  \caption{Rocksdb - write heavy workload}
+  \caption{Rocksdb - write heavy}
   \label{fig:fb2}
 \end{minipage}
 \begin{minipage}{0.33\textwidth}
