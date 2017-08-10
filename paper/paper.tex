@@ -26,16 +26,16 @@ storage failures. Cyclone is a replicated log plug-in for key value stores that
 systematically addresses various sources of this bottleneck. It uses a small
 amount of non-volatile memory directly addressable by the CPU - such as in the
 form of NVDIMMs or Intel 3DXPoint - to remove block oriented IO devices such as
-SSDs from the critical path for appending to the log. This enables it to address network
-overheads using an implementation of the RAFT consensus protocol that is
+SSDs from the critical path for appending to the log. This enables it to address
+network overheads using an implementation of the RAFT consensus protocol that is
 designed around a userspace network stack to relieve the CPU of the burden of
 data copies. Finally, it provides a way to efficiently map the commutativity in
-key-value store APIs to the parallelism available in commodity NICs.
-Cyclone is able to replicate millions of small updates per second
-using only commodity 10 gigabit ethernet adapters. As a practical application,
-we use it to improve the performance (and availability) of RocksDB, a popular
-persistent key value store by an order of magnitude when compared to its own
-write ahead log without replication.
+key-value store APIs to the parallelism available in commodity NICs.  Cyclone is
+able to replicate millions of small updates per second using only commodity 10
+gigabit ethernet adapters. As a practical application, we use it to improve the
+performance (and availability) of RocksDB, a popular persistent key value store
+by an order of magnitude when compared to its own write ahead log without
+replication.
 \end{abstract}
 
 \section{Introduction}
@@ -79,11 +79,11 @@ of sophisticated extensions to LSM data structures.
 These two performance bottlenecks illustrated in Figure~\ref{fig:problem} are
 \emph{not independent}, they cannot be addressed in isolation. In particular,
 durability semantics mean that the key-value store cannot respond to the client
-until the operation has been persisted to the log, since it must be completed
-even on a crash and subsequent recovery. Therefore, addressing the network
-bottleneck is pointless without also addressing the storage bottleneck. Cyclone
-shows how a small amount of non-volatile memory can be used to address both
-bottlenecks.
+until the operation has been persisted to the log at a majority of replicas,
+since it must be completed even on a crash and subsequent recovery. Therefore,
+addressing the network bottleneck is pointless without also addressing the
+storage bottleneck. Cyclone shows how a small amount of non-volatile memory can
+be used to address both bottlenecks.
 
 Cyclone is a high speed strongly consistent replicated write ahead logging
 service specialized for key value stores such as Rocksdb. Cyclone entirely
@@ -275,14 +275,13 @@ across multiple machines.
 \label{sec:network}
 Cyclone uses the RAFT~\cite{raft} consensus protocol to replicate the log of
 operations across machines. Cyclone provides guarantee to the client that any
-operation responded
-to is durable and its results \emph{available} as long as a majority of replicas
-continue to function. Cyclone's failure model is \emph{fail-recovery},
-where nodes that can recover from failure simply continue to participate in
-the protocol. This
-requires RAFT to persist every log entry \emph{before} it sends it out for
-replication. Storage overheads are therefore not independent of network
-overheads, and we must deal with both storage and networking overheads
+operation responded to is durable and its results \emph{available} as long as a
+majority of replicas continue to function. Cyclone's failure model is
+\emph{fail-recovery}, where nodes that can recover from failure simply continue
+to participate in the protocol. This requires RAFT to persist every log entry
+\emph{before} it sends it out for replication and before a follower replica
+responds to the leader. Storage overheads are therefore not independent of
+network overheads, and we must deal with both storage and networking overheads
 simultaneously to improve the performance of replication.
 
 We leverage the two level log from the previous section to remove storage
@@ -309,14 +308,14 @@ of the Data Plane Development Kit (DPDK)~\cite{dpdk}, that provides low latency
 userspace access to an ethernet NIC. We discuss Cyclone's network protocol in
 Section~\ref{sec:netprot}.
 
-Software packet switches make a simple (usually stateless or
-sometimes flow associated) decision for each packet. In contrast, running a
-consensus protocol requires a relatively complex decision process for each
-packet. The direction of flow of log entries depends on the role of the
-replicas. Further, the assigned role to a replica can change on reconfiguration
-after a failure. A replica must also reject packets from old configurations. In
-Section~\ref{sec:dm} we cover the techniques we use in Cyclone to ameliorate
-these overheads.
+However, the flow of packets through a software packet switch is usually very
+simple: the packet enters through an ethernet port and after a simple (usually
+stateless) decision is sent out through a set of chosen ports.  In contrast, log
+replication requires a complex protocol state machine to decide what to do with
+the packet. In addition, unlike software switches we cannot simply forget a
+packet after transmitting it. We must append it to the log and act on it after
+consensus is reached by a majority quorum. In Section~\ref{sec:dm} we cover the
+techniques we use in Cyclone to ameliorate these overheads.
 
 \subsection{DPDK}
 \label{sec:netprot}
@@ -433,11 +432,11 @@ NVM are currently in use by the log.
 RAFT requires that the log entry be persisted \emph{before} it is multicast out
 to follower replicas. DPDK userspace NIC drivers operate in DDIO
 mode~\cite{ddio} where the packet is directly written into the CPU cache rather
-than first being DMAed into DRAM and then fetched by the CPU on demand. Since
-the NVM is directly attached we need to persist the packet to it by executing a
-cacheline flush ({\tt clflush}) instruction for every cacheline in the packet
-and the pointer in the pointer buffer to persist these via the memory bus. This
-is not too onerous a burden because we can use the newly introduced {\tt
+than first being DMAed into DRAM and then fetched by the CPU on demand. We need
+to persist the packet to directly attached NVM by executing a cacheline flush
+({\tt clflush}) instruction for every cacheline in the packet and the pointer in
+the pointer buffer to persist these via the memory bus. This is not too onerous
+a burden because we can use the newly introduced {\tt
   clflush-opt}~\cite{clflush_opt} instruction specifically intended to
 efficiently flush to persistent memory without the overhead of the serialization
 normally introduced by {\tt clflush}. This allows us to hit full memory
@@ -1039,12 +1038,12 @@ same state as opposed to semantic equivalence in Cyclone using API
 commutativity.  CRANE reports around a 2X slowdown for MySQL, likely rendering
 it unsuitable as a replacement for the write ahead log in key value stores.
 
-The scalable commutativity rule~\cite{scalable_commutativity} states that for a
-shared memory program to scale in performance with concurrency it must also have
-an interface that is commutative for common case invocations. We have also used
-interface level commutativity to extract parallelism for the purpose of scaling
-replication performance. Others have used the same commutativity to create
-per-cpu data structures to scale KV store performance~\cite{flodb}.
+%The scalable commutativity rule~\cite{scalable_commutativity} states that for a
+%shared memory program to scale in performance with concurrency it must also have
+%an interface that is commutative for common case invocations. We have also used
+%interface level commutativity to extract parallelism for the purpose of scaling
+%replication performance. Others have used the same commutativity to create
+%per-cpu data structures to scale KV store performance~\cite{flodb}.
 
 Database practitioners have considered the utility of byte addressable
 non-volatile memory in improving logging for
