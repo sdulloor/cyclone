@@ -49,7 +49,7 @@ flash-based solid state drives (SSDs).
 
 These key value stores however tend to ignore an important component: the write
 ahead log. A machine or storage failure leading to total loss or temporary
-unavailability of data is unacceptable in services where high availabilty and
+unavailability of data is unacceptable in services where high availability and
 revenue are interconnected. Key value stores therefore usually incorporate
 support for a write ahead log that if replicated and kept durable for every
 appended update provides the necessary high availability. Unfortunately, the
@@ -153,7 +153,7 @@ multiple instances of the same consensus protocol.
 The rest of the paper is organized as follows. We describe Cyclone's system
 architecture in Section~\ref{sec:sysarch}. We describe the two level log
 structure in Section~\ref{sec:storage}. The set of optimizations to the network
-stack is decribed in Section~\ref{sec:network}. We show how Cyclone can be
+stack is described in Section~\ref{sec:network}. We show how Cyclone can be
 scaled to make use of available parallelism on the system in
 Section~\ref{sec:parallelism}. A detailed evaluation of Cyclone's replication
 performance is provided in the context of RocksDB - a popular persistent key
@@ -208,7 +208,7 @@ time to a current generation NVMe SSD such as the one we use in this
 paper~\cite{ssd_spec}, is of the order of 20 us, limiting the throughput to
 under 50K ops/sec and resulting in a high baseline latency at even low load (as
 shown in Figure~\ref{fig:problem}). This problem leads many system designers to
-underprovision key-value store shards ensuring that it operates at moderate to
+under-provision key-value store shards ensuring that it operates at moderate to
 high load, using group-commit to batch additions to the log. They therefore pay
 a price in latency to ensure the bandwidth to storage is fully utilized.
 
@@ -331,7 +331,7 @@ DPDK does not by itself provide a TCP stack. But this is not a problem, since
 RAFT (and indeed most consensus protocols) tolerate network losses and
 reordering by design due to the need to support asynchronous communication. In
 addition, most datacenter networks rarely drop or reorder packets and provide
-full bisection bandwith between servers that might serve as Cyclone replicas. We
+full bisection bandwidth between servers that might serve as Cyclone replicas. We
 therefore jettisoned TCP and chose to send raw IP packets encapsulated in
 ethernet frames. Cyclone takes complete control of an ethernet interface,
 receiving all packets directed to it, while the IP and ethernet addresses
@@ -509,11 +509,11 @@ application itself and therefore manipulate the same application.
 
 The first question we deal with is -- how do Cyclone clients decide which
 physical log to send a request to? A key constraint here is that all replicas
-should agree on the seqeunce of updates to a key, as otherwise they would
+should agree on the sequence of updates to a key, as otherwise they would
 diverge in terms of state. Allowing updates to the same key to go to different
 physical logs would lead to a divergence as there is no guarantee about the
 order in which the independent RAFT instances would apply the update. Therefore
-all updates to a key must go to the same physcial log. A similar constraint
+all updates to a key must go to the same physical log. A similar constraint
 applies to reads in order to ensure that all committed writes are seen by
 readers. Allowing reads to a key to go to a different RAFT instance than the
 write means that it could be served on a machine where the write is yet to be
@@ -577,11 +577,11 @@ instance other than that of the first physical log until it is on the same
 machine as the \emph{first} physical log. This process is therefore resilient to
 failed machines. RAFT requires that the leader have the most up to date log. To
 ensure that the process converges we therefore ensure that the currently elected
-leader brings a majority quroum up to date before triggering a relection. We
+leader brings a majority quorum up to date before triggering a reelection. We
 also do not accept any requests from clients until all leaders are
 co-located. We assume that no network partitions occur \emph{within a machine}
 i.e. some RAFT instances are able to send and receive packets, while others are
-not, a possiblity we discount due to our single process design.
+not, a possibility we discount due to our single process design.
 
 Next, we need to simultaneously inject the ganged operation into all
 participating physical logs on the machine hosting the leaders. Clients always
@@ -606,7 +606,7 @@ a state indicated by all necessary bits being set in the barrier mask, the RAFT
 instances simultaneously execute the ganged operation.
 
 A failure causes a new leader to be elected for the affected physical log,
-moving forward the term. If the participants of a ganged operatation do not
+moving forward the term. If the participants of a ganged operation do not
 detect this case, they could be left waiting forever. We detect failure on any
 RAFT instance by having each instance publish its current term and continuously
 comparing the view in the ganged operation to it. If any RAFT instance has moved
@@ -651,7 +651,7 @@ past that term, the ganged operation is then terminated.
 The assumption in Figure~\ref{fig:ganged_ops} is that each ganged operation is
 mapped to a unique barrier. We achieve this by using a fixed piece of memory
 owned by the co-ordinator to hold the barrier and write the nonce to it in order
-to indicate that the barrer is active for the corresponding ganged
+to indicate that the barrier is active for the corresponding ganged
 operation. Participants watch for the nonce to know when to execute the
 ganged operation barrier in Figure~\ref{fig:ganged_ops}, while also monitoring
 the leader's published view to detect the case where the ganged operation fails
@@ -665,7 +665,7 @@ number of cycles from the CPU {\tt rdtsc} instruction). The nonce can only be
 repeated if the same machine manages to fail and come back up in less time than
 the real time clock drift (controlled with NTP), a possibility that we discount.
 
-Ganged operations possibly consititute the most complex part of Cyclone but the
+Ganged operations possibly constitute the most complex part of Cyclone but the
 code weighs in at well under a couple of hundred lines. We believe that
 this additional complexity is still small compared to distributed transactions
 using two-phase commit - especially when taking into account failure recovery -
@@ -793,7 +793,7 @@ switched one-level log case.
 
 One can therefore conclude that using a small amount of directly attached NVM is
 effective at hiding the latency of a background block storage device from the
-criticial path of replication. Further, for small updates the
+critical path of replication. Further, for small updates the
 bottleneck is the capability of the software to run the consensus protocol, but
 the bottleneck shifts to the secondary storage device for larger request sizes.
 
@@ -809,7 +809,7 @@ Figure~\ref{fig:ganged} shows the results. Unloaded
 latency increases slowly as we increase the number of active physical logs - to
 around 32 us from the baseline of 21 us. The reason for this increase is that
 the DPDK userspace NIC driver pipelines request processing for communication
-between the CPU core and the NIC. Simultaneous replicaton on multiple physical
+between the CPU core and the NIC. Simultaneous replication on multiple physical
 logs represents a worst case for this arrangement as all eight cores try to
 send replication messages to their replicas, adding about a microsecond of
 serial latency each, to dispatch requests to the NIC. Regardless, the experiment
@@ -875,12 +875,12 @@ The performance of Rocksdb with Cyclone for the small update workload is shown
 in Figure~\ref{fig:rocksdb} - essentially presenting the solution to the problem
 demonstrated in Figure~\ref{fig:problem}.  We consider four different
 setups. The line labeled 'rocksdb' is the key value store running with no
-logging whatsover - a system crash would lead to data loss. The line labeled
+logging whatsoever - a system crash would lead to data loss. The line labeled
 'rocksdb/wal' is for Rocksdb running with its write ahead logging turned on. The
 large gap between these two is the overhead of the existing Rocksdb WAL
 solution. The line labeled 'rocksdb/Cyclone 1 way' is a two level Cyclone log
 but without any replication. The line almost exactly tracks the performance of
-Rockdb. Cyclone is able to provide a write ahead log with no overhead to
+Rocksdb. Cyclone is able to provide a write ahead log with no overhead to
 Rocksdb. The line labeled 'rocksdb/Cyclone 3 way' is with 3-way replication
 turned on. Other than a 20us delta due to the extra network round trip, the line
 almost exactly tracks Rocksdb performance with no logging. Cyclone therefore
@@ -1007,7 +1007,7 @@ report latency as low as 3us for a round trip from leader to follower replica,
 compared to the 6us we observe with DPDK. Notably however they reported 7us when
 using TCP/IP from the FPGA rather than their own connection oriented network
 protocol. On the other hand their peak replication throughput is 4M
-replications/sec on 66 Gbps of aggregate network bandwith for small messages,
+replications/sec on 66 Gbps of aggregate network bandwidth for small messages,
 comparable to the 6M replications/sec mark obtained by Cyclone on an aggregate
 40 Gbps of network bandwidth when \emph{also persisting the log on the SSD}. We
 believe the general applicability afforded by our software only approach
@@ -1032,7 +1032,7 @@ conclusions we can draw are similar to the comparison with Mojim: a carefully
 implemented log replication system obviates the need for network offload when
 doing replication.
 
-{CRANE}~\cite{crane} is a system for replicating mutithreaded programs using
+{CRANE}~\cite{crane} is a system for replicating multithreaded programs using
 Paxos. It uses deterministic multi-threading to ensure replicas converge to the
 same state as opposed to semantic equivalence in Cyclone using API
 commutativity.  CRANE reports around a 2X slowdown for MySQL, likely rendering
@@ -1045,7 +1045,7 @@ interface level commutativity to extract parallelism for the purpose of scaling
 replication performance. Others have used the same commutativity to create
 per-cpu data structures to scale KV store performance~\cite{flodb}.
 
-Database practitioners have considered the utility of byte adressable
+Database practitioners have considered the utility of byte addressable
 non-volatile memory in improving logging for
 databases~\cite{nvram_log}. However, that work proposes placing the entire log
 in NVM, presuming sufficient availability of such memory. It also does not
