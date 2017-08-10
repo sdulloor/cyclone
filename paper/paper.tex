@@ -462,7 +462,9 @@ involve a latency-throughput tradeoff like in many other
 systems~\cite{ix-dataplane}. The batch receive call we use in DPDK returns
 immediately with whatever number of packets is available, including zero. We
 always flush the transmit buffer after every call to DPDK to transmit packets to
-replicas. Therefore, we never tradeoff latency for throughput when batching. 
+replicas. Therefore, we never tradeoff latency for throughput when batching. We
+also receive log entries in batches at follower replicas and return a single
+acknowledgment for the entire batch, speeding up the progress of the protocol.
 
 \begin{figure}
   \centering
