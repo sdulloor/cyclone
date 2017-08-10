@@ -181,13 +181,13 @@ writes, and the ability to take snapshots.
 
 Cyclone integrates with key value stores as both a client and server side
 library. Cyclone replicates the key value store across a set of replica
-servers. The client side library sends \emph{all} requests to a distinguished
-leader replica.  On the server side Cyclone accepts requests from clients, calls
-into the key value store, and returns a response to the client. Before
-executing any PUT or DELETE request, Cyclone appends it to a durable log and replicates
-the request to the logs of follower replicas. The request is considered
-replicated once acknowledged by a majority of replicas. Follower replicas apply
-updates from the log in order.
+servers. The client side library sends \emph{all} requests - reads and updates -
+to a distinguished leader replica.  On the server side Cyclone accepts requests
+from clients, calls into the key value store, and returns a response to the
+client. Before executing any PUT or DELETE request, Cyclone appends it to a
+durable log and replicates the request to the logs of follower replicas. The
+request is considered replicated once acknowledged by a majority of
+replicas. Follower replicas apply updates from the log in order.
 
 Cyclone uses the RAFT consensus protocol~\cite{raft} to keep the logs in sync
 across the replicas. On failure of the leader replica, a new leader is
@@ -531,6 +531,13 @@ value store responses, is correct and makes sure that a request responded to
 before subsequent requests in the original history follows that same order in
 the linearized history. We discuss how to handle requests that atomically
 manipulate multiple keys in the next section.
+
+We note that spreading keys across the physical logs \emph{does not} break
+referential integrity. If key1 is updated followed by key2 and key2 refers to
+key1, even in the face of failure linearizability in Cyclone ensures that key1
+is available once key2 is seen by a client. This is true even if key1 is not
+committed yet at the leader replica, since we execute reads in FIFO order with
+pending entries in the log (Section~\ref{sec:sysarch}).
 
 Multiple physical logs in Cyclone operate in a shared nothing manner by
 partitioning the NVM and SSD space evenly between them and by allocating
@@ -968,26 +975,20 @@ replicas in turn to locate the leader. In this case it fails over in about
 Cyclone takes a software only approach to improving replication performance
 using commodity network hardware. In contrast, Mojim~\cite{mojim} pairs directly
 attached persistent memory with RDMA to replicate persistent data
-structures. Mojim is a weak replication scheme in that none of the numerous
-\emph{evaluated} modes of Mojim provide any means to keep more than two replicas
-in strong synchronization. Mojim's multi-tiered replication could lose committed
-updates and therefore its guarantees are too weak to be used as a replacement
-for RocksDB's write ahead log. Further, Mojim's claim that
-``Paxos-like protocols'' require two networking round trips and are
-therefore somehow inefficient compared to mirroring is not true. For instance,
-we have demonstrated with Cyclone, where the leader responds as soon as it hears
-back from a majority quorum, that the critical path to replication is just one
-network round trip.  A performance comparison with Mojim is hard, since it is
-designed for the (hypothetical) scenario where there is enough persistent memory
-to hold all persistent data, while Cyclone is designed for the more practical
-case where both the write-ahead log and key value store data structures need to 
-be maintained largely on flash. Nevertheless we can compare their replication
-performance for the case where we use only the NVM log in Cyclone. On 40Gbps
-infiniband, Mojim reported being able to mirror data at 4GB/s. In contrast,
-Cyclone can replicate data three ways using 4*10 Gbps commodity ethernet NICs at
-roughly 3.7 GB/s. Note that this result is with Cyclone running the provable
-RAFT consensus protocol, while Mojim is doing simple mirroring of main memory.
-One can conclude that network offload via RDMA and Infiniband is not an a-priori
+structures. None of the \emph{evaluated} modes of Mojim provide any means to
+keep more than two replicas in strong synchronization and therefore its
+guarantees are weak compared to Cyclone.  Further, Mojim's claim that
+``Paxos-like protocols'' require two networking round trips and are therefore
+somehow inefficient compared to mirroring is not true. For instance, we have
+demonstrated with Cyclone, where the leader responds as soon as it hears back
+from a majority quorum, that the critical path to replication is just one
+network round trip. We can compare Mojim's replication performance to Cyclone
+for the case where we use only the NVM log in Cyclone. On 40Gbps Infiniband,
+Mojim reported being able to mirror data at 4GB/s. In contrast, Cyclone can
+replicate data three ways using 4*10 Gbps commodity ethernet NICs at roughly 3.7
+GB/s. Note that this result is with Cyclone running the provable RAFT consensus
+protocol, while Mojim is doing simple mirroring of main memory.  One can
+conclude that network offload via RDMA and Infiniband is not an a-priori
 requirement for high throughput replication. This is made possible by Cyclone's
 approach that relieves the CPU from the burden of data copies. On the other
 hand, the latency of a hop on commodity ethernet at 5 us with our DPDK stack is
@@ -1001,7 +1002,7 @@ significant determinant of performance when replicating over RDMA.
 Consensus in a box~\cite{consensus_box} implements the Zookeeper atomic
 broadcast protocol together with a NIC on an FPGA. That work ignored durability,
 focusing purely on network performance for replication. Latency is excellent due
-to the fact that FPGA cuts out the path from CPU caches to the NIC. Authors
+to the fact that FPGA cuts out the path from CPU caches to the NIC. The authors
 report latency as low as 3us for a round trip from leader to follower replica,
 compared to the 6us we observe with DPDK. Notably however they reported 7us when
 using TCP/IP from the FPGA rather than their own connection oriented network
@@ -1026,7 +1027,7 @@ being able to replicate 500K requests/sec. This is without persisting the log of
 updates. In contrast, Cyclone replicates upwards of 6 million similarly sized
 requests per second with 4*10 Gbps ethernet (without the second level
 flashlog). DARE reports an unloaded write latency of 15us, which is lower than
-the unloaded write latency of Cyclone at 20us, thanks to infiniband. The
+the unloaded write latency of Cyclone at 20us, thanks to Infiniband. The
 conclusions we can draw are similar to the comparison with Mojim: a carefully
 implemented log replication system obviates the need for network offload when
 doing replication.
@@ -1050,12 +1051,11 @@ databases~\cite{nvram_log}. However, that work proposes placing the entire log
 in NVM, presuming sufficient availability of such memory. It also does not
 consider replication.
 
-Cyclone provides a client library that automatically times out and retries
-requests to deal with failure. We do not provide exactly once semantics as we
+Cyclone does not provide exactly once semantics as we
 believe that exactly once semantics are better provided by the key value store
 itself by persisting necessary request markers - as done in systems such as
 Kafka~\cite{kafka}. A possible direction of future work however is to add
-exactly once semantics to Cyclone's client-server protocol itself to serve as a
+exactly once semantics to Cyclone's client-server protocol to serve as a
 building block for distributed transactions across key-value shards, each
 running Cyclone, in a manner similar to other systems~\cite{raft_lin}.
 
