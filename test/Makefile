@@ -25,15 +25,6 @@ ROCKS_LIBS += ${ROCKS_HOME}/librocksdb.a ${ROCKS_HOME}/libbz2.a ${ROCKS_HOME}/li
 BOOST_THREAD_LIB=-lboost_thread-mt
 #BOOST_THREAD_LIB=-lboost_thread
 
-common.o:common.cpp
-	$(CXX) $(CXXFLAGS) -c common.cpp -o $@
-
-hashmap_tx.o:hashmap_tx.c 
-	$(CC) -O2 -std=gnu99 hashmap_tx.c -c -o $@
-
-counter_server:counter_server.cpp common.o hashmap_tx.o
-	$(CXX) $(CXXFLAGS) counter_server.cpp common.o hashmap_tx.o $(BOOST_THREAD_LIB) $(LIBS) -o $@
-
 echo_server:echo_server.cpp
 	$(CXX) $(CXXFLAGS) echo_server.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
 
@@ -58,21 +49,6 @@ fb_loader:fb_loader.cpp
 rocksdb_checkpoint:rocksdb_checkpoint.cpp
 	$(CXX) $(CXXFLAGS) $(ROCKS_CXXFLAGS) rocksdb_checkpoint.cpp $(BOOST_THREAD_LIB) $(LIBS) $(ROCKS_LIBS) -o $@
 
-counter_coordinator:counter_coordinator.cpp common.o 
-	$(CXX) $(CXXFLAGS) counter_coordinator.cpp common.o $(BOOST_THREAD_LIB) $(LIBS) -o $@
-
-counter_loader:counter_loader.cpp 
-	$(CXX) $(CXXFLAGS) counter_loader.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
-
-counter_driver:counter_driver.cpp 
-	$(CXX) $(CXXFLAGS) counter_driver.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
-
-counter_driver_mt:counter_driver_mt.cpp 
-	$(CXX) $(CXXFLAGS) counter_driver_mt.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
-
-counter_driver_noop_mt:counter_driver_noop_mt.cpp 
-	$(CXX) $(CXXFLAGS) counter_driver_noop_mt.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
-
 echo_client:echo_client.cpp 
 	$(CXX) $(CXXFLAGS) echo_client.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
 
@@ -90,15 +66,6 @@ rocksdb_client_multicore:rocksdb_client_multicore.cpp
 
 echo_client_multicore:echo_client_multicore.cpp 
 	$(CXX) $(CXXFLAGS) echo_client_multicore.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
-
-counter_coordinator_driver:counter_coordinator_driver.cpp 
-	$(CXX) $(CXXFLAGS) counter_coordinator_driver.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
-
-counter_delete_node:counter_delete_node.cpp 
-	$(CXX) $(CXXFLAGS) counter_delete_node.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
-
-counter_add_node:counter_add_node.cpp 
-	$(CXX) $(CXXFLAGS) counter_add_node.cpp $(BOOST_THREAD_LIB) $(LIBS) -o $@
 
 .PHONY:clean
 
