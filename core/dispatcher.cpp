@@ -16,7 +16,6 @@
 #include <boost/asio/io_service.hpp>
 #include <boost/bind.hpp>
 #include<libpmemobj.h>
-#include "checkpoint.hpp"
 #include "cyclone_context.hpp"
 
 dpdk_context_t * global_dpdk_context = NULL;

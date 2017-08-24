@@ -25,12 +25,6 @@ libcyclone.o: cyclone.cpp libcyclone.hpp
 dispatcher.o: dispatcher.cpp libcyclone.hpp
 	$(CXX) $(CXXFLAGS) dispatcher.cpp -c -o $@
 
-checkpoint.o: checkpoint.cpp checkpoint.hpp
-	$(CXX) $(CXXFLAGS) checkpoint.cpp -c -o $@
-
-checkpoint_savepage.o: checkpoint_savepage.cpp checkpoint.hpp
-	$(CXX) $(CXXFLAGS) checkpoint_savepage.cpp -c -o $@
-
 dispatch_client.o: dispatch_client.cpp  libcyclone.hpp
 	$(CXX) $(CXXFLAGS) dispatch_client.cpp -c -o $@
 

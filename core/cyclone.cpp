@@ -1,7 +1,6 @@
 // Asynchronous fault tolerant pmem log replication with cyclone
 #include "cyclone.hpp"
 #include "cyclone_context.hpp"
-#include "checkpoint.hpp"
 #include <rte_ring.h>
 #include <rte_mbuf.h>
 #include <sys/mman.h>
