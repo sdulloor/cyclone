@@ -171,13 +171,9 @@ through a simple interface:
 \item DELETE(K): deletes the key K
 \end{itemize}
 
-A key value store typically serves multiple client requests concurrently and is
-linearizable~\cite{linearizability}. This means any history of requests and
-responses can be rearranged such that responses immediately follow corresponding
-requests and if a response precedes a request in the original history it also
-does so in the rearranged history. Key value stores such as RocksDB also
-support atomic writes ({\tt PUT} operations) to multiple keys, called batched
-writes, and the ability to take snapshots.
+Key value stores such as RocksDB also support atomic writes ({\tt PUT}
+operations) to multiple keys, called batched writes, and the ability to take
+snapshots.
 
 Cyclone integrates with key value stores as both a client and server side
 library. Cyclone replicates the key value store across a set of replica
@@ -196,8 +192,30 @@ date log. The Cyclone client library automatically locates the new leader on a
 failover, resulting in only a brief interruption in service for
 clients. Although read requests (GET operations) are not logged, they are
 serviced in FIFO order with the write requests (PUT/DELETE operations) in
-Cyclone's log at the moment the read request is received. This ensures
-linearizability in the face of failovers.
+Cyclone's log at the moment the read request is received.
+
+Cyclone provides the following guarantees to clients:
+
+\begin{itemize}
+\item Every acknowledged update is applied
+\item Every key sees the same sequence of updates across all replicas
+\item A client sees a monotonically extending prefix of the sequence of updates
+  to any key at that always includes its own updates
+\end{itemize}
+
+RAFT ensures that the set of committed updates to any key is in the same order
+as in the log, satisfying the first two conditions. For the last condition,
+clients maintain the term of the RAFT leader locally and ensure they always talk
+to a (possibley different) RAFT leader that has at least the same term. This
+helps us avoid split brain problems where a network partitions allows clients to
+talk to old RAFT leaders after having committed changes to a new RAFT leader.
+
+We do not provide linearizable reads, although that can be easily supported by
+logging the read and running conensus on it like a regular mutation operation.
+Finally, Cyclone allows operations to multiple keys in an atomic batch, where
+either all updates in the batch are applied or no operation in the batch is
+applied, regardless of failures. We also use a lightweight batched operation to
+support snapshots.
 
 \section{Storage}
 \label{sec:storage}
@@ -508,36 +526,11 @@ instances however exist in the same process address space as the key value store
 application itself and therefore manipulate the same application.
 
 The first question we deal with is -- how do Cyclone clients decide which
-physical log to send a request to? A key constraint here is that all replicas
-should agree on the sequence of updates to a key, as otherwise they would
-diverge in terms of state. Allowing updates to the same key to go to different
-physical logs would lead to a divergence as there is no guarantee about the
-order in which the independent RAFT instances would apply the update. Therefore
-all updates to a key must go to the same physical log. A similar constraint
-applies to reads in order to ensure that all committed writes are seen by
-readers. Allowing reads to a key to go to a different RAFT instance than the
-write means that it could be served on a machine where the write is yet to be
-applied. Therefore, all reads and writes to a key must go to the same physical
-log. We achieve this by hashing the key to select the physical log.
-
-It turns out that this simple \emph{necessary} scheme is also \emph{sufficient}
-to ensure linearizability in the face of failure. Clearly the system is
-linearizable for a single key since it involves only a single physical log an d
-we always service existing requests in the physical log before responding to
-read requests. In addition, one can switch operations to different keys in a
-history without affecting its correctness because operations to different keys
-are commutative. This allows us to arrive at a history that explains the key
-value store responses, is correct and makes sure that a request responded to
-before subsequent requests in the original history follows that same order in
-the linearized history. We discuss how to handle requests that atomically
-manipulate multiple keys in the next section.
-
-We note that spreading keys across the physical logs \emph{does not} break
-referential integrity. If key1 is updated followed by key2 and key2 refers to
-key1, even in the face of failure linearizability in Cyclone ensures that key1
-is available once key2 is seen by a client. This is true even if key1 is not
-committed yet at the leader replica, since we execute reads in FIFO order with
-pending entries in the log (Section~\ref{sec:sysarch}).
+physical log to send a request to? The guarantees from Cyclone cover ordering of
+updates to a single key (Section~\ref{sec:sysarch}). They can be satisfied by
+ensuring that all reads and writes to a key go to the same physical log
+(i.e. RAFT instance). We achieve this by hashing the key to select the physical
+log.
 
 Multiple physical logs in Cyclone operate in a shared nothing manner by
 partitioning the NVM and SSD space evenly between them and by allocating
@@ -549,13 +542,8 @@ constrained only by the concurrency available in the software architecture of
 the persistent key value store itself, for which good designs
 exist~\cite{flodb}.
 
-In our discussion thus far, we have focused on operations to a single
-key. Supporting atomic writes or reads to multiple keys while maintaining
-linearizability requires special handling with multiple physical logs so as not
-to break linearizability - that we discuss next.
-
 \subsection{Ganged Operations}
-Supporting reads or writes to multiple keys that map to different physical logs
+Supporting batched updates to multiple keys that map to different physical logs
 requires a ganged operation across those logs such that all the operations
 complete together even in the face of failures. One option is to have an
 external co-ordinator run a distributed transaction using two phase commit. In
