@@ -19,7 +19,7 @@ do
 	echo "deploying configs to node $node"
 	echo '#!/bin/bash' > exec_servers.sh
 	echo "export LD_LIBRARY_PATH=/usr/lib:/usr/local/lib" >> exec_servers.sh
-	echo "export PATH=$PATH:$deploy_dir/cyclone/cyclone.git/test" >> exec_servers.sh
+	echo "export PATH=$PATH:/root/cyclone/cyclone.git/test" >> exec_servers.sh
 	#echo "export PATH=$PATH:$deploy_dir/cyclone.git/test" >> exec_servers.sh
 	echo "ulimit -c unlimited" >> exec_servers.sh
 	echo "cd $deploy_dir/$node" >> exec_servers.sh
@@ -41,6 +41,8 @@ do
 	scp ${i}/* ${ip}:${deploy_dir}/${node}
 	if [ -f "$i/launch_servers" ] ; then
 	    scp exec_servers.sh ${ip}:${deploy_dir}/${node}
+	fi
+	if [ -f "$i/launch_inactive_servers" ] ; then
 	    scp exec_inactive_servers.sh ${ip}:${deploy_dir}/${node}
 	fi
 	scp exec_preload.sh ${ip}:${deploy_dir}/${node}

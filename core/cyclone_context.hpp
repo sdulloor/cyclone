@@ -6,435 +6,283 @@
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include "logging.hpp"
-#include <zmq.h>
 extern "C" {
 #include <raft.h>
 }
 #include <unistd.h>
-#include <boost/thread.hpp>
-#include <boost/asio/io_service.hpp>
-#include <boost/bind.hpp>
 #include "pmem_layout.h"
 #include "circular_log.h"
 #include "clock.hpp"
 #include "cyclone_comm.hpp"
-#include "tuning.hpp"
-
-/* Message types */
-const int  MSG_REQUESTVOTE              = 1;
-const int  MSG_REQUESTVOTE_RESPONSE     = 2;
-const int  MSG_APPENDENTRIES            = 3;
-const int  MSG_APPENDENTRIES_RESPONSE   = 4;
-const int  MSG_CLIENT_REQ               = 5;
-const int  MSG_CLIENT_REQ_BATCH         = 6;
-const int  MSG_CLIENT_REQ_TERM          = 7;
-const int  MSG_CLIENT_STATUS            = 8;
-const int  MSG_CLIENT_REQ_CFG           = 9;
-const int  MSG_CLIENT_REQ_SET_IMGBUILD  = 10;
-const int  MSG_CLIENT_REQ_UNSET_IMGBUILD= 11;
-const int  MSG_ASSISTED_APPENDENTRIES   = 12;
-const int  MSG_ASSISTED_QUORUM_OK       = 13;
-
-/* Cyclone max message size */
-const int MSG_MAXSIZE  = 4194304;
-
+#include "cyclone.hpp"
+#include <rte_cycles.h>
 
 /* Message format */
-typedef struct client_io_st {
-  void *ptr;
-  int size;
-  int term;
-  int type;
-  int* batch_sizes;
-} client_t;
 
-typedef struct
+typedef struct msg_st
 {
   int msg_type;
-  union {
-    int source;
-    int client_port; // Only used for client assist
-    unsigned long quorum; // Only used for client assist rep
-  };
+  int source;
   union
   {
     msg_requestvote_t rv;
     msg_requestvote_response_t rvr;
     msg_appendentries_t ae;
     msg_appendentries_response_t aer;
-    replicant_t rep;
-    client_t client;
   };
 } msg_t;
 
+static rpc_t * pkt2rpc(rte_mbuf *m)
+{
+  int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
+  return rte_pktmbuf_mtod_offset(m, rpc_t *, payload_offset);
+}
+
+static int pkt2rpcsz(rte_mbuf *m)
+{
+  int payload_offset = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr);
+  return m->data_len - payload_offset; 
+}
+
+static rpc_t * pktadj2rpc(rte_mbuf *m)
+{
+  int payload_offset = 
+    sizeof(struct ipv4_hdr) + 
+    sizeof(msg_t) + 
+    sizeof(msg_entry_t) +
+    sizeof(wal_entry_t);
+  return rte_pktmbuf_mtod_offset(m, rpc_t *, payload_offset);
+}
+
+static msg_t *pktadj2msg(rte_mbuf *m)
+{
+  int payload_offset = sizeof(struct ipv4_hdr);
+  return rte_pktmbuf_mtod_offset(m, msg_t *, payload_offset);
+}
+
+static wal_entry_t *pktadj2wal(rte_mbuf *m)
+{
+  int payload_offset = 
+    sizeof(struct ipv4_hdr) +
+    sizeof(msg_t) +
+    sizeof(msg_entry_t);
+  return rte_pktmbuf_mtod_offset(m, wal_entry_t *, payload_offset);
+}
+
+static int pktadj2rpcsz(rte_mbuf *m)
+{
+  int payload_offset = 
+    sizeof(struct ipv4_hdr) + 
+    sizeof(msg_t) + 
+    sizeof(msg_entry_t) +
+    sizeof(wal_entry_t);
+  return m->data_len - payload_offset; 
+}
+
+static void pktsetrpcsz(rte_mbuf *m, int sz)
+{
+  int payload_offset = 
+    sizeof(struct ether_hdr) + 
+    sizeof(struct ipv4_hdr);
+  m->data_len = payload_offset + sz;
+  m->pkt_len  = m->data_len;
+}
+
+static void adjust_head(rte_mbuf *m)
+{
+  if(rte_pktmbuf_adj(m, sizeof(struct ether_hdr)) == NULL) {
+    BOOST_LOG_TRIVIAL(fatal) << "Failed to adj ethe hdr";
+    exit(-1);
+  }
+  msg_t *hdr = (msg_t *)rte_pktmbuf_prepend(m, sizeof(msg_t) + 
+					    sizeof(msg_entry_t) +
+					    sizeof(wal_entry_t));
+  if(hdr == NULL) {
+    BOOST_LOG_TRIVIAL(fatal) << "Failed to prepend msg_t";
+    exit(-1);
+  }
+}
+
+static void del_adj_header(rte_mbuf *m)
+{
+  if(rte_pktmbuf_adj(m, sizeof(struct ipv4_hdr) + 
+		     sizeof(msg_t) + 
+		     sizeof(msg_entry_t) +
+		     sizeof(wal_entry_t)) == NULL) {
+    BOOST_LOG_TRIVIAL(fatal) << "Failed to adj ethe hdr";
+    exit(-1);
+  }
+}
+static void add_adj_header(rte_mbuf *m) 
+{
+  if(rte_pktmbuf_prepend(m, 
+			 sizeof(struct ipv4_hdr) + 
+			 sizeof(msg_t) + 
+			 sizeof(msg_entry_t) +
+			 sizeof(wal_entry_t)) == NULL) {
+    BOOST_LOG_TRIVIAL(fatal) << "Failed to add adj hdr";
+    exit(-1);
+  }
+}
+
+static void drop_eth_header(rte_mbuf *m)
+{
+  if(rte_pktmbuf_adj(m, sizeof(struct ether_hdr)) == NULL) {
+    BOOST_LOG_TRIVIAL(fatal) << "Failed to adj ethe hdr";
+    exit(-1);
+  }
+}
+
+/* Message types */
+const int  MSG_REQUESTVOTE              = 1;
+const int  MSG_REQUESTVOTE_RESPONSE     = 2;
+const int  MSG_APPENDENTRIES            = 3;
+const int  MSG_APPENDENTRIES_RESPONSE   = 4;
+
+extern struct rte_ring ** to_cores;
+extern struct rte_ring ** to_quorums;
+extern struct rte_ring *from_cores;
+extern dpdk_context_t *global_dpdk_context;
+
 struct cyclone_monitor;
+struct cyclone_st;
+extern cyclone_st ** quorums;
+
 typedef struct cyclone_st {
   boost::property_tree::ptree pt;
   boost::property_tree::ptree pt_client;
-  void *zmq_context;
-  raft_switch *router;
+  quorum_switch *router;
   int replicas;
   int me;
-  boost::thread *monitor_thread;
+  int me_quorum;
+  unsigned long nonce_base;
   boost::thread *checkpoint_thread;
-  unsigned long RAFT_LOGSIZE;
-  PMEMobjpool *pop_raft_state;
+  int RAFT_LOGENTRIES;
+  raft_pstate_t *pop_raft_state;
+  struct circular_log *log;
   raft_server_t *raft_handle;
-  cyclone_rep_callback_t cyclone_rep_cb;
-  cyclone_callback_t cyclone_pop_cb;
-  cyclone_callback_t cyclone_commit_cb;
   void *user_arg;
   unsigned char* cyclone_buffer_out;
   unsigned char* cyclone_buffer_in;
   cyclone_monitor *monitor_obj;
+  volatile int sending_checkpoints;
+  volatile int *match_indices;
+  volatile char *client_inflight;
+
+  msg_t ae_responses[PKT_BURST];
+  int ae_response_sources[PKT_BURST];
+  int ae_response_cnt;
+  unsigned long RAFT_NACK_TIMEOUT_CYCLES;
+
+  int ae_nack_term;
+  int ae_nack_idx;
+  unsigned long ae_nack_ts;
+
+  unsigned long mark;
+  
+  volatile unsigned int snapshot;
+
+  char current_inflight(int client)
+  {
+    return client_inflight[client];
+  }
+
+  void add_inflight(int client)
+  {
+    __sync_fetch_and_add(&client_inflight[client], 1);
+  }
+
+  void remove_inflight(int client)
+  {
+    __sync_fetch_and_sub(&client_inflight[client], 1);
+  }
+  
+
+  int my_q(int q)
+  {
+    return global_dpdk_context->ports + q*num_quorums + me_quorum;
+  }
+  
+  void send_msg(msg_t *msg, int dst_replica)
+  {
+    rte_mbuf *m = rte_pktmbuf_alloc(global_dpdk_context->mempools[my_q(q_raft)]);
+    if(m == NULL) {
+      BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for send mesg";
+    }
+    cyclone_prep_mbuf(global_dpdk_context, 
+		      router->replica_mc(dst_replica), 
+		      my_q(q_raft), 
+		      m, 
+		      msg, 
+		      sizeof(msg_t));
+    cyclone_tx(global_dpdk_context, m, my_q(q_raft));
+  }
+  
+  void send_ae_responses()
+  {
+    if(ae_response_cnt == 0)
+      return;
+    // Compact to find the latest response
+    int idx     = ae_responses[0].aer.current_idx;
+    int to_send = 0;
+    int merge_term = ae_responses[0].aer.term;
+    for(int i=1;i<ae_response_cnt;i++) {
+      if(ae_responses[i].aer.term != merge_term) {
+	to_send = -1;
+	break;
+      }
+      if(ae_responses[i].aer.current_idx > idx)
+	to_send = i;
+    }
+    if(to_send != -1) {
+      if(ae_responses[to_send].aer.success == -1) {
+	if(ae_responses[to_send].aer.term != ae_nack_term ||
+	   ae_responses[to_send].aer.current_idx != ae_nack_idx ||
+	   (rte_get_tsc_cycles() >= (ae_nack_ts + RAFT_NACK_TIMEOUT_CYCLES))) {
+	  ae_nack_term = ae_responses[to_send].aer.term;
+	  ae_nack_idx  = ae_responses[to_send].aer.current_idx;
+	  ae_nack_ts   = rte_get_tsc_cycles();
+	  send_msg(&ae_responses[to_send], ae_response_sources[to_send]);
+	}
+      }
+      else {
+	send_msg(&ae_responses[to_send], ae_response_sources[to_send]);
+      }
+    }
+    else {
+      for(int i=0;i<ae_response_cnt;i++) {
+	send_msg(&ae_responses[i], ae_response_sources[i]);
+      }
+    }
+    ae_response_cnt = 0;
+  }
 
   cyclone_st()
   {}
 
-  unsigned long get_log_offset()
-  {
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    log_t log = D_RO(root)->log;
-    return D_RO(log)->log_tail;
-  }
-  
-  void append_to_raft_log(unsigned char *data, int size)
-  {
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    log_t tmp = D_RO(root)->log;
-    struct circular_log *log = D_RW(tmp);
-    unsigned long space_needed = size + 2*sizeof(int);
-    unsigned long space_available;
-    if(log->log_head <= log->log_tail) {
-      space_available = RAFT_LOGSIZE -
-	(log->log_tail - log->log_head);
-    }
-    else {
-      space_available =	log->log_head - log->log_tail;
-    }
-    if(space_available < space_needed) {
-      // Overflow !
-      BOOST_LOG_TRIVIAL(fatal) << "Out of RAFT logspace !";
-      exit(-1);
-    }
-    unsigned long new_tail = log->log_tail;
-    copy_to_circular_log(pop_raft_state, log,
-			 RAFT_LOGSIZE,
-			 log->log_tail,
-			 (unsigned char *)&size,
-			 sizeof(int));
-    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
-    copy_to_circular_log(pop_raft_state, log,
-			 RAFT_LOGSIZE,
-			 new_tail,
-			 data,
-			 size);
-    new_tail = circular_log_advance_ptr(new_tail, size, RAFT_LOGSIZE);
-    copy_to_circular_log(pop_raft_state, log,
-			 RAFT_LOGSIZE,
-			 new_tail,
-			 (unsigned char *)&size,
-			 sizeof(int));
-    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
-    persist_to_circular_log(pop_raft_state, log,
-			    RAFT_LOGSIZE,
-			    log->log_tail,
-			    new_tail - log->log_tail);
-    log->log_tail = new_tail;
-    pmemobj_persist(pop_raft_state,
-		    &log->log_tail,
-		    sizeof(unsigned long));
-  }
-
-  unsigned long append_to_raft_log_noupdate(struct circular_log *log,
-					    unsigned char *data,
-					    int size,
-					    unsigned long tail)
-  {
-    unsigned long space_needed = size + 2*sizeof(int);
-    unsigned long space_available;
-    if(log->log_head <= tail) {
-      space_available = RAFT_LOGSIZE -
-	(tail - log->log_head);
-    }
-    else {
-      space_available =	log->log_head - tail;
-    }
-    if(space_available < space_needed) {
-      // Overflow !
-      BOOST_LOG_TRIVIAL(fatal) << "Out of RAFT logspace !";
-      exit(-1);
-    }
-    unsigned long new_tail = tail;
-    copy_to_circular_log(pop_raft_state, log,
-			 RAFT_LOGSIZE,
-			 tail,
-			 (unsigned char *)&size,
-			 sizeof(int));
-    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
-    copy_to_circular_log(pop_raft_state, log,
-			 RAFT_LOGSIZE,
-			 new_tail,
-			 data,
-			 size);
-    new_tail = circular_log_advance_ptr(new_tail, size, RAFT_LOGSIZE);
-    copy_to_circular_log(pop_raft_state, log,
-			 RAFT_LOGSIZE,
-			 new_tail,
-			 (unsigned char *)&size,
-			 sizeof(int));
-    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
-    return new_tail;
-  }
-
-  unsigned long double_append_to_raft_log(unsigned char *data1, 
-					  int size1,
-					  unsigned char *data2,
-					  int size2)
-  {
-    unsigned long ptr;
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    log_t tmp = D_RO(root)->log;
-    struct circular_log *log = D_RW(tmp);
-    unsigned long space_needed = (size1 + size2) + 4*sizeof(int);
-    unsigned long space_available;
-    if(log->log_head <= log->log_tail) {
-      space_available = RAFT_LOGSIZE -
-	(log->log_tail - log->log_head);
-    }
-    else {
-      space_available =	log->log_head - log->log_tail;
-    }
-    if(space_available < space_needed) {
-      // Overflow !
-      BOOST_LOG_TRIVIAL(fatal) << "Out of RAFT logspace !";
-      exit(-1);
-    }
-    unsigned long new_tail = log->log_tail;
-    ///////
-    copy_to_circular_log(pop_raft_state, log,
-			 RAFT_LOGSIZE,
-			 log->log_tail,
-			 (unsigned char *)&size1,
-			 sizeof(int));
-    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
-    copy_to_circular_log(pop_raft_state, log,
-			 RAFT_LOGSIZE,
-			 new_tail,
-			 data1,
-			 size1);
-    new_tail = circular_log_advance_ptr(new_tail, size1, RAFT_LOGSIZE);
-    copy_to_circular_log(pop_raft_state, log,
-			 RAFT_LOGSIZE,
-			 new_tail,
-			 (unsigned char *)&size1,
-			 sizeof(int));
-    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
-    ////////
-    ptr = new_tail;
-    copy_to_circular_log(pop_raft_state, log,
-			 RAFT_LOGSIZE,
-			 new_tail,
-			 (unsigned char *)&size2,
-			 sizeof(int));
-    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
-    copy_to_circular_log(pop_raft_state, log,
-			 RAFT_LOGSIZE,
-			 new_tail,
-			 data2,
-			 size2);
-    new_tail = circular_log_advance_ptr(new_tail, size2, RAFT_LOGSIZE);
-    copy_to_circular_log(pop_raft_state, log,
-			 RAFT_LOGSIZE,
-			 new_tail,
-			 (unsigned char *)&size2,
-			 sizeof(int));
-    new_tail = circular_log_advance_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
-
-
-    persist_to_circular_log(pop_raft_state, log,
-			    RAFT_LOGSIZE,
-			    log->log_tail,
-			    new_tail - log->log_tail);
-    log->log_tail = new_tail;
-    pmemobj_persist(pop_raft_state,
-		    &log->log_tail,
-		    sizeof(unsigned long));
-    return ptr;
-  }
-
-  void remove_head_raft_log()
-  {
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    log_t tmp = D_RO(root)->log;
-    struct circular_log* log = D_RW(tmp);
-    if(log->log_head != log->log_tail) {
-      int size;
-      copy_from_circular_log(log,
-			     RAFT_LOGSIZE,
-			     (unsigned char *)&size,
-			     log->log_head,
-			     sizeof(int)); 
-      log->log_head = circular_log_advance_ptr
-	(log->log_head, 2*sizeof(int) + size, RAFT_LOGSIZE);
-      pmemobj_persist(pop_raft_state,
-		      &log->log_head,
-		      sizeof(unsigned long));
-    }
-  }
-
-  void double_remove_head_raft_log()
-  {
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    log_t tmp = D_RO(root)->log;
-    struct circular_log *log = D_RW(tmp);
-    unsigned long newhead = log->log_head;
-    if(newhead != log->log_tail) {
-      int size;
-      copy_from_circular_log(log,
-			     RAFT_LOGSIZE,
-			     (unsigned char *)&size,
-			     newhead,
-			     sizeof(int)); 
-      newhead = circular_log_advance_ptr
-	(newhead, 2*sizeof(int) + size, RAFT_LOGSIZE);
-    }
-    
-    if(newhead != log->log_tail) {
-      int size;
-      copy_from_circular_log(log,
-			     RAFT_LOGSIZE,
-			     (unsigned char *)&size,
-			     newhead,
-			     sizeof(int)); 
-      newhead = circular_log_advance_ptr
-	(newhead, 2*sizeof(int) + size, RAFT_LOGSIZE);
-    }
-    log->log_head = newhead;
-    pmemobj_persist(pop_raft_state,
-		    &log->log_head,
-		    sizeof(unsigned long));
-  }
-
-  void remove_tail_raft_log()
-  {
-    int result = 0;
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    log_t tmp = D_RO(root)->log;
-    struct circular_log *log = D_RW(tmp);
-    if(log->log_head != log->log_tail) {
-      int size;
-      unsigned long new_tail = log->log_tail;
-      new_tail = circular_log_recede_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
-      copy_from_circular_log(log, RAFT_LOGSIZE,
-			     (unsigned char *)&size, new_tail, sizeof(int)); 
-      new_tail = circular_log_recede_ptr(new_tail, size + sizeof(int), RAFT_LOGSIZE);
-      log->log_tail = new_tail;
-      pmemobj_persist(pop_raft_state,
-		      &log->log_tail,
-		      sizeof(unsigned long));
-    }
-  }
-
-  void double_remove_tail_raft_log()
-  {
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    log_t tmp = D_RO(root)->log;
-    struct circular_log *log = D_RW(tmp);
-    unsigned long new_tail = log->log_tail;
-
-    if(log->log_head != new_tail) {
-      int size;
-        new_tail = circular_log_recede_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
-      copy_from_circular_log(log, RAFT_LOGSIZE,
-			     (unsigned char *)&size, new_tail, sizeof(int)); 
-      new_tail = circular_log_recede_ptr(new_tail, size + sizeof(int), RAFT_LOGSIZE);
-    }
-
-    if(log->log_head != new_tail) {
-      int size;
-        new_tail = circular_log_recede_ptr(new_tail, sizeof(int), RAFT_LOGSIZE);
-      copy_from_circular_log(log, RAFT_LOGSIZE,
-			     (unsigned char *)&size, new_tail, sizeof(int)); 
-      new_tail = circular_log_recede_ptr(new_tail, size + sizeof(int), RAFT_LOGSIZE);
-    }
-
-    log->log_tail = new_tail;
-    pmemobj_persist(pop_raft_state,
-		    &log->log_tail,
-		    sizeof(unsigned long));
-  }
-
-  unsigned long read_from_log(unsigned char *dst,
-			      unsigned long offset)
-  {
-    int size;
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    log_t tmp = D_RO(root)->log;
-    const struct circular_log* log = D_RO(tmp);
-    copy_from_circular_log(log,
-			   RAFT_LOGSIZE,
-			   (unsigned char *)&size,
-			   offset,
-			   sizeof(int));
-    offset = circular_log_advance_ptr(offset, sizeof(int), RAFT_LOGSIZE);
-    copy_from_circular_log(log, RAFT_LOGSIZE, dst, offset, size);
-    offset = circular_log_advance_ptr(offset, size + sizeof(int), RAFT_LOGSIZE);
-    return offset;
-  }
-
-  unsigned long read_from_log_check_size(unsigned char *dst,
-					 unsigned long offset,
-					 int size_check)
-  {
-    int size;
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    log_t tmp = D_RO(root)->log;
-    const struct circular_log* log = D_RO(tmp);
-    copy_from_circular_log(log,
-			   RAFT_LOGSIZE,
-			   (unsigned char *)&size,
-			   offset,
-			   sizeof(int));
-    if(size != size_check) {
-      BOOST_LOG_TRIVIAL(fatal) << "SIZE CHECK FAILED !";
-      exit(-1);
-    }
-    offset = circular_log_advance_ptr(offset, sizeof(int), RAFT_LOGSIZE);
-    copy_from_circular_log(log, RAFT_LOGSIZE, dst, offset, size);
-    offset = circular_log_advance_ptr(offset, size + sizeof(int), RAFT_LOGSIZE);
-    return offset;
-  }
-
-  unsigned long skip_log_entry(unsigned long offset)
-  {
-    int size;
-    TOID(raft_pstate_t) root = POBJ_ROOT(pop_raft_state, raft_pstate_t);
-    log_t tmp = D_RO(root)->log;
-    struct circular_log *log = D_RW(tmp);
-    copy_from_circular_log(log,
-			   RAFT_LOGSIZE,
-			   (unsigned char *)&size,
-			   offset,
-			   sizeof(int));
-    offset = circular_log_advance_ptr(offset, size + 2*sizeof(int), RAFT_LOGSIZE);
-    return offset;
-  }
-
   /* Handle incoming message and send appropriate response */
-  void handle_incoming(unsigned long size)
+  void handle_incoming(rte_mbuf *m)
   {
-    msg_t *msg = (msg_t *)cyclone_buffer_in;
+    drop_eth_header(m);
+    msg_t *msg = pktadj2msg(m);
     msg_t resp;
     unsigned long rep;
-    unsigned char *payload     = cyclone_buffer_in + sizeof(msg_t);
-    unsigned long payload_size = size - sizeof(msg_t); 
+    unsigned char *payload     = (unsigned char *)(msg + 1);
+    unsigned long payload_size = m->pkt_len - 
+      (sizeof(struct ipv4_hdr) + sizeof(msg_t)); 
     int e; // TBD: need to handle errors
     char *ptr;
     msg_entry_t client_req;
     msg_entry_response_t *client_rep;
     msg_entry_t *messages; 
-    
+    rpc_t *rpc;
+    int source = msg->source;;
+    int free_buf = 0;
+
+    if(msg->msg_type != MSG_APPENDENTRIES) {
+      send_ae_responses();
+    }
+
     switch (msg->msg_type) {
     case MSG_REQUESTVOTE:
       resp.msg_type = MSG_REQUESTVOTE_RESPONSE;
@@ -444,207 +292,478 @@ typedef struct cyclone_st {
 				&resp.rvr);
       /* send response */
       resp.source = me;
-      cyclone_tx(router->output_socket(msg->source),
-		 (unsigned char *)&resp, sizeof(msg_t), "REQVOTE RESP");
+      rte_pktmbuf_free(m);
+      send_msg(&resp, source);
       break;
     case MSG_REQUESTVOTE_RESPONSE:
       e = raft_recv_requestvote_response(raft_handle, 
 					 raft_get_node(raft_handle, msg->source), 
 					 &msg->rvr);
+      rte_pktmbuf_free(m);
       break;
     case MSG_APPENDENTRIES:
-    resp.msg_type = MSG_APPENDENTRIES_RESPONSE;
-    msg->ae.entries = (msg_entry_t *)payload;
-    ptr = (char *)(payload + msg->ae.n_entries*sizeof(msg_entry_t));
-    for(int i=0;i<msg->ae.n_entries;i++) {
-      msg->ae.entries[i].data.buf = ptr;
-      ptr += msg->ae.entries[i].data.len;
+    ae_responses[ae_response_cnt].msg_type = MSG_APPENDENTRIES_RESPONSE;
+    if(msg->ae.n_entries > 0) {
+      msg->ae.entries = (msg_entry_t *)payload;
+      msg->ae.entries[0].data.buf = (void *)m;
+    }
+    else {
+      free_buf = 1;
     }
     e = raft_recv_appendentries(raft_handle, 
 				raft_get_node(raft_handle, msg->source), 
 				&msg->ae, 
-				&resp.aer);
-    resp.source = me;
-    cyclone_tx(router->output_socket(msg->source),
-		(unsigned char *)&resp, sizeof(msg_t), "APPENDENTRIES RESP");
+				&ae_responses[ae_response_cnt].aer);
+    if(e || free_buf) {
+      rte_pktmbuf_free(m);
+    }
+    ae_responses[ae_response_cnt].source = me;
+    ae_response_sources[ae_response_cnt++] = source;
     break;
     case MSG_APPENDENTRIES_RESPONSE:
       e = raft_recv_appendentries_response(raft_handle, 
 					   raft_get_node(raft_handle, msg->source), 
 					   &msg->aer);
-      break;
-    case MSG_ASSISTED_APPENDENTRIES:
-      msg->rep.ety.data.buf = msg + 1;
-      router->cpaths.ring_doorbell(msg->rep.client_mc, msg->rep.client_id, msg->client_port);
-      raft_recv_assisted_appendentries(raft_handle, &msg->rep);
-      break;
-
-    case MSG_ASSISTED_QUORUM_OK:
-      raft_recv_assisted_quorum(raft_handle,
-				&msg->rep,
-				msg->quorum);
-      break;
-    case MSG_CLIENT_REQ:
-      client_req.id = rand();
-      client_req.data.buf = msg->client.ptr;
-      client_req.data.len = msg->client.size;
-      client_req.type = RAFT_LOGTYPE_NORMAL;
-      client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
-      e = raft_recv_entry(raft_handle, 
-			  &client_req, 
-			  client_rep);
-      if(e != 0) {
-	free(client_rep);
-	client_rep = NULL;
-      }
-      cyclone_tx_block(router->request_in(),
-		       (unsigned char *)&client_rep,
-		       sizeof(void *),
-		       "CLIENT COOKIE SEND");
-      break;
-    case MSG_CLIENT_REQ_BATCH:
-      messages = 
-	(msg_entry_t *)malloc(msg->client.size*sizeof(msg_entry_t));
-      ptr = (char *)msg->client.ptr;
-      for(int i=0;i<msg->client.size;i++) {
-	int msg_size = msg->client.batch_sizes[i];
-	messages[i].id = rand();
-	messages[i].data.buf = ptr;
-	messages[i].data.len = msg_size;
-	ptr = ptr + msg_size;
-	messages[i].type = RAFT_LOGTYPE_NORMAL;
-      }
-      client_rep = (msg_entry_response_t *)
-	malloc(msg->client.size*sizeof(msg_entry_response_t));
-      e = raft_recv_entry_batch(raft_handle, 
-				messages, 
-				client_rep,
-				msg->client.size);
-      if(e != 0) {
-	free(client_rep);
-	client_rep = NULL;
-      }
-      free(messages);
-      cyclone_tx_block(router->request_in(),
-		       (unsigned char *)&client_rep,
-		       sizeof(void *),
-		       "CLIENT COOKIE SEND");
-      break;
-    case MSG_CLIENT_REQ_CFG:
-      client_req.id = rand();
-      client_req.data.buf = msg->client.ptr;
-      client_req.data.len = msg->client.size;
-      client_req.type = msg->client.type;
-      client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
-      e = raft_recv_entry(raft_handle, 
-			  &client_req, 
-			  client_rep);
-      if(e != 0) {
-	free(client_rep);
-	client_rep = NULL;
-      }
-      cyclone_tx_block(router->request_in(),
-		       (unsigned char *)&client_rep,
-		       sizeof(void *),
-		       "CLIENT COOKIE SEND");
-      break;
-    case MSG_CLIENT_REQ_TERM:
-      if(raft_get_current_term(raft_handle) != msg->client.term) {
-	client_rep = NULL;
-	cyclone_tx_block(router->request_in(),
-			 (unsigned char *)&client_rep,
-			 sizeof(void *),
-			 "CLIENT COOKIE SEND");
-      }
-      else {
-	client_req.id = rand();
-	client_req.data.buf = msg->client.ptr;
-	client_req.data.len = msg->client.size;
-	client_req.type = RAFT_LOGTYPE_NORMAL;
-	client_rep = (msg_entry_response_t *)malloc(sizeof(msg_entry_response_t));
-	e = raft_recv_entry(raft_handle, 
-			      &client_req, 
-			      client_rep);
-	if(e != 0) {
-	  free(client_rep);
-	  client_rep = NULL;
-	}
-	cyclone_tx_block(router->request_in(),
-			 (unsigned char *)&client_rep,
-			 sizeof(void *),
-			 "CLIENT COOKIE SEND");
-      }
-      break;
-
-    case MSG_CLIENT_STATUS:
-      e = raft_msg_entry_response_committed
-	(raft_handle, (const msg_entry_response_t *)msg->client.ptr);
-      cyclone_tx_block(router->request_in(),
-		       (unsigned char *)&e,
-		       sizeof(int),
-		       "CLIENT COOKIE SEND");
-      break;
-
-    case MSG_CLIENT_REQ_SET_IMGBUILD:
-      raft_set_img_build(raft_handle);
-      client_rep = NULL;
-      cyclone_tx_block(router->request_in(),
-		       (unsigned char *)&e,
-		       sizeof(int),
-		       "CLIENT COOKIE SEND");
-      break;
-    case MSG_CLIENT_REQ_UNSET_IMGBUILD:
-      raft_unset_img_build(raft_handle);
-      client_rep = NULL;
-      cyclone_tx_block(router->request_in(),
-		       (unsigned char *)&e,
-		       sizeof(int),
-		       "CLIENT COOKIE SEND");
+      rte_pktmbuf_free(m);
       break;
     default:
-      printf("unknown msg\n");
+      printf("unknown msg in handle remote code=%d\n", msg->msg_type);
       exit(0);
     }
   }
 }cyclone_t;
 
-
+// Non blocking, best effort
+static int take_snapshot(unsigned int *snapshot)
+{
+  for(int i=0;i<num_quorums;i++) {
+    snapshot[i] = quorums[i]->snapshot;
+    if((snapshot[i] & 1) == 0) {
+      return 0;
+    }
+  }
+  __sync_synchronize();
+  // check snapshot
+  for(int i=0;i<num_quorums;i++) {
+    if(snapshot[i] != quorums[i]->snapshot) {
+      return 0;
+    }
+  }
+  return 1; // success
+}
+  
 struct cyclone_monitor {
   volatile bool terminate;
   cyclone_t *cyclone_handle;
-  void *poll_items;
+  rte_mbuf *pkt_array[PKT_BURST], *chain_tail;
+  int chain_size[2*PKT_BURST];
+  unsigned int *snapshot;
+  int is_leader;
+  msg_entry_t *messages;
 
   cyclone_monitor()
   :terminate(false)
   {}
-  
+
+  void compact(rte_mbuf *m)
+  {
+    rte_mbuf *next = m->next, *temp;
+    while(next) {
+      rte_memcpy(rte_pktmbuf_mtod_offset(m, void *, m->data_len), 
+		 rte_pktmbuf_mtod(next, void *),
+		 next->data_len);
+      m->data_len += next->data_len;
+      temp = next;
+      next = next->next;
+      temp->next = NULL;
+      rte_pktmbuf_free(temp);
+    }
+    m->pkt_len = m->data_len;
+    m->nb_segs = 1;
+    m->next = NULL;
+  }
+
+  int bad(rte_mbuf *m)
+  {
+    rte_prefetch0(rte_pktmbuf_mtod(m, void *));
+    struct ether_hdr *e = rte_pktmbuf_mtod(m, struct ether_hdr *);
+    struct ipv4_hdr *ip = (struct ipv4_hdr *)(e + 1);
+    if(e->ether_type != rte_cpu_to_be_16(ETHER_TYPE_IPv4)) {
+      BOOST_LOG_TRIVIAL(warning) << "Dropping junk. Protocol mismatch";
+      return -1;
+    }
+    else if(ip->src_addr != magic_src_ip) {
+      BOOST_LOG_TRIVIAL(warning) << "Dropping junk. non magic ip";
+      rte_pktmbuf_free(m);
+      return -1;
+    }
+    else if(m->data_len <= sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr)) {
+      BOOST_LOG_TRIVIAL(warning) << "Dropping junk = pkt size too small";
+      rte_pktmbuf_free(m);
+      return -1;
+    }
+    else if(m->next != NULL) {
+      BOOST_LOG_TRIVIAL(warning) << "Dropping multiseg packet at rx";
+      BOOST_LOG_TRIVIAL(warning) << "Pkt len = " 
+				 << m->pkt_len
+				 <<" seg len = "
+				 <<  m->data_len;
+      rte_pktmbuf_free(m);
+      return -1;
+    }
+    return 0;
+  }
+
+  int publish_snapshot()
+  {
+    unsigned int current_term = raft_get_current_term(cyclone_handle->raft_handle);
+    int is_leader;
+    if(cyclone_handle->replicas == 1) {
+      is_leader = 1;
+    }
+    else {
+      is_leader = cyclone_is_leader(cyclone_handle);
+    }
+    unsigned int new_snapshot = (current_term << 1) + (is_leader ? 1:0);
+    if(new_snapshot != cyclone_handle->snapshot) {
+      cyclone_handle->snapshot = new_snapshot;
+      __sync_synchronize();
+      return 1;
+    }
+    else {
+      return 0;
+    }
+  }
+
+  void accept(int available, int multicore)
+  {
+    int accepted = 0;
+    rte_mbuf *m;
+    rpc_t *rpc;
+
+    memset(chain_size, 0, 2*PKT_BURST);
+    for(int i=0;i<available;i++) {
+      m = pkt_array[i];
+      if(!multicore) {
+	if(bad(m)) {
+	  rte_pktmbuf_free(m);
+	  continue;
+	}
+	adjust_head(m);
+	rpc = pktadj2rpc(m);
+      }
+      else {
+	rpc = rte_pktmbuf_mtod(m, rpc_t *);
+      }
+      int core = __builtin_ffsl(rpc->core_mask) - 1;
+      // Admission control
+      if(!multicore) {
+	if(cyclone_handle->current_inflight(rpc->client_id) >= MAX_INFLIGHT) {
+	  rte_pktmbuf_free(m);
+	  continue;
+	}
+      }
+      if(!multicore && is_multicore_rpc(rpc)) {
+	// Received a multi-core operation
+	// Check that I am quorum 0
+	if(cyclone_handle->me_quorum != 0) {
+	  rte_pktmbuf_free(m);
+	  continue;
+	}
+	if(rpc->core_mask > ((1UL << executor_threads) - 1)) {
+	  BOOST_LOG_TRIVIAL(fatal) << "Invalid core mask " << rpc->core_mask;
+	  exit(-1);
+	}
+	ic_rdv_t *rdv = rpc2rdv(rpc);
+	rdv->rtc_ts = cyclone_handle->nonce_base + rte_get_tsc_cycles();
+	memcpy(&rdv->mc_id, 
+	       global_dpdk_context->mc_addresses[global_dpdk_context->me],
+	       6);
+	unsigned long quorum_mask = 0;
+	unsigned long t = rpc->core_mask;
+	while(t) {
+	  int c = __builtin_ffsl(t) - 1;
+	  quorum_mask |= (1 << core_to_quorum(c));
+	  t = t & ~(1UL << c);
+	}
+	// Delete all headers and enqueue to quorums
+	if(rte_pktmbuf_adj(m, ((char *)rpc) - rte_pktmbuf_mtod(m, char *)) == NULL) {
+	  BOOST_LOG_TRIVIAL(fatal) << "Failed to delete header for multicore";
+	  exit(-1);
+	}
+	while(quorum_mask) {
+	  int q = __builtin_ffsl(quorum_mask) - 1;
+	  rte_mbuf_refcnt_update(m, 1);
+	  if(rte_ring_sp_enqueue(to_quorums[q], (void *)m) == -ENOBUFS) {
+	    BOOST_LOG_TRIVIAL(fatal) << "Failed to enqueue in cross quorum q";
+	    exit(-1);
+	  }
+	  quorum_mask = quorum_mask & ~(1UL << q);
+	}
+	rte_pktmbuf_free(m);
+	continue;
+      }
+      if(rpc->code == RPC_REQ_STABLE) {
+	if(take_snapshot(snapshot)) {
+	  rte_pktmbuf_append(m, num_quorums*sizeof(unsigned int));
+	  memcpy(rpc + 1, snapshot, num_quorums*sizeof(unsigned int));
+	  void *triple[3];
+	  triple[0] = (void *)(unsigned long)cyclone_handle->me_quorum;
+	  triple[1] = m;
+	  triple[2] = rpc;
+	  cyclone_handle->add_inflight(rpc->client_id);
+	  if(rte_ring_mp_enqueue_bulk(to_cores[core], triple, 3) == -ENOBUFS) {
+	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full (req stable)";
+	    exit(-1);
+	  }
+	}
+	else {
+	  rte_pktmbuf_free(m);
+	}
+	continue;
+      }
+      // Do term checks
+      if(!multicore) {
+	if(rpc->quorum_term != raft_get_current_term(cyclone_handle->raft_handle)) {
+	  rte_pktmbuf_free(m);
+	  continue;
+	} 
+      }
+      else {
+	unsigned int *term_array = (unsigned int *)(rpc + 1);
+	if(term_array[cyclone_handle->me_quorum] != raft_get_current_term(cyclone_handle->raft_handle)) {
+	  rte_pktmbuf_free(m);
+	  continue;
+	}
+      }
+      /////
+      int msg_size;
+      if(is_multicore_rpc(rpc)) {
+	msg_size = m->data_len;
+      }
+      else {
+	msg_size = pktadj2rpcsz(m);
+      }
+      if(rpc->flags & RPC_FLAG_RO) {
+	if(cyclone_handle->snapshot & 1) { // is leader
+	  void *triple[3];
+	  triple[0] = (void *)(unsigned long)cyclone_handle->me_quorum;
+	  triple[1] = m;
+	  triple[2] = rpc;
+	  cyclone_handle->add_inflight(rpc->client_id);
+	  if(rte_ring_mp_enqueue_bulk(to_cores[core], triple, 3) == -ENOBUFS) {
+	    BOOST_LOG_TRIVIAL(fatal) << "raft->core comm ring is full (req ro)";
+	    exit(-1);
+	  }
+	}
+	else {
+	  rte_pktmbuf_free(m);
+	}
+	continue;
+      }
+      else if(rpc->code == RPC_REQ_NODEDEL) {
+	messages[accepted].data.buf = (void *)m;
+	messages[accepted].data.len = pktadj2rpcsz(m);
+	messages[accepted].type = RAFT_LOGTYPE_REMOVE_NODE;
+	chain_tail = m;
+	accepted++;
+      }
+      else if(rpc->code == RPC_REQ_NODEADD) {
+	messages[accepted].data.buf = (void *)m;
+	messages[accepted].data.len = pktadj2rpcsz(m);
+	messages[accepted].type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
+	chain_tail = m;
+	accepted++;
+      }
+      else if(accepted > 0 && 
+	      (messages[accepted - 1].data.len + msg_size) <= MSG_MAXSIZE &&
+	      messages[accepted - 1].type == RAFT_LOGTYPE_NORMAL &&
+	      chain_size[accepted - 1] < CHAIN_SZ) {
+
+	if(!is_multicore_rpc(rpc)) {
+	  del_adj_header(m);
+	}
+	rte_mbuf *mhead = (rte_mbuf *)messages[accepted - 1].data.buf;
+	messages[accepted - 1].data.len += msg_size;
+	// Chain to prev packet
+	chain_tail->next = m;
+	chain_tail = m;
+	mhead->nb_segs++;
+	mhead->pkt_len += m->data_len;
+	chain_size[accepted - 1]++;
+	//compact(mprev); // debug
+      }
+      else {
+	if(is_multicore_rpc(rpc)) { // Add a fresh head
+	  rte_mbuf *m_pre = rte_pktmbuf_alloc(global_dpdk_context->mempools
+					      [cyclone_handle->my_q(q_dispatcher)]);
+	  if(m_pre == NULL) {
+	    BOOST_LOG_TRIVIAL(fatal) << "Failed to alloc multicore header pkt";
+	    exit(-1);
+	  }
+	  add_adj_header(m_pre);
+	  m_pre->nb_segs++;
+	  m_pre->pkt_len += m->data_len;
+	  m_pre->next     = m;
+	  messages[accepted].data.buf = (void *)m_pre;
+	  messages[accepted].data.len = msg_size;
+	  messages[accepted].type = RAFT_LOGTYPE_NORMAL;
+	  chain_tail = m;
+	  chain_size[accepted] = 2;
+	}
+	else {
+	  messages[accepted].data.buf = (void *)m;
+	  messages[accepted].data.len = pktadj2rpcsz(m);
+	  messages[accepted].type = RAFT_LOGTYPE_NORMAL;
+	  chain_tail = m;
+	  chain_size[accepted] = 1;
+	}
+	accepted++;
+      }
+    }
+    if(accepted > 0) {
+      int e = raft_recv_entry_batch(cyclone_handle->raft_handle, 
+				    messages, 
+				    NULL,
+				    accepted);
+      if(e != 0) {
+	for(int i=0;i<accepted;i++) {
+	  rte_pktmbuf_free((rte_mbuf *)messages[i].data.buf);
+	}
+      }
+    }
+  }
+
+
   void operator ()()
   {
-    unsigned long mark = rtc_clock::current_time();
+    unsigned long mark = rte_get_tsc_cycles();
+    double tsc_mhz = (rte_get_tsc_hz()/1000000.0);
+    unsigned long PERIODICITY_CYCLES = PERIODICITY*tsc_mhz;
+    unsigned long LOOP_TO_CYCLES     = RAFT_REQUEST_TIMEOUT*tsc_mhz;
     unsigned long elapsed_time;
+    messages = (msg_entry_t *)malloc(2*PKT_BURST*sizeof(msg_entry_t));
+    int available;
+    unsigned int current_term;
+    rte_mbuf *m;
+    cyclone_handle->RAFT_NACK_TIMEOUT_CYCLES = RAFT_NACK_TIMEOUT*tsc_mhz;
+
+    snapshot = (unsigned int *)malloc(num_quorums*sizeof(unsigned int));
+    cyclone_handle->snapshot = ~1L;
+    cyclone_handle->ae_nack_term = -1;
+ 
     while(!terminate) {
+
+#ifdef WORKAROUND0
+      // Clean queue 0
+      for(int i=0;i < global_dpdk_context->ports;i++) {
+	if(i % num_quorums == cyclone_handle->me_quorum) {
+	  int junk = cyclone_rx_burst(i, 0, &pkt_array[0], PKT_BURST);
+	  for(int j=0; j < junk;j++) {
+	    rte_pktmbuf_free(pkt_array[j]);
+	  }
+	}
+      }
+#endif
+
       // Handle any outstanding requests
-      int sz =
-	cyclone_rx(cyclone_handle->router->input_socket(),
-		   cyclone_handle->cyclone_buffer_in,
-		   MSG_MAXSIZE,
-		   "Incoming");
-      if(sz != -1) {
-	cyclone_handle->handle_incoming(sz);
+      int monitor_port  = queue2port(cyclone_handle->my_q(q_raft), global_dpdk_context->ports);
+      int monitor_queue = queue_index_at_port(cyclone_handle->my_q(q_raft), global_dpdk_context->ports);
+      available = cyclone_rx_burst(monitor_port, monitor_queue,	&pkt_array[0], PKT_BURST);
+      cyclone_handle->ae_response_cnt = 0;
+      for(int i=0;i<available;i++) {
+	m = pkt_array[i];
+	if(bad(m)) {
+	  rte_pktmbuf_free(m);
+	  continue;
+	}
+	cyclone_handle->handle_incoming(m);
       }
-      sz =
-	cyclone_rx(cyclone_handle->router->request_in(),
-		   cyclone_handle->cyclone_buffer_in,
-		   MSG_MAXSIZE,
-		   "Incoming");
-      if(sz != -1) {
-	cyclone_handle->handle_incoming(sz);
+      
+      cyclone_handle->send_ae_responses();
+
+      // Handle periodic events 
+      elapsed_time = rte_get_tsc_cycles() - mark;
+      if(elapsed_time >= LOOP_TO_CYCLES) {
+	BOOST_LOG_TRIVIAL(warning) << "Quorum " << cyclone_handle->me_quorum
+				   << " event loop too long cycles = " 
+				   << elapsed_time;
       }
-      // Handle periodic events -- - AFTER any incoming requests
-      if((elapsed_time = rtc_clock::current_time() - mark) >= PERIODICITY) {
-	raft_periodic(cyclone_handle->raft_handle, (int)elapsed_time);
-	mark = rtc_clock::current_time();
+      if(elapsed_time  >= PERIODICITY_CYCLES) {
+	raft_periodic(cyclone_handle->raft_handle, (int)(elapsed_time/tsc_mhz));
+	mark = rte_get_tsc_cycles();
       }
+
+      // Note: must do snapshot and kicker activity before
+      // accepting any requests in a new term
+      if(publish_snapshot()) {
+	if(cyclone_handle->snapshot & 1) { // is leader
+	  // Send kicker
+	  rte_mbuf *k = rte_pktmbuf_alloc(global_dpdk_context->mempools[cyclone_handle->my_q(q_raft)]);
+	  if(k == NULL) {
+	    BOOST_LOG_TRIVIAL(fatal) << "Out of mbufs for kicker";
+	    exit(-1);
+	  }
+	  rpc_t *k_rpc      = (rpc_t *)rte_pktmbuf_mtod_offset(k, void *, sizeof(ether_hdr) + sizeof(ipv4_hdr));
+	  k_rpc->code       = RPC_REQ_KICKER;
+	  k_rpc->flags      = 0;
+	  k_rpc->payload_sz = 0;
+	  k_rpc->core_mask  = 0;
+	  k_rpc->client_id  = MAX_CLIENTS - 1; // Really don't care
+	  for(int i = 0;i<executor_threads;i++) {
+	    if(core_to_quorum(i) == cyclone_handle->me_quorum) {
+	      k_rpc->core_mask |= (1UL << i);
+	    }
+	  }
+	  pktsetrpcsz(k, sizeof(rpc_t));
+	  adjust_head(k);
+	  messages[0].data.buf = (void *)k;
+	  messages[0].data.len = pktadj2rpcsz(k);
+	  messages[0].type = RAFT_LOGTYPE_NORMAL;
+	  int e = raft_recv_entry_batch(cyclone_handle->raft_handle, 
+					messages, 
+					NULL,
+					1);
+	  if(e != 0) {
+	    rte_pktmbuf_free(k);
+	  }
+	}
+      }
+      // Check for requests on the network
+      monitor_port  = queue2port(cyclone_handle->my_q(q_dispatcher), global_dpdk_context->ports);
+      monitor_queue = queue_index_at_port(cyclone_handle->my_q(q_dispatcher), global_dpdk_context->ports);
+      available = cyclone_rx_burst(monitor_port, monitor_queue, &pkt_array[0], PKT_BURST);
+      if(available) {
+	accept(available, 0);
+      }
+      // Check for transactions
+      available = 0;
+      while(available < PKT_BURST) {
+	if(rte_ring_sc_dequeue(to_quorums[cyclone_handle->me_quorum], (void **)&m) == 0) {
+	  pkt_array[available] = rte_pktmbuf_clone(m, 
+						  global_dpdk_context->mempools
+						  [cyclone_handle->my_q(q_dispatcher)]);
+	  if(pkt_array[available] == NULL) {
+	    BOOST_LOG_TRIVIAL(fatal) << "Failed to clone tx packet";
+	    exit(-1);
+	  }
+	  rte_pktmbuf_free(m);
+	  available++;
+	}
+	else {
+	  break;
+	}
+      }
+      accept(available, 1);
+      // Set preferred leader
+      
+      if(cyclone_handle->me_quorum > 0 && (quorums[0]->snapshot & 1)) {
+	raft_set_preferred_leader(cyclone_handle->raft_handle);
+      }
+      else {
+	raft_unset_preferred_leader(cyclone_handle->raft_handle);
+      }
+      
     }
   }
 };

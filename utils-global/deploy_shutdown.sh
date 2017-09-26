@@ -13,6 +13,7 @@ do
 	ip=`cat ${i}/ip_address`
 	echo "Executing shutdown on node $node"
 	clush -w ${ip} ${deploy_dir}/${node}/killall.sh
+	clush -w ${ip} rm -f /mnt/huge/*
     fi
 done
 

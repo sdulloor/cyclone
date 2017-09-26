@@ -46,6 +46,7 @@ raftpath=config.get('meta','raftpath') + ".cyclone"
 filepath=config.get('meta','filepath') + ".cyclone"
 logsize=config.getint('meta','logsize')
 heapsize=config.getint('meta','heapsize')
+ports=config.getint('meta', 'ports')
 
 #read inactive list
 inactive_list    = {}
@@ -74,47 +75,36 @@ for i in range(machines):
     dname=output + '/cyclone_' + str(i)
     cond_abs_dir(dname)
     f=open(dname + '/ip_address', 'w')
-    m=mc_config.get('machines','addr' + str(i))
+    m=mc_config.get('machines','config' + str(i))
     f.write(m)
     f.close()
     f=open(dname + '/kill_all', 'w')
     killall_cmds_gen(f)
     f.close()
-    f=open(dname + '/' + 'config_client.ini', 'w')
-    f.write('[machines]\n')
-    f.write('machines=' + str(machines) + '\n')
-    for j in range(0, machines):
-        addr=mc_config.get('machines','addr' + str(j))
-        iface=mc_config.get('machines','iface' + str(j))
-        f.write('addr' + str(j) + '=' + addr + '\n')
-        f.write('iface' + str(j) + '=' + iface + '\n')
-    f.close()
     for c in range(0, clients):
         f=open(dname + '/' + 'launch_preload', 'a')
-        launch_cmds_preload_gen(f, i, c, quorums, replicas, clients, machines)
+        launch_cmds_preload_gen(f, i, c, quorums, replicas, clients, machines, ports)
         f.close()
         f=open(dname + '/' + 'launch_clients', 'a')
-        launch_cmds_client_gen(f, i, c, quorums, replicas, clients, machines)
+        launch_cmds_client_gen(f, i, c, quorums, replicas, clients, machines, ports)
         f.close()
     
 
 # Generate server configs and launch cmds
 for q in range(0, quorums):
     qstring='quorum' + str(q)
-    config_name=output + '/' + 'config_server' + str(q) + '.ini'
+    config_name=output + '/' + 'config_quorum' + str(q) + '.ini'
     f=open(config_name, 'w')
     f.write('[storage]\n')
     f.write('raftpath=' + raftpath + '\n')
     f.write('logsize=' + str(logsize) + '\n')
     f.write('[quorum]\n')
     f.write('baseport=' + str(compute_raft_baseport(q)) + '\n')
-    f.write('[machines]\n')
-    f.write('machines='+str(replicas)+'\n')
+    f.write('replicas='+str(replicas)+'\n')
     active_count=0
     for mc in range(0, replicas):
         mc_id=config.getint(qstring, 'mc' + str(mc))
-        f.write('addr'+ str(mc) + '=' + mc_config.get('machines', 'addr' + str(mc_id)) + '\n')
-        f.write('iface'+ str(mc) + '=' + mc_config.get('machines', 'iface' + str(mc_id)) + '\n')
+        f.write('replica'+ str(mc) + '=' + str(mc_id) + '\n')
         if not str(mc_id) in inactive_list:
             active_count = active_count + 1
     f.write('[active]\n')
@@ -137,16 +127,17 @@ for q in range(0, quorums):
             f=open(dname + '/' + 'launch_servers','a')
         else:
             f=open(dname + '/' + 'launch_inactive_servers','a')
-        shutil.copy(config_name,  dname + '/config_server.ini')
+        shutil.copy(config_name,  dname + '/config_quorum.ini')
+        shutil.copy(sys.argv[1],  dname + '/config_cluster.ini')
         if os.environ.has_key('CLIENT_ASSIST'):
             f.write('export CLIENT_ASSIST=1\n')
-        launch_cmds_server_gen(f, q, r, mc, quorums, replicas, clients)
+        launch_cmds_server_gen(f, q, r, mc, quorums, replicas, clients, ports)
         f.close()
 
-#Copy per-quorum server and client configs to all directories
+#Copy configs to all directories
 for i in range(machines):
     dname=output + '/cyclone_' + str(i)
     for q in range(0, quorums):
-        shutil.copy(output + '/config_server' + str(q) + '.ini', dname)
-        shutil.copy(dname + '/config_client.ini', dname + '/config_client' + str(q) + '.ini')
+        shutil.copy(output + '/config_quorum' + str(q) + '.ini', dname)
+        shutil.copy(sys.argv[1],  dname + '/config_cluster.ini')
 
