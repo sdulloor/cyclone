@@ -1,15 +1,14 @@
-\documentclass[pageno]{jpaper}
-
-%replace XXX with the submission number you are given from the ASPLOS submission site.
-\newcommand{\asplossubmissionnumber}{387}
+\documentclass[twocolumn]{article}
 
 \usepackage[normalem]{ulem}
 \usepackage{parskip}
+\usepackage{pdfpages}
+\usepackage{url}
 
 \begin{document}
 
-\title{\Large \bf Cyclone: High Availability for Persistent Key Value Stores}
-
+\title{Cyclone: High Availability for Persistent Key Value Stores}
+\author{Amitabha Roy \and Subramanya R. Dulloor}
 
 \date{}
 \maketitle
@@ -190,32 +189,26 @@ across the replicas. On failure of the leader replica, a new leader is
 automatically elected -- RAFT ensures that the new leader has the most up to
 date log. The Cyclone client library automatically locates the new leader on a
 failover, resulting in only a brief interruption in service for
-clients. Although read requests (GET operations) are not logged, they are
-serviced in FIFO order with the write requests (PUT/DELETE operations) in
-Cyclone's log at the moment the read request is received.
+clients.  Cyclone guarantees that the order of operations to any key are linearizable. 
+A key sees the exact same sequence of update operations (including deletes) 
+on all replicas. These per-key guarantees follow immediately from the 
+properties of the RAFT log and by requiring clients to perform a quorum read (logged
+as an entry in the RAFT log).
 
-Cyclone provides the following guarantees to clients:
+In addition, Cyclone also provides clients with a weak read that does not require a 
+quorum read thereby requiring only one round trip to a server.  A weak read of a key sees a prefix of the linearizable history of a key that 
+includes all successful update operations made by the client before it issues the 
+weak read. To do a weak read, 
+clients maintain the last known term of the RAFT leader locally and ensure they always talk
+to a RAFT leader that has at least the same term. This ensures that clients see their own writes
+avoiding split brain problems where a network partitions allows clients to
+talk to old RAFT leaders after having committed changes to a new RAFT leader. In addition, a weak read waits until all pending RAFT log entries have been committed and applied before executing. This ensures that in the event of a failover, any previous committed updates from the same client have been applied and are visible to the weak read. A weak read is not linearizable as the RAFT leader responding to the weak read might actually no longer be the leader - a new one having been elected 
+without it realizing, perhaps due to a network partition. This means that while a weak read from a client sees its own writes in this (perhaps pathological) case it might not see later writes by other clients.
 
-\begin{itemize}
-\item Every acknowledged update is applied
-\item Every key sees the same sequence of updates across all replicas
-\item A client sees a monotonically extending prefix of the sequence of updates
-  to any key at that always includes its own updates
-\end{itemize}
-
-RAFT ensures that the set of committed updates to any key is in the same order
-as in the log, satisfying the first two conditions. For the last condition,
-clients maintain the term of the RAFT leader locally and ensure they always talk
-to a (possibley different) RAFT leader that has at least the same term. This
-helps us avoid split brain problems where a network partitions allows clients to
-talk to old RAFT leaders after having committed changes to a new RAFT leader.
-
-We do not provide linearizable reads, although that can be easily supported by
-logging the read and running conensus on it like a regular mutation operation.
 Finally, Cyclone allows operations to multiple keys in an atomic batch, where
 either all updates in the batch are applied or no operation in the batch is
-applied, regardless of failures. We also use a lightweight batched operation to
-support snapshots.
+applied - a property that holds \emph{at all replicas}, regardless of failures. We also use a lightweight batched operation to support snapshots. We discuss how batched operations are implemented later in the paper.
+
 
 \section{Storage}
 \label{sec:storage}
@@ -526,7 +519,8 @@ instances however exist in the same process address space as the key value store
 application itself and therefore manipulate the same application.
 
 The first question we deal with is -- how do Cyclone clients decide which
-physical log to send a request to? The guarantees from Cyclone cover ordering of
+physical log to send a request to? The guarantees from Cyclone (except batched
+writes)  cover ordering of
 updates to a single key (Section~\ref{sec:sysarch}). They can be satisfied by
 ensuring that all reads and writes to a key go to the same physical log
 (i.e. RAFT instance). We achieve this by hashing the key to select the physical
@@ -546,15 +540,16 @@ exist~\cite{flodb}.
 Supporting batched updates to multiple keys that map to different physical logs
 requires a ganged operation across those logs such that all the operations
 complete together even in the face of failures. One option is to have an
-external co-ordinator run a distributed transaction using two phase commit. In
-addition to requiring extra external resources to host the co-ordinator one must
-also worry about failure recovery. This also requires two round trips to the
-leader to complete what should have been a single batched write request from a
+external co-ordinator run a distributed transaction using two phase commit. This
+requires extra external resources to host the co-ordinator what should have been a single batched write request from a
 client that is stateless and allowed to fail - such as with key value stores
-like Rocksdb~\cite{rocksdb}. We therefore describe a simpler and more performant
+like Rocksdb~\cite{rocksdb}. This also 
+requires two round trips to the
+leader to complete  We therefore describe a simpler and more performant
 solution called ``ganged operations" in Cyclone. Ganged operations allow a
 stateless client to issue a batch of update operations as a ``gang",
-simultaneously and atomically updating a batch of keys in a single call.
+simultaneously and atomically updating a batch of keys in a single call. This preserves
+the system architecture of existing deployments of single image key value store such as Rocksdb.
 
 The first key problem we need to deal with is that the leaders for the different
 RAFT instances to which the keys map can be located on different machines. To
@@ -1059,6 +1054,9 @@ performance of replication, and making full use of available resources when
 replicating log entries over the network. By optimizing the storage and network
 components simultaneously, Cyclone enables high availability to persistent key
 value stores without compromising on their performance.
+
+Cyclone is available as open source software at:\\
+\url{https://github.com/sdulloor/cyclone/}
 \newcommand\myurl[2]{\url{#1}}
 \bibliographystyle{plain}
 \bibliography{paper}
