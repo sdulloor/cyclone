@@ -1,0 +1,181 @@
+\begin{thebibliography}{10}
+
+\bibitem{clflush_opt}
+\myurl{http://www.snia.org/sites/default/files/AndyRudoff_Processor_Support_NVM.pdf},
+  2015.
+
+\bibitem{rocksdb}
+\myurl{http://rocksdb.org/}, 2017.
+
+\bibitem{leveldb}
+\myurl{http://leveldb.org/}, 2017.
+
+\bibitem{samza}
+\myurl{https://issues.apache.org/jira/browse/SAMZA-543}, 2017.
+
+\bibitem{ssd_spec}
+\myurl{http://www.intel.com/content/www/us/en/solid-state-drives/ssd-dc-p3600-spec.html},
+  2017.
+
+\bibitem{dpdk_perf}
+\myurl{http://fast.dpdk.org/doc/perf/DPDK_16_11_Intel_NIC_performance_report.pdf},
+  2017.
+
+\bibitem{dpdk}
+\myurl{http://dpdk.org}, 2017.
+
+\bibitem{ddio}
+\myurl{http://www.intel.com/content/www/us/en/io/data-direct-i-o-technology.html},
+  2017.
+
+\bibitem{kafka}
+\myurl{https://www.confluent.io/}, 2017.
+
+\bibitem{fb_workload_analysis}
+Berk Atikoglu, Yuehai Xu, Eitan Frachtenberg, Song Jiang, and Mike Paleczny.
+\newblock {Workload Analysis of a Large-scale Key-value Store}.
+\newblock In {\em Proceedings of the 12th ACM SIGMETRICS/PERFORMANCE Joint
+  International Conference on Measurement and Modeling of Computer Systems},
+  SIGMETRICS '12, 2012.
+
+\bibitem{triad}
+Oana Balmau, Diego Didona, Rachid Guerraoui, Willy Zwaenepoel, Huapeng Yuan,
+  Aashray Arora, Karan Gupta, and Pavan Konka.
+\newblock {TRIAD}: Creating synergies between memory, disk and log in log
+  structured key-value stores.
+\newblock In {\em Annual Technical Conference}, pages 363--375, 2017.
+
+\bibitem{flodb}
+Oana Balmau, Rachid Guerraoui, Vasileios Trigonakis, and Igor Zablotchi.
+\newblock Flodb: Unlocking memory in persistent key-value stores.
+\newblock In {\em Proceedings of the Twelfth European Conference on Computer
+  Systems}, pages 80--94. ACM, 2017.
+
+\bibitem{ix-dataplane}
+Adam Belay, George Prekas, Ana Klimovic, Samuel Grossman, Christos Kozyrakis,
+  and Edouard Bugnion.
+\newblock Ix: A protected dataplane operating system for high throughput and
+  low latency.
+\newblock In {\em Proceedings of the Conference on Operating Systems Design and
+  Implementation}, pages 49--65. USENIX Association, 2014.
+
+\bibitem{crane}
+Heming Cui, Rui Gu, Cheng Liu, Tianyu Chen, and Junfeng Yang.
+\newblock Paxos made transparent.
+\newblock In {\em Proceedings of the Symposium on Operating Systems
+  Principles}, pages 105--120. ACM, 2015.
+
+\bibitem{farm}
+Aleksandar Dragojevi\'{c}, Dushyanth Narayanan, Edmund~B. Nightingale, Matthew
+  Renzelmann, Alex Shamis, Anirudh Badam, and Miguel Castro.
+\newblock No compromises: Distributed transactions with consistency,
+  availability, and performance.
+\newblock In {\em Proceedings of the Symposium on Operating Systems
+  Principles}, pages 54--70. ACM, 2015.
+
+\bibitem{pmfs}
+Subramanya~R. Dulloor, Sanjay Kumar, Anil Keshavamurthy, Philip Lantz, Dheeraj
+  Reddy, Rajesh Sankaran, and Jeff Jackson.
+\newblock {System Software for Persistent Memory}.
+\newblock In {\em Proceedings of the Ninth European Conference on Computer
+  Systems}, EuroSys '14, 2014.
+
+\bibitem{quorum}
+David~K. Gifford.
+\newblock Weighted voting for replicated data.
+\newblock In {\em Proceedings of the Seventh ACM Symposium on Operating Systems
+  Principles}, pages 150--162. ACM, 1979.
+
+\bibitem{nvram_log}
+Jian Huang, Karsten Schwan, and Moinuddin~K. Qureshi.
+\newblock Nvram-aware logging in transaction systems.
+\newblock {\em Proc. VLDB Endow.}, 8(4):389--400, 2014.
+
+\bibitem{consensus_box}
+Zsolt Istv\'{a}n, David Sidler, Gustavo Alonso, and Marko Vukolic.
+\newblock Consensus in a box: Inexpensive coordination in hardware.
+\newblock In {\em Proceedings of the Conference on Networked Systems Design and
+  Implementation}, pages 425--438. USENIX Association, 2016.
+
+\bibitem{faast}
+Anuj Kalia, Michael Kaminsky, and David~G. Andersen.
+\newblock Fasst: Fast, scalable and simple distributed transactions with
+  two-sided (rdma) datagram rpcs.
+\newblock In {\em Proceedings of the Conference on Operating Systems Design and
+  Implementation}, pages 185--201. USENIX Association, 2016.
+
+\bibitem{reflex}
+Ana Klimovic, Heiner Litz, and Christos Kozyrakis.
+\newblock Reflex: Remote flash \&\#8776; local flash.
+\newblock In {\em Proceedings of the Twenty-Second International Conference on
+  Architectural Support for Programming Languages and Operating Systems}. ACM,
+  2017.
+
+\bibitem{paxos}
+Leslie Lamport.
+\newblock The part-time parliament.
+\newblock {\em ACM Transactions in Computer Systems}, 16(2), 1998.
+
+\bibitem{multipaxos}
+Leslie Lamport.
+\newblock Paxos made simple.
+\newblock Technical report, December 2001.
+
+\bibitem{fast-paxos}
+Leslie Lamport.
+\newblock Fast paxos.
+\newblock {\em Distributed Computing}, 19:79--103, 2006.
+
+\bibitem{raft_lin}
+Collin Lee, Seo~Jin Park, Ankita Kejriwal, Satoshi Matsushita, and John
+  Ousterhout.
+\newblock Implementing linearizability at large scale and low latency.
+\newblock In {\em Proceedings of the Symposium on Operating Systems
+  Principles}, pages 71--86. ACM, 2015.
+
+\bibitem{nopaxos}
+Jialin Li, Ellis Michael, Naveen~Kr. Sharma, Adriana Szekeres, and Dan R.~K.
+  Ports.
+\newblock Just say no to paxos overhead: Replacing consensus with network
+  ordering.
+\newblock In {\em Proceedings of the Conference on Operating Systems Design and
+  Implementation}, pages 467--483. USENIX Association, 2016.
+
+\bibitem{fb_scaling_memcache}
+Rajesh Nishtala, Hans Fugal, Steven Grimm, Marc Kwiatkowski, Herman Lee,
+  Harry~C. Li, Ryan McElroy, Mike Paleczny, Daniel Peek, Paul Saab, David
+  Stafford, Tony Tung, and Venkateshwaran Venkataramani.
+\newblock {Scaling Memcache at Facebook}.
+\newblock In {\em Proceedings of the Conference on Networked Systems Design and
+  Implementation}, 2013.
+
+\bibitem{lsmtree}
+Patrick O'Neil, Edward Cheng, Dieter Gawlick, and Elizabeth O'Neil.
+\newblock The log-structured merge-tree (lsm-tree).
+\newblock {\em Acta Inf.}, 33(4):351--385, 1996.
+
+\bibitem{raft}
+Diego Ongaro and John Ousterhout.
+\newblock In search of an understandable consensus algorithm.
+\newblock In {\em Proceedings of the Annual Technical Conference}, pages
+  305--320. USENIX Association, 2014.
+
+\bibitem{dare}
+Marius Poke and Torsten Hoefler.
+\newblock Dare: High-performance state machine replication on rdma networks.
+\newblock In {\em Proceedings of the Symposium on High-Performance Parallel and
+  Distributed Computing}, pages 107--118. ACM, 2015.
+
+\bibitem{mojim}
+Yiying Zhang, Jian Yang, Amirsaman Memaripour, and Steven Swanson.
+\newblock Mojim: A reliable and highly-available non-volatile memory system.
+\newblock In {\em Proceedings of the Conference on Architectural Support for
+  Programming Languages and Operating Systems}, pages 3--18. ACM, 2015.
+
+\bibitem{shorn_writes}
+Mai Zheng, Joseph Tucek, Feng Qin, and Mark Lillibridge.
+\newblock Understanding the robustness of ssds under power fault.
+\newblock In {\em Proceedings of the Conference on File and Storage
+  Technologies}, pages 271--284. USENIX Association, 2013.
+
+\end{thebibliography}
