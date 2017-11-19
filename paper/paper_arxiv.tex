@@ -29,9 +29,8 @@ form of NVDIMMs or Intel 3DXPoint - to remove block oriented IO devices such as
 SSDs from the critical path for appending to the log. This enables it to address
 network overheads using an implementation of the RAFT consensus protocol that is
 designed around a userspace network stack to relieve the CPU of the burden of
-data copies. Finally, it provides a way to efficiently map the commutativity in
-key-value store APIs to the parallelism available in commodity NICs.  Cyclone is
-able to replicate millions of small updates per second using only commodity 10
+data copies.  Finally, it provides a way to exploit the parallelism available in commodity NICs.  
+Cyclone is able to replicate millions of small updates per second using only commodity 10
 gigabit ethernet adapters. As a practical application, we use it to improve the
 performance (and availability) of RocksDB, a popular persistent key value store
 by an order of magnitude when compared to its own write ahead log without
@@ -122,7 +121,7 @@ block IO is removed from the critical path. Existing work on log replication
 using state machine replication protocols such as Paxos~\cite{paxos} and
 RAFT~\cite{raft} has not - thus far - addressed high performance replication in
 the local area network of a datacenter using commodity networks.  Research
-focusing on addressing wide area network latencies by reducing the number of
+focusing on addressing network latencies by reducing the number of
 network hops with new protocols such as Fast Paxos~\cite{fast-paxos} or network
 switch modifications such as No Paxos~\cite{nopaxos} do not address throughput
 bottlenecks due to network stack related inefficiencies in the participating
@@ -146,9 +145,9 @@ ethernet.
 Both the storage (NVM, SSD) as well as the NIC expose significant parallelism
 that is left unused when Cyclone is used to replicate a single log. The third
 key contribution of this work is to show how one can exploit this parallelism in
-Cyclone by making use of the commutativity inherent in key-value store
-interfaces and mapping it to the available parallelism in the system via
-multiple instances of the same consensus protocol.
+Cyclone automatically creates and manages multiple logs, mapping them to the 
+available parallelism in the system via multiple instances of the same consensus 
+protocol.
 
 The rest of the paper is organized as follows. We describe Cyclone's system
 architecture in Section~\ref{sec:sysarch}. We describe the two level log
@@ -190,26 +189,34 @@ across the replicas. On failure of the leader replica, a new leader is
 automatically elected -- RAFT ensures that the new leader has the most up to
 date log. The Cyclone client library automatically locates the new leader on a
 failover, resulting in only a brief interruption in service for
-clients.  Cyclone guarantees that the order of operations to any key are linearizable. 
-A key sees the exact same sequence of update operations (including deletes) 
-on all replicas. These per-key guarantees follow immediately from the 
-properties of the RAFT log and by requiring clients to perform a quorum read (logged
-as an entry in the RAFT log).
+clients.  Cyclone guarantees that the order of operations to any particular key 
+are linearizable. A key sees the exact same sequence of update operations 
+(including deletes) on all replicas. These per-key guarantees follow immediately 
+from the properties of the RAFT log and by requiring clients to perform a quorum 
+read (logged as an entry in the RAFT log).
 
 In addition, Cyclone also provides clients with a weak read that does not require a 
-quorum read thereby requiring only one round trip to a server.  A weak read of a key sees a prefix of the linearizable history of a key that 
-includes all successful update operations made by the client before it issues the 
-weak read. To do a weak read, 
+quorum read thereby requiring only one round trip to a server.  A weak read of a key sees a 
+prefix of the linearized sequence of updates to a key that includes all successful update operations made 
+by the client before it issues the weak read. To do a weak read, 
 clients maintain the last known term of the RAFT leader locally and ensure they always talk
 to a RAFT leader that has at least the same term. This ensures that clients see their own writes
-avoiding split brain problems where a network partitions allows clients to
-talk to old RAFT leaders after having committed changes to a new RAFT leader. In addition, a weak read waits until all pending RAFT log entries have been committed and applied before executing. This ensures that in the event of a failover, any previous committed updates from the same client have been applied and are visible to the weak read. A weak read is not linearizable as the RAFT leader responding to the weak read might actually no longer be the leader - a new one having been elected 
-without it realizing, perhaps due to a network partition. This means that while a weak read from a client sees its own writes in this (perhaps pathological) case it might not see later writes by other clients.
+avoiding split brain problems where a network partition allows clients to
+talk to old RAFT leaders after having committed changes to a new RAFT leader. In addition, a weak 
+read waits until all pending RAFT log entries have been committed and applied before executing. 
+This ensures that in the event of a failover, any previous committed updates from the same client 
+have been applied and are visible to the weak read. A weak read is not linearizable as the RAFT 
+leader responding to the weak read might actually no longer be the leader - a new one having been 
+elected without it realizing, perhaps due to a network partition. This means that while a weak read 
+from a client sees its own writes, in some rare cases it might not see later writes by other clients.
 
 Finally, Cyclone allows operations to multiple keys in an atomic batch, where
 either all updates in the batch are applied or no operation in the batch is
-applied - a property that holds \emph{at all replicas}, regardless of failures. We also use a lightweight batched operation to support snapshots. We discuss how batched operations are implemented later in the paper.
-
+applied - a property that holds \emph{at all replicas}, regardless of failures. Batched operations 
+are supported in Rocksdb to allow referential integrity between keys - where the value associated
+with a  key is a reference to another key. We also use a lightweight batched operation to support 
+snapshots - that can be viewed as an atomic no-op to all keys. We discuss how batched operations are 
+supported by Cyclone later in the paper.
 
 \section{Storage}
 \label{sec:storage}
@@ -239,7 +246,9 @@ the NVM log to this flashlog in conveniently large units that are a multiple of
 4KB -- the optimum IO unit for flash SSDs. This ensures we get the best possible
 throughput from a flash device without paying the price of synchronous IO for
 small key-value pairs. At the same time, the amount of non-volatile memory
-required is small enough to not add undue cost to the server.
+required is small enough to not add undue cost to the server. This is in contrast to
+systems like FARM~\cite{farm} that require both the key value store and write ahead log
+to be held entirely in non-volatile memory.
 
 The flashlog is written out in segments of configurable size (we use 128KB
 segments). A segment buffer is prepared in memory (volatile DRAM) using the
@@ -517,13 +526,14 @@ RAFT. To this end, we extend the implementation described thus far to run
 multiple copies of the RAFT consensus protocol each maintaining and replicating
 its own two level log. We refer to these logs as physical logs. All these
 instances however exist in the same process address space as the key value store
-application itself and therefore manipulate the same application.
+application itself and therefore manipulate the same application. The number of 
+instances is a fixed property of the Cyclone service and cannot be changed after 
+startup.
 
 The first question we deal with is -- how do Cyclone clients decide which
 physical log to send a request to? The guarantees from Cyclone (except batched
-writes)  cover ordering of
-updates to a single key (Section~\ref{sec:sysarch}). They can be satisfied by
-ensuring that all reads and writes to a key go to the same physical log
+writes)  cover ordering of updates to a single key (Section~\ref{sec:sysarch}). They can 
+be satisfied by ensuring that all reads and writes to a key go to the same physical log
 (i.e. RAFT instance). We achieve this by hashing the key to select the physical
 log.
 
@@ -538,20 +548,24 @@ the persistent key value store itself, for which good designs
 exist~\cite{flodb}.
 
 \subsection{Ganged Operations}
-Supporting batched updates to multiple keys that map to different physical logs
-requires a ganged operation across those logs such that all the operations
-complete together even in the face of failures. One option is to have an
-external co-ordinator run a distributed transaction using two phase commit. This
-requires extra external resources to host the co-ordinator what should have been a single batched write request from a
-client that is stateless and allowed to fail - such as with key value stores
-like Rocksdb~\cite{rocksdb}. This also 
-requires two round trips to the
-leader to complete  We therefore describe a simpler and more performant
-solution called ``ganged operations" in Cyclone. Ganged operations allow a
-stateless client to issue a batch of update operations as a ``gang",
-simultaneously and atomically updating a batch of keys in a single call. This preserves
-the system architecture of existing deployments of single image key value store such as Rocksdb.
+Using multiple instances of RAFT leads to a serious problem with batched operations, 
+since we need to split up the batch into a mini-batch for each of the physical logs. There
+is however no guarantee that the request for a mini-batch will succeed breaking the atomicity
+requirement for batched updates. The obvious and simple solution is to do two phase commit across
+the logs, ensuring all or nothing semantics. However this was unacceptable to some customers who
+pointed out that ensuring that an external co-ordinator implementing two phase commit does not itself
+fail requires running a separate replicated service - with its attendant resource and reliability headaches.
+We were therefore challenged to come up with a solution that did not require two phase commit.
 
+Our final solution is based on two observations. First, we \emph {do not} require that either all mini-batches
+icommit to their raft logs or none do, What we actually requires is that either all are \emph{applied} to Rocksdb or 
+none of them are. Put another way we should not apply a mini-batch from a ganged operation if any of the other mini-batches
+have failed to commit to their RAFT log. This means that the client can be stateless. The second observation is that
+checking whether the other minibatches have committed is easy because the different RAFT instances can communicate 
+through shared memory on the same machines unlike the more general case of distributed participants in two phase 
+commit.
+
+We now describe our solution called ``ganged operations" in Cyclone. 
 The first key problem we need to deal with is that the leaders for the different
 RAFT instances to which the keys map can be located on different machines. To
 avoid having a client co-ordinate different machines for a single operation, we
@@ -917,7 +931,8 @@ illustrate that Cyclone can also be useful for real-world read-heavy workloads,
 we configured our clients to generate key value requests that mimic the
 distribution of value sizes in Facebook's ETCD
 trace~\cite{fb_workload_analysis,fb_scaling_memcache} and are read heavy (95\%
-reads). Figure~\ref{fig:fb} illustrates that even with a read dominated
+reads). We use weak reads in Cyclone to avoid the extra round trip for quorum reads.
+Figure~\ref{fig:fb} illustrates that even with a read dominated
 workload, Cyclone is effective at providing a write ahead log with 3 way
 replication with a lower performance overhead than Rocksdb's own write ahead
 logging. We consider the case of another real-world workload that is more write 
@@ -1022,7 +1037,7 @@ it unsuitable as a replacement for the write ahead log in key value stores.
 
 %The scalable commutativity rule~\cite{scalable_commutativity} states that for a
 %shared memory program to scale in performance with concurrency it must also have
-%an interface that is commutative for common case invocations. We have also used
+%an interface that is  for common case invocations. We have also used
 %interface level commutativity to extract parallelism for the purpose of scaling
 %replication performance. Others have used the same commutativity to create
 %per-cpu data structures to scale KV store performance~\cite{flodb}.
