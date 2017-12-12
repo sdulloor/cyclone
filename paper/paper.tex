@@ -1,4 +1,5 @@
-\documentclass[twocolumn]{article}
+\documentclass[letterpaper,twocolumn,10pt]{article}
+\usepackage{usenix}
 
 \usepackage[normalem]{ulem}
 \usepackage{parskip}
@@ -8,8 +9,9 @@
 \begin{document}
 
 \title{Cyclone: High Availability for Persistent Key Value Stores}
-\author{Amitabha Roy \\ amitabha.roy@gmail.com 
-	     \and Subramanya R. Dulloor \\ dulloor@gmail.com}
+
+\author{{\rm Amitabha Roy} \\ amitabha.roy@gmail.com 
+	     \and {\rm Subramanya R. Dulloor} \\ dulloor@gmail.com}
 
 \date{}
 \maketitle
@@ -70,7 +72,7 @@ of sophisticated extensions to LSM data structures.
 
 
 \begin{figure}
-\centering \includegraphics[scale=0.6]{results2/problem.pdf}
+\centering \includegraphics[scale=0.5]{results2/problem.pdf}
 \caption{Rocksdb write ahead logging impact}
 \label{fig:problem}
 \end{figure}
@@ -282,7 +284,7 @@ entry.
 
 \begin{figure}
   \centering
-  \includegraphics[scale=0.6]{figures2/flashlog_page.pdf}
+  \includegraphics[scale=0.4]{figures2/flashlog_page.pdf}
   \caption{Flashlog segment}
   \label{fig:flashlog_page}
 \end{figure}
@@ -372,8 +374,9 @@ simply manipulate packet headers to produce new packets to send on the output
 ports. We designed our implementation of the RAFT protocol based on the same
 principle.
 
-\begin{figure}
-\small
+\begin{figure*}
+\begin{minipage}{.5\textwidth}
+\scriptsize
 \begin{verbatim}
     event_receive_client_req()
     {
@@ -388,18 +391,18 @@ principle.
 \end{verbatim}
 \caption{Event handling}
 \label{fig:control_plane}
-\end{figure}
-
-\begin{figure*}
+\end{minipage}
+\begin{minipage}{.5\textwidth}
   \centering
-  \includegraphics[scale=0.6]{figures2/network_packet.pdf}
+  \includegraphics[scale=0.3]{figures2/network_packet.pdf}
   \caption{Cyclone network packet layout}
   \label{fig:packet_layout}
+\end{minipage}
 \end{figure*}
 
 \begin{figure}
 \centering
-\includegraphics[scale=0.5]{figures2/nvm_log.pdf}
+\includegraphics[scale=0.3]{figures2/nvm_log.pdf}
 \caption{NVM log structure}
 \label{fig:nvm_log}
 \end{figure}
@@ -488,7 +491,7 @@ acknowledgment for the entire batch, speeding up the progress of the protocol.
 
 \begin{figure}
   \centering
-  \includegraphics[scale=0.5]{figures2/batching.pdf}
+  \includegraphics[scale=0.3]{figures2/batching.pdf}
   \caption{Batching}
   \label{fig:batching}
 \end{figure}
@@ -610,9 +613,9 @@ RAFT instance by having each instance publish its current term and continuously
 comparing the view in the ganged operation to it. If any RAFT instance has moved
 past that term, the ganged operation is then terminated.
 
-\begin{figure*}
+\begin{figure}
   \centering
-  \small
+  \scriptsize
   \bf
 \begin{verbatim}
     // Apply ganged operation
@@ -644,7 +647,7 @@ past that term, the ganged operation is then terminated.
 \end{verbatim}
 \caption{Ganged Operation}
 \label{fig:ganged_ops}
-\end{figure*}
+\end{figure}
 
 The assumption in Figure~\ref{fig:ganged_ops} is that each ganged operation is
 mapped to a unique barrier. We achieve this by using a fixed piece of memory
@@ -746,24 +749,23 @@ headers all four 10 GigE ports are now saturated and therefore Cyclone hits the
 network line rate bottleneck at this point. It is worthwhile to compare this to
 the case with small updates, where running the consensus protocol was a
 bottleneck to reaching line rate.
-
-\begin{figure}
-  \includegraphics[scale=0.6]{results2/replicas.pdf}
+\begin{figure*}
+\begin{minipage}{0.33\textwidth}
+  \includegraphics[scale=0.45]{results2/replicas.pdf}
   \caption{Impact of replica count}
   \label{fig:replicas}
-\end{figure}
-
-\begin{figure}
-  \includegraphics[scale=0.6]{results2/512.pdf}
+\end{minipage}
+\begin{minipage}{.33\textwidth}
+  \includegraphics[scale=0.45]{results2/512.pdf}
   \caption{Impact of payload size}
   \label{fig:payload}
-\end{figure}
-
-\begin{figure}
-  \includegraphics[scale=0.6]{results2/flashlog.pdf}
+\end{minipage}
+\begin{minipage}{.33\textwidth}
+  \includegraphics[scale=0.45]{results2/flashlog.pdf}
   \caption{Adding second level log}
   \label{fig:flashlog}
-\end{figure}
+\end{minipage}
+\end{figure*}
 
 We now turn our attention from the network component of Cyclone to the storage
 one by adding the second level flashlog. We evaluate the impact of adding the
@@ -815,23 +817,23 @@ underlines the value of our ganged operation design over a distributed
 transaction that would need 8 network hops for the two phase commit (and
 replication) using an external co-ordinator, a minimum of 80us.
 
-\begin{figure}
-  \includegraphics[scale=0.6]{results2/flashlog_512.pdf}
+\begin{figure*}
+\begin{minipage}{.33\textwidth}
+  \includegraphics[scale=0.45]{results2/flashlog_512.pdf}
   \caption{Second level log - 512 bytes payload}
   \label{fig:flashlog_512}
-\end{figure}
-
-\begin{figure}
-  \includegraphics[scale=0.6]{results2/multi.pdf}
+\end{minipage}
+\begin{minipage}{.33\textwidth}
+  \includegraphics[scale=0.45]{results2/multi.pdf}
   \caption{Ganged Operations}
   \label{fig:ganged}
-\end{figure}
-
-\begin{figure}
-  \includegraphics[scale=0.6]{results2/kv_baseline.pdf}
+\end{minipage}
+\begin{minipage}{.33\textwidth}
+  \includegraphics[scale=0.45]{results2/kv_baseline.pdf}
   \caption{Baseline KV replication}
   \label{fig:kv_baseline}
-\end{figure}
+\end{minipage}
+\end{figure*}
 
 Next, we evaluate Cyclone integrated with the Rocksdb persistent key value
 store. Rocksdb is a complex commercial grade persistent key value store and
@@ -887,24 +889,24 @@ single machine write ahead log. We also repeat the experiment for the larger
 update size in Figure~\ref{fig:rocksdb_256}. The conclusions are identical:
 Cyclone solves Rocksdb's write ahead logging problem.
 
-\begin{figure}
+\begin{figure*}
+\begin{minipage}{.33\textwidth}
     \centering
-    \includegraphics[scale=0.6]{results2/rocksdb.pdf}
+    \includegraphics[scale=0.45]{results2/rocksdb.pdf}
     \caption{Rocksdb - small updates}
     \label{fig:rocksdb}
-  \end{figure}
-   
-  \begin{figure}
-    \includegraphics[scale=0.6]{results2/rocksdb_256.pdf}
+  \end{minipage}
+  \begin{minipage}{.33\textwidth}
+    \includegraphics[scale=0.45]{results2/rocksdb_256.pdf}
     \caption{Rocksdb - large updates}
     \label{fig:rocksdb_256}
-  \end{figure}
-   
-  \begin{figure}
-    \includegraphics[scale=0.6]{results2/rocksdb_multi.pdf}
+  \end{minipage}
+  \begin{minipage}{.33\textwidth}
+    \includegraphics[scale=0.45]{results2/rocksdb_multi.pdf}
     \caption{Rocksdb - batched writes}
     \label{fig:rocksdb_multi}
-\end{figure}
+\end{minipage}
+\end{figure*}
 
 Next, we consider the problem of supporting Rocksdb's write-batch operation that
 atomically writes a set of key-value pairs into the KV store. This is a
@@ -942,21 +944,23 @@ Figure~\ref{fig:fb2}. One can similarly conclude that Cyclone provides more
 functionality (replicated write ahead log) at a far lower performance penalty
 that Rocksdb's existing single machine write ahead log solution.
 
-\begin{figure}
-\includegraphics[scale=0.6]{results2/fb.pdf}
+\begin{figure*}
+\begin{minipage}{.33\textwidth}
+\includegraphics[scale=0.45]{results2/fb.pdf}
 \caption{Rocksdb - read heavy}
 \label{fig:fb}
-\end{figure}
-\begin{figure}
-  \includegraphics[scale=0.6]{results2/fb2.pdf}
+\end{minipage}
+\begin{minipage}{.33\textwidth}
+  \includegraphics[scale=0.45]{results2/fb2.pdf}
   \caption{Rocksdb - write heavy}
   \label{fig:fb2}
-\end{figure}
-\begin{figure}
-  \includegraphics[scale=0.6]{results2/failover.pdf}
+\end{minipage}
+\begin{minipage}{.33\textwidth}
+  \includegraphics[scale=0.45]{results2/failover.pdf}
   \caption{Rocksdb - failover}
   \label{fig:timeline}
-\end{figure}
+\end{minipage}
+\end{figure*}
 
 Finally, we showcase the benefit of using Cyclone beyond pure performance as
 compared to the existing single machine Rocksdb write ahead log. Cyclone brings
