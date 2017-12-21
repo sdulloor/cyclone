@@ -20,23 +20,26 @@
 
 \begin{abstract}
 \vspace{0.05in}
-Persistent key value stores are an important component of many distributed data
-serving solutions with innovations targeted at taking advantage of growing flash
-speeds. Unfortunately their performance is hampered by the need to maintain and
-replicate a write ahead log to guarantee availability in the face of machine and
-storage failures. Cyclone is a replicated log plug-in for key value stores that
-systematically addresses various sources of this bottleneck. It uses a small
-amount of non-volatile memory directly addressable by the CPU - such as in the
-form of NVDIMMs or Intel 3DXPoint - to remove block oriented IO devices such as
-SSDs from the critical path for appending to the log. This enables it to address
-network overheads using an implementation of the RAFT consensus protocol that is
-designed around a userspace network stack to relieve the CPU of the burden of
-data copies.  Finally, it provides a way to exploit the parallelism available in commodity NICs.  
-Cyclone is able to replicate millions of small updates per second using only commodity 10
-gigabit ethernet adapters. As a practical application, we use it to improve the
-performance (and availability) of RocksDB, a popular persistent key value store
-by an order of magnitude when compared to its own write ahead log without
-replication.
+Persistent key value stores are an important component of many
+distributed data serving solutions with innovations targeted at taking
+advantage of growing flash speeds. Unfortunately their performance is
+hampered by the need to maintain and replicate a write ahead log to
+guarantee availability in the face of machine and storage
+failures. Cyclone is a replicated log plug-in for key value stores
+that systematically addresses various sources of this bottleneck. It
+uses a small amount of non-volatile memory directly addressable by the
+CPU - such as in the form of NVDIMMs or Intel 3DXPoint - to remove
+block oriented IO devices such as SSDs from the critical path for
+appending to the log. This then enables it to address network
+overheads using an implementation of the RAFT consensus protocol that
+is designed around a userspace network stack to relieve the CPU of the
+burden of data copies.  Finally, it provides a way to exploit the
+parallelism available in commodity NICs.  Cyclone is able to replicate
+millions of small updates per second using only commodity 10 gigabit
+ethernet adapters. As a practical application, we use it to improve
+the performance (and availability) of RocksDB, a popular persistent
+key value store by an order of magnitude when compared to its own
+write ahead log without replication.
 \end{abstract}
 
 \section{Introduction}
@@ -68,7 +71,7 @@ deployments of Rocksdb often turn off the write ahead log~\cite{samza},
 depending on upper layers to provide availability by co-ordinating replicas. On
 the other side of the spectrum, key value store research prototypes such as
 FloDB~\cite{flodb} turn off the write ahead log to be able to showcase benefits
-of sophisticated extensions to LSM data structures.
+of extensions to LSM data structures.
 
 
 \begin{figure}
@@ -77,79 +80,42 @@ of sophisticated extensions to LSM data structures.
 \label{fig:problem}
 \end{figure}
 
-These two performance bottlenecks illustrated in Figure~\ref{fig:problem} are
-\emph{not independent}, they cannot be addressed in isolation. In particular,
-durability semantics mean that the key-value store cannot respond to the client
-until the operation has been persisted to the log at a majority of replicas,
-since it must be completed even on a crash and subsequent recovery. Therefore,
-addressing the network bottleneck is pointless without also addressing the
-storage bottleneck. Cyclone shows how a small amount of non-volatile memory can
-be used to address both bottlenecks.
-
 Cyclone is a high speed strongly consistent replicated write ahead logging
 service specialized for key value stores such as Rocksdb. Cyclone entirely
 closes the performance gap due to both the storage and the network shown in
-Figure~\ref{fig:problem}. We show that Cyclone achieves performance transparent
-replication in that it can provide both a persistent write ahead log and
-replication without compromising on RocksDB's performance.
+Figure~\ref{fig:problem}.
 
 The first key contribution of Cyclone is demonstrating the benefit of a small
 amount of non-volatile memory when combined with the flash SSD based persistent
-logs.  The primary cause of slowdown when turning on a write ahead log on a
-single machine in Figure~\ref{fig:problem} is the need to do synchronous block
-IO for every update \emph{regardless of the size of the update}. SSDs provide
-the maximum throughput when writing large chunks (usually more than 4KB) of
-data. This is due to the fixed cost of a round trip to the SSD through the IO
-interface (NVMe in our case), regardless of the volume of data being
-synchronously persisted. Small updates (sum of key and value sizes) are
-surprisingly common in observed workloads for key value pairs. For example,
-Facebook~\cite{fb_workload_analysis} reports that 90\% of the space allocated in
-key value stores is for data items under 500 bytes in size.
-
-Cyclone avoids this overhead by making use of a small amount of directly
-attached non-volatile memory (NVM), also called persistent memory, on the
-server.  This can be in the form of NVDIMMs (DIMMs with an added ultracapacitor
-to dump state to a small amount of attached flash) -or- newer and potentially
-cheaper (but slower) forms of persistent memory~\cite{pmfs}.
-%For current deployments, NVDIMMs are significantly more expensive than standard
-%DIMMs, which means that they will %likely be available only in smaller
-%quantities compared to flash.
-In cases where the log does not entirely fit in NVM, we periodically drain the
-NVM log into a log placed on a standard SSD on the system.
-
-The second key contribution of this work is in showing that the throughput
-bottlenecks in the network stack can be mitigated entirely in software, once
-block IO is removed from the critical path. Existing work on log replication
-using state machine replication protocols such as Paxos~\cite{paxos} and
-RAFT~\cite{raft} has not - thus far - addressed high performance replication in
-the local area network of a datacenter using commodity networks.  Research
-focusing on addressing network latencies by reducing the number of
-network hops with new protocols such as Fast Paxos~\cite{fast-paxos} or network
-switch modifications such as No Paxos~\cite{nopaxos} do not address throughput
-bottlenecks due to network stack related inefficiencies in the participating
-nodes of the quorum -- a more urgent problem with local area replication. On the
-other hand, work done to address network related inefficiencies start with the
-assumption that the bottleneck to good throughput on the network is the CPU and
-therefore one must either resort to network offload mechanisms such as RDMA~\cite{dare,
+logs. We show that this entirely eliminates the storage bottleneck due to block IO. 
+ 
+The second key contribution of this work is in showing that the
+throughput bottlenecks in the network stack can be mitigated entirely
+in software, once block IO is removed from the critical path. Existing
+work on log replication makes the assumption that the bottleneck to
+good throughput on the network is the CPU and therefore one must
+either resort to network offload mechanisms such as RDMA~\cite{dare,
   farm, faast} or offload the protocol entirely to an
-FPGA~\cite{consensus_box}. We demonstrate in this paper that this is not the
-case. Rather, once persistence is provided by directly attached non-volatile
-memory, thereby eliminating block IO from the persistence step in replication
-protocols, the problem becomes akin to multicasting the same log entry
-from the leader to all followers. We design Cyclone's network stack around well
-known principles in the software packet switching community. In particular, a
-careful implementation of a consensus protocol that relieves the CPU of the
-responsibility of data movement permits a high performance implementation
-entirely in software that addresses the order of magnitude network related
-performance gap in Figure~\ref{fig:problem} using only commodity 10 Gigabit
-ethernet.
+FPGA~\cite{consensus_box}. We demonstrate in this paper that this is
+not the case. Rather, once persistence is provided by directly
+attached non-volatile memory, thereby eliminating block IO from the
+persistence step in replication protocols, the problem becomes akin to
+multicasting the same log entry from the leader to all followers. We
+design Cyclone's network stack around well known principles in the
+software packet switching community. In particular, a careful
+implementation of a consensus protocol that relieves the CPU of the
+responsibility of data movement permits a high performance
+implementation entirely in software that addresses the order of
+magnitude network related performance gap in Figure~\ref{fig:problem}
+using only commodity 10 Gigabit ethernet.
 
-Both the storage (NVM, SSD) as well as the NIC expose significant parallelism
-that is left unused when Cyclone is used to replicate a single log. The third
-key contribution of this work is to show how one can exploit this parallelism in
-Cyclone automatically creates and manages multiple logs, mapping them to the 
-available parallelism in the system via multiple instances of the same consensus 
-protocol.
+Both the storage (NVM, SSD) as well as the NIC expose significant
+parallelism that is left unused when Cyclone is used to replicate a
+single log. The third key contribution of this work is to show how one
+can exploit this parallelism for replicating the write ahead log in
+key value stores.  Cyclone automatically creates and manages multiple
+logs, mapping them to the available parallelism in the system via
+multiple instances of the same consensus protocol.
 
 The rest of the paper is organized as follows. We describe Cyclone's system
 architecture in Section~\ref{sec:sysarch}. We describe the two level log
@@ -186,71 +152,70 @@ durable log and replicates the request to the logs of follower replicas. The
 request is considered replicated once acknowledged by a majority of
 replicas. Follower replicas apply updates from the log in order.
 
-Cyclone uses the RAFT consensus protocol~\cite{raft} to keep the logs in sync
-across the replicas. On failure of the leader replica, a new leader is
-automatically elected -- RAFT ensures that the new leader has the most up to
-date log. The Cyclone client library automatically locates the new leader on a
-failover, resulting in only a brief interruption in service for
-clients.  Cyclone guarantees that the order of operations to any particular key 
-are linearizable. A key sees the exact same sequence of update operations 
-(including deletes) on all replicas. These per-key guarantees follow immediately 
-from the properties of the RAFT log and by requiring clients to perform a quorum 
-read (logged as an entry in the RAFT log).
+Cyclone uses the RAFT consensus protocol~\cite{raft} to keep the logs
+in sync across the replicas. On failure of the leader replica, a new
+leader is automatically elected -- RAFT ensures that the new leader
+has the most up to date log. The Cyclone client library automatically
+locates the new leader on a failover, resulting in only a brief
+interruption in service for clients.  Cyclone guarantees that the
+order of operations to any particular key are linearizable. A key sees
+the exact same sequence of update operations (including deletes) on
+all replicas. These per-key guarantees follow immediately from the
+properties of the RAFT log and by requiring clients reading a key to
+perform a quorum read (logged as an entry in the RAFT log).
 
-In addition, Cyclone also provides clients with a weak read that does not require a 
-quorum read thereby requiring only one round trip to a server.  A weak read of a key sees a 
-prefix of the linearized sequence of updates to a key that includes all successful update operations made 
-by the client before it issues the weak read. To do a weak read, 
-clients maintain the last known term of the RAFT leader locally and ensure they always talk
-to a RAFT leader that has at least the same term. This ensures that clients see their own writes
-avoiding split brain problems where a network partition allows clients to
-talk to old RAFT leaders after having committed changes to a new RAFT leader. In addition, a weak 
-read waits until all pending RAFT log entries have been committed and applied before executing. 
-This ensures that in the event of a failover, any previous committed updates from the same client 
-have been applied and are visible to the weak read. A weak read is not linearizable as the RAFT 
-leader responding to the weak read might actually no longer be the leader - a new one having been 
-elected without it realizing, perhaps due to a network partition. This means that while a weak read 
-from a client sees its own writes, in some rare cases it might not see later writes by other clients.
+In addition, Cyclone also provides allows clients to do a weak read
+that returns the current value of the key at the last known leader
+replica. Weak reads can see a possibly stale value
+(i.e. is not linearizable) but is howevere guaranteed to have seen all
+of its own previous writes. On the positive side, weak reads avoid an
+extra round trip for quorum consensus.
 
-Finally, Cyclone allows operations to multiple keys in an atomic batch, where
-either all updates in the batch are applied or no operation in the batch is
-applied - a property that holds \emph{at all replicas}, regardless of failures. Batched operations 
-are supported in Rocksdb to allow referential integrity between keys - where the value associated
-with a  key is a reference to another key. We also use a lightweight batched operation to support 
-snapshots - that can be viewed as an atomic no-op to all keys. We discuss how batched operations are 
-supported by Cyclone later in the paper.
+Finally, Cyclone allows operations to multiple keys in an atomic
+batch, where either all updates in the batch are applied or no
+operation in the batch is applied - a property that holds \emph{at all
+  replicas}, regardless of failures. Batched operations are supported
+in Rocksdb to allow referential integrity between keys - where the
+value associated with a key is a reference to another key. We also use
+a lightweight batched operation to support snapshots - that can be
+viewed as an atomic no-op to all keys. We discuss how batched
+operations are supported by Cyclone later in the paper.
 
 \section{Storage}
 \label{sec:storage}
-Storage devices such as flash-based SSDs export a block IO interface. Appending
-a small update to the write-ahead log requires a synchronous access to the
-SSD. Even with write coalescing using a write cache on the SSD, the round trip
-time to a current generation NVMe SSD such as the one we use in this
-paper~\cite{ssd_spec}, is of the order of 20 us, limiting the throughput to
-under 50K ops/sec and resulting in a high baseline latency at even low load (as
-shown in Figure~\ref{fig:problem}). This problem leads many system designers to
-under-provision key-value store shards ensuring that it operates at moderate to
-high load, using group-commit to batch additions to the log. They therefore pay
-a price in latency to ensure the bandwidth to storage is fully utilized.
+The storage bottleneck for the write ahead log in key value stores
+such as Rocksdb is - surprisingly - not the storage media (i.e. SSD)
+itself but rather the interface (i.e block IO). This is a particular
+pain point for small writes.  For example,
+Facebook~\cite{fb_workload_analysis} reports that 90\% of the space
+allocated in key value stores is for data items under 500 bytes in
+size.  The SSD used in Figure~\ref{fig:problem}, we achieve 50
+Kops/sec to the SSD being limited to a 20us latency on the PCIe
+interface. This translates to 25 MB/s for 500 byte key-value
+pairs. The SSD is capable of achieving over 1 GB/s of sequential write
+bandwidth to an append only log. Clearly the SSDs performance is not
+the problem, but rather the block IO interface that imposes the round
+trip latency \emph{regardless of the size of the update}.
 
-Cyclone adopts a different strategy by making use of novel memory technologies
-to obviate the need to make this tradeoff in the first place. We assume a small
-amount of non-volatile memory directly addressable by the CPU, rather than being
-placed behind a block oriented IO interface. Log appends are done to the ``NVM
-log'' placed in this non-volatile memory. However, directly attached persistent 
-memory in the form of NVDIMMs today or new memory technologies in the
-future~\cite{pmfs} will be of lesser capacity than traditional (NAND based)
-flash available through an
-SSD. Providing the same capacity as existing flash based logs for key value
-stores therefore requires us to provide a second level of the log
-placed on a flash SSD (called flashlog).  Entries are drained from
-the NVM log to this flashlog in conveniently large units that are a multiple of
-4KB -- the optimum IO unit for flash SSDs. This ensures we get the best possible
-throughput from a flash device without paying the price of synchronous IO for
-small key-value pairs. At the same time, the amount of non-volatile memory
-required is small enough to not add undue cost to the server. This is in contrast to
-systems like FARM~\cite{farm} that require both the key value store and write ahead log
-to be held entirely in non-volatile memory.
+Cyclone solves this problem by making use of novel persistent main
+memory technologies. We assume a small amount of non-volatile memory
+directly addressable by the CPU, rather than being placed behind a
+block oriented IO interface. Log appends are done to the ``NVM log''
+placed in this non-volatile memory. However, directly attached
+persistent memory in the form of NVDIMMs today or new memory
+technologies in the future~\cite{pmfs} will be of lesser capacity than
+traditional (NAND based) flash available through an SSD. Providing the
+same capacity as existing flash based logs for key value stores
+therefore requires us to provide a second level of the log placed on a
+flash SSD (called flashlog).  Entries are drained from the NVM log to
+this flashlog in conveniently large units that are a multiple of 4KB
+-- the optimum IO unit for flash SSDs. This ensures we get the best
+possible throughput from a flash device without paying the price of
+synchronous IO for small key-value pairs. At the same time, the amount
+of non-volatile memory required is small enough to not add undue cost
+to the server. This is in contrast to systems like FARM~\cite{farm}
+that require both the key value store and write ahead log to be held
+entirely in non-volatile memory.
 
 The flashlog is written out in segments of configurable size (we use 128KB
 segments). A segment buffer is prepared in memory (volatile DRAM) using the
@@ -289,15 +254,22 @@ entry.
   \label{fig:flashlog_page}
 \end{figure}
 
-In this section we demonstrated how Cyclone uses a small amount of non-volatile
-memory to improve storage bottlenecks when maintaining a durable log on a single
-machine. In the next section, we deal with replicating this log efficiently
-across multiple machines.
-
 \section{Network}
 \label{sec:network}
-Cyclone uses the RAFT~\cite{raft} consensus protocol to replicate the log of
-operations across machines. Cyclone provides guarantee to the client that any
+Cyclone uses the RAFT~\cite{raft} consensus protocol to replicate the
+log of operations across machines. The key bottleneck in log
+replication in Figure~\ref{fig:problem} is the CPU - the achieved
+network throughput at load is well under the capacity of the 10 Gbps
+link.  The key to improving CPU utilization for log replication is the
+insight that log replcation protocols such as RAFT are oblivious to
+the actual contents of the log entry being replicated.  This
+observation allowed us to greatly improve replication performance by
+building a (near) zero copy implementation of RAFT. Cyclone's
+implementation of RAFT does only a small \emph{constant} amount of
+work per replicated log entry on the CPU leaving the (commodity) NIC
+to do the rest of the heavy lifting.
+
+Cyclone provides the guarantee to the client that any
 operation responded to is durable and its results \emph{available} as long as a
 majority of replicas continue to function. Cyclone's failure model is
 \emph{fail-recovery}, where nodes that can recover from failure simply continue
