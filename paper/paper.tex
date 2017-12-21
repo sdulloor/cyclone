@@ -257,17 +257,19 @@ entry.
 \section{Network}
 \label{sec:network}
 Cyclone uses the RAFT~\cite{raft} consensus protocol to replicate the
-log of operations across machines. The key bottleneck in log
-replication in Figure~\ref{fig:problem} is the CPU - the achieved
-network throughput at load is well under the capacity of the 10 Gbps
-link.  The key to improving CPU utilization for log replication is the
-insight that log replcation protocols such as RAFT are oblivious to
-the actual contents of the log entry being replicated.  This
-observation allowed us to greatly improve replication performance by
-building a (near) zero copy implementation of RAFT. Cyclone's
-implementation of RAFT does only a small \emph{constant} amount of
-work per replicated log entry on the CPU leaving the (commodity) NIC
-to do the rest of the heavy lifting.
+log of operations across machines. The bottleneck for log replication
+in Figure~\ref{fig:problem} is the CPU - the achieved network
+throughput at load is well under the capacity of the 10 Gbps link. The
+key to improving CPU utilization for log replication is the insight
+that log replcation protocols such as RAFT are oblivious to the actual
+contents of the log entry being replicated.  This observation allowed
+us to greatly improve replication performance by building a (near)
+zero copy implementation of RAFT. Cyclone's implementation of RAFT
+does only a small \emph{constant} amount of work per replicated log
+entry on the CPU to run the RAFT protocol state machine.  Copying work
+that proportional to the amount of data being replicated is done by
+the (commodity) NIC.  We therefore shift the bottleneck to the NIC,
+making full use of the available network link.
 
 Cyclone provides the guarantee to the client that any
 operation responded to is durable and its results \emph{available} as long as a
