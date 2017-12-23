@@ -10,8 +10,8 @@
 
 \title{Cyclone: High Availability for Persistent Key Value Stores}
 
-\author{{\rm Amitabha Roy} \\ amitabha.roy@gmail.com 
-	     \and {\rm Subramanya R. Dulloor} \\ dulloor@gmail.com}
+\author{{\rm Amitabha Roy} \\ amitabha.roy@gmail.com
+	     \and {\rm Subramanya R. Dulloor} \\ subramanya.r.dulloor@intel.com}
 
 \date{}
 \maketitle
@@ -282,21 +282,24 @@ to make a switching decision by only examining the first few bytes of the packet
 (containing the header).The NIC does all copying work minimizing the memory access 
 required from the CPU. This makes it an ideal candidate to build Cyclone.
 
-DPDK does not by itself provide a TCP stack. This is not a problem, since
-RAFT (and indeed most consensus protocols) tolerate network losses and
-reordering by design due to the need to support asynchronous communication. In
-addition, most datacenter networks rarely drop or reorder packets and provide
-full bisection bandwidth between servers that might serve as Cyclone replicas. We
-therefore jettisoned TCP and chose to send raw IP packets encapsulated in
-ethernet frames. Cyclone takes complete control of an ethernet interface,
-receiving all packets directed to it, while the IP and ethernet addresses
-provide sufficient information to route the packet if necessary through multiple
-switches. We currently follow this communication model both for server to server
-communication between replicas as well as client to server communication for
-requests and responses. Although a detailed evaluation is made later, switching
-from the kernel TCP/IP stack to DPDK reduces the latency between machines in our
-testbed from {\tt 18 us} to as low as {\tt 5 us}, providing a significant boost
-to performance.
+DPDK does not by itself provide a TCP stack. This is not a problem,
+since RAFT (and indeed most consensus protocols) tolerate network
+losses and reordering by design due to the need to support
+asynchronous communication. In addition, most datacenter networks
+rarely drop or reorder packets and provide full bisection bandwidth
+between servers that might serve as Cyclone replicas, obviating the
+need for congestion control. We therefore jettisoned TCP and chose to
+send raw IP packets encapsulated in ethernet frames. Cyclone takes
+complete control of an ethernet interface, receiving all packets
+directed to it, while the IP and ethernet addresses provide sufficient
+information to route the packet if necessary through multiple
+switches. We currently follow this communication model both for server
+to server communication between replicas as well as client to server
+communication for requests and responses. Although a detailed
+evaluation is made later, switching from the kernel TCP/IP stack to
+DPDK reduces the latency between machines in our testbed from {\tt 18
+  us} to as low as {\tt 5 us}, providing a significant boost to
+performance.
 
 \subsection{Addressing Overheads}
 \label{sec:dm}
@@ -340,43 +343,46 @@ principle.
 %\label{fig:nvm_log}
 %\end{figure}
 
-he pseudocode in Figure~\ref{fig:control_plane} describes part of the packet
-handling code in Cyclone organized as event handlers triggered on receiving a
-packet at the leader. We focus on only one key event for brevity: the event
-where a request is received from a client. The first step is to check that this
-replica is indeed the RAFT leader in the current view (term). If not, the
-message is simply dropped (a timeout causes the client to try a different
-server). It then prepends RAFT related information to the packet - this includes
-the current term and log index for this entry. Next, it appends a pointer to the packet to 
-the NVM log. Finally, it transmits the packet to follower replicas.
+The pseudocode in Figure~\ref{fig:control_plane} describes part of the
+packet handling code in Cyclone organized as event handlers triggered
+on receiving a packet at the leader. We focus on only one key event
+for brevity: the event where a request is received from a client. The
+first step is to check that this replica is indeed the RAFT leader in
+the current view (term). If not, the message is simply dropped (a
+timeout causes the client to try a different server). It then prepends
+RAFT related information to the packet - this includes the current
+term and log index for this entry. Next, it appends a pointer to the
+packet to the NVM log. Finally, it transmits the packet to follower
+replicas.
 
-This entire process is done without making any copies of the received packet.
-Figure~\ref{fig:packet_layout} illustrates how
-Cyclone manipulates packet layouts across the two steps of prepending a RAFT
-header and transmitting to follower replicas. DPDK describes packets using an
-``mbuf'' data structure. Roughly speaking, an ``mbuf'' consists of a flat array
-of bytes actually containing the packet and a fixed size piece of external
-metadata that describes various aspects of the packet, most crucially a pointer
-to the start and end of the packet in the byte array. DPDK's userspace drivers
-receive packets from the NIC such that they are offset in the byte array by a
-configurable amount referred to as ``headroom''. We strip off the existing
-network headers in the packet and prepend RAFT related information specific to
-each log entry in the headroom by shifting the start pointer appropriately.
-These operations are standard enough for software packet switches that DPDK
-provides convenient library calls for it. For the final step, we need to prepare
-the packet for transmission to the various follower replicas. To do this we
-prepare a different packet containing a network header for \emph{each}
-targeted replica and ``chain'' the data packet to each of these headers. Each
-header is then separately handed off to the driver for transmission via the NIC,
-carrying the data packet with it by association.
+This entire process is done without making any copies of the received
+packet.  Figure~\ref{fig:packet_layout} illustrates how Cyclone
+manipulates packet layouts across the two steps of prepending a RAFT
+header and transmitting to follower replicas. DPDK describes packets
+using an ``mbuf'' data structure. Roughly speaking, an ``mbuf''
+consists of a flat array of bytes actually containing the packet and a
+fixed size piece of external metadata that describes various aspects
+of the packet, most crucially a pointer to the start and end of the
+packet in the byte array. DPDK's userspace drivers receive packets
+from the NIC such that they are offset in the byte array by a
+configurable amount referred to as ``headroom''. We strip off the
+existing network headers in the packet and prepend RAFT related
+information specific to each log entry in the headroom by shifting the
+start pointer appropriately.  These operations are standard enough for
+software packet switches that DPDK provides convenient library calls
+for it. For the final step, we need to prepare the packet for
+transmission to the various follower replicas. To do this we prepare a
+different packet containing a network header for \emph{each} targeted
+replica and ``chain'' the data packet to each of these headers. Each
+header is then separately handed off to the driver for transmission
+via the NIC, carrying the data packet with it by association.
 
 The NVM log is maintained as a circular log of fixed sized pointers to
-the actual packets. Adding a level of
-indirection in the NVM log allows us to separate the FIFO ordered
-circular log being manipulated by RAFT from packet data being managed
-by the memory allocator of DPDK. We use the pointer log to recover
-allocator state i.e. what pieces of NVM are currently in use by the
-log.
+the actual packets. Adding a level of indirection in the NVM log
+allows us to separate the FIFO ordered circular log being manipulated
+by RAFT from packet data being managed by the memory allocator of
+DPDK. We use the pointer log to recover allocator state i.e. what
+pieces of NVM are currently in use by the log.
 
 %DPDK userspace NIC drivers operate in DDIO mode~\cite{ddio} where the
 %packet is directly written into the CPU cache rather than first being
@@ -430,17 +436,19 @@ and permitting further optimization.
 %  \label{fig:race}
 %\end{figure}
 
-Although the work described in the previous section significantly boosts the
-network performance of replication in Cyclone, it still does not come close to
-saturating the capabilities of even the commodity NICs that we use. This is
-because NICs today encapsulate significant parallelism in terms of
-multiple send and receive queue pairs. Exploiting this capability to improve
-throughput requires us to remove the bottleneck of a single sequential log in
-RAFT. To this end, we extend the implementation described thus far to run
-multiple copies of the RAFT consensus protocol each maintaining and replicating
-its own two level log. We refer to these logs as physical logs. All these
-instances however exist in the same process address space as the key value store
-application itself and therefore manipulate the same application.
+Although the work described in the previous section significantly
+boosts the network performance of replication in Cyclone, it still
+does not come close to saturating the capabilities of even the
+commodity NICs that we use. This is because NICs today encapsulate
+significant parallelism in terms of multiple send and receive queue
+pairs. Exploiting this capability to improve throughput requires us to
+remove the bottleneck of a single sequential log in RAFT. To this end,
+we extend the implementation described thus far to run multiple copies
+of the RAFT consensus protocol each maintaining and replicating its
+own two level log. We refer to these logs as physical logs. All these
+instances however exist in the same process address space as the key
+value store application itself and therefore manipulate the same
+application.
 
 The first question we deal with is -- how do Cyclone clients decide
 which physical log to send a request to? The guarantees from Cyclone
@@ -476,61 +484,70 @@ Cyclone.  We therefore had to come up with a solution that did not
 require two phase commit.
 
 Our solution is based on two observations. First, we \emph {do not}
-require that either all mini-batches icommit to their raft logs or
-none do. What we actually requires is that either all are
-\emph{applied} to Rocksdb or none of them are. Put another way we
-should not apply a mini-batch from a ganged operation if any of the
-other mini-batches have failed to commit to their RAFT log. This means
-that the client can be stateless. The second observation is that
-checking whether the other minibatches have committed is easy because
-the different RAFT instances can communicate through shared memory on
-the same machines unlike the more general case of distributed
-participants in two phase commit.
+require that either all mini-batches commit to their raft logs or none
+do. What we actually require is that either all are \emph{applied} to
+Rocksdb or none of them are. Put another way we should not apply a
+mini-batch from a ganged operation if any of the other mini-batches
+have failed to commit to their RAFT log. This means that the client
+can be stateless, with all the decision making done at the server
+side. The second observation is that checking whether the other
+minibatches have committed is easy because the different RAFT
+instances can communicate through shared memory on the same machines
+unlike the more general case of distributed participants in two phase
+commit.
 
-We now describe our solution called ``ganged operations" in Cyclone. 
-The first key problem we need to deal with is that the leaders for the different
-RAFT instances to which the keys map can be located on different machines. To
-avoid having a client co-ordinate different machines for a single operation, we
-constrain the RAFT leader election algorithm for the different RAFT instances to
-converge to the same machine. We do this by triggering re-elections for a RAFT
-instance \emph{other} than that of the first physical log until it is on the same
-machine as the \emph{first} physical log. This process is therefore resilient to
-failed machines. RAFT requires that the leader have the most up to date log. To
-ensure that the process converges we therefore ensure that the currently elected
-leader brings a majority quorum up to date before triggering a reelection. We
-also do not accept any requests from clients until all leaders are
-co-located. We assume that no network partitions occur \emph{within a machine}
-i.e. some RAFT instances are able to send and receive packets, while others are
-not, a possibility we discount due to our single process design.
+We now describe our solution called ``ganged operations" in Cyclone.
+The first key problem we need to deal with is that the leaders for the
+different RAFT instances to which the keys map can be located on
+different machines. To avoid having a client co-ordinate different
+machines for a single operation, we constrain the RAFT leader election
+algorithm for the different RAFT instances to converge to the same
+machine. We do this by triggering re-elections for a RAFT instance
+\emph{other} than that of the first physical log until it is on the
+same machine as the \emph{first} physical log. This process is
+therefore resilient to failed machines. RAFT requires that the leader
+have the most up to date log. To ensure that the process converges we
+therefore ensure that the currently elected leader brings a majority
+quorum up to date before triggering a reelection. We also do not
+accept any requests from clients until all leaders are co-located. We
+assume that no network partitions occur \emph{within a machine}
+i.e. some RAFT instances are able to send and receive packets, while
+others are not, a possibility we discount due to our single process
+design.
 
 Next, we need to simultaneously inject the ganged operation into all
-participating physical logs on the machine hosting the leaders. Clients always
-dispatch batched writes to a fixed co-ordinating physical log/RAFT instance
-(henceforth called the co-ordinator), which is then responsible for forwarding
-the request to the participating logs. We make use of packet cloning primitives
-to avoid making physical copies of the packet, generating indirect references
-instead. The co-ordinator adds a ``nonce'' - a unique timestamp - to the
-packet. In addition, the co-ordinator adds a view number to the packet
-containing the term numbers of all the participating RAFT instances (read from
-shared memory of the co-located leaders).  The event that applies a ganged
-operation is described in the pseudocode of Figure~\ref{fig:ganged_ops}. We
-defer the discussion of how we generate the nonce to later in this section. We
-also assume that a unique barrier is allocated in shared memory for each ganged
-operation. We discuss later how this is done without using dynamic allocation.
+participating physical logs on the machine hosting the
+leaders. Clients always dispatch batched writes to a fixed
+co-ordinating physical log/RAFT instance (henceforth called the
+co-ordinator), which is then responsible for forwarding the request to
+the participating logs. We make use of packet cloning primitives to
+avoid making physical copies of the packet, generating indirect
+references instead. The co-ordinator adds a ``nonce'' - a unique
+timestamp - to the packet. In addition, the co-ordinator adds a view
+number to the packet containing the term numbers of all the
+participating RAFT instances (read from shared memory of the
+co-located leaders).  The event that applies a ganged operation is
+described in the pseudocode of Figure~\ref{fig:ganged_ops}. We defer
+the discussion of how we generate the nonce to later in this
+section. We also assume that a unique barrier is allocated in shared
+memory for each ganged operation. We discuss later how this is done
+without using dynamic allocation.
 
-The complexity in Figure~\ref{fig:ganged_ops} arises from the need to implement
-a shared memory barrier and handle failure during replication. Without failure,
-Figure~\ref{fig:ganged_ops} is straightforward. A barrier is executed on all
-RAFT instances. Once replication is complete on all participating physical logs,
-a state indicated by all necessary bits being set in the barrier mask, the RAFT
-instances simultaneously execute the ganged operation.
+The complexity in Figure~\ref{fig:ganged_ops} arises from the need to
+implement a shared memory barrier and handle failure during
+replication. Without failure, Figure~\ref{fig:ganged_ops} is
+straightforward. A barrier is executed on all RAFT instances. Once
+replication is complete on all participating physical logs, a state
+indicated by all necessary bits being set in the barrier mask, the
+RAFT instances simultaneously execute the ganged operation.
 
-A failure causes a new leader to be elected for the affected physical log,
-moving forward the term. If the participants of a ganged operation do not
-detect this case, they could be left waiting forever. We detect failure on any
-RAFT instance by having each instance publish its current term and continuously
-comparing the view in the ganged operation to it. If any RAFT instance has moved
-past that term, the ganged operation is then terminated.
+A failure causes a new leader to be elected for the affected physical
+log, moving forward the term. If the participants of a ganged
+operation do not detect this case, they could be left waiting
+forever. We detect failure on any RAFT instance by having each
+instance publish its current term and continuously comparing the view
+in the ganged operation to it. If any RAFT instance has moved past
+that term, the ganged operation is then terminated.
 
 \begin{figure}
   \centering
@@ -597,55 +614,60 @@ FARM~\cite{farm}.
 
 \section{Evaluation}
 \label{sec:evaluation}
-We evaluate Cyclone on a 12 node x86 Xeon cluster connected via a 10 GigE
-switch. Three of the machines are equipped with 1.6TB Intel DC P3600 SSDs and
-4*10 GigE ports. The remaining nine machines do not have SSDs and have only one
-10 GigE port, serving as clients for most of the experiments. We turn on jumbo
-frame support in the 10 GigE switch to enable maximum use of batching in
-Cyclone. As with other work~\cite{faast}, we use DRAM on the machines to proxy
-for NVDIMMs where necessary - the NVM needed never exceeds 64 MB
-regardless of the size of the key value store or second level log on flash. We
-divide the evaluation into three parts.
+We evaluate Cyclone on a 12 node x86 Xeon cluster connected via a 10
+GigE switch. Three of the machines are equipped with 1.6TB Intel DC
+P3600 SSDs and 4*10 GigE ports. The remaining nine machines do not
+have SSDs and have only one 10 GigE port, serving as clients for most
+of the experiments. We turn on jumbo frame support in the 10 GigE
+switch to enable maximum use of batching in Cyclone. As with other
+work~\cite{faast}, we use DRAM on the machines to proxy for NVDIMMs
+where necessary - the NVM needed never exceeds 64 MB regardless of the
+size of the key value store or second level log on flash. We divide
+the evaluation into three parts.
 
-First, we evaluate Cyclone's performance with a single level log as a pure
-software packet switch. For this purpose, Cyclone uses a dummy server stub that
-simply echoes the client request back to it. Next, we evaluate
-performance with the dummy stub, but with the addition of the second level of log
-on flash. Finally, we evaluate performance when integrated with
-Rocksdb~\cite{rocksdb} as an alternative to Rocksdb's write ahead log.
+First, we evaluate Cyclone's performance with a single level log as a
+pure software packet switch. For this purpose, Cyclone uses a dummy
+server stub that simply echoes the client request back to it. Next, we
+evaluate performance with the dummy stub, but with the addition of the
+second level of log on flash. Finally, we evaluate performance when
+integrated with Rocksdb~\cite{rocksdb} as an alternative to Rocksdb's
+write ahead log.
 
-Unless otherwise mentioned, we use a 60 byte header followed by an optional
-payload for experiments. We log both the header and payload. Also, unless
-otherwise mentioned we use 8 physical logs (and associated RAFT instances) each
-mapped to a dedicated core. The remaining cores are dedicated to the stub
-server or Rocksdb, as the case may be.
+Unless otherwise mentioned, we use a 60 byte header followed by an
+optional payload for experiments. We log both the header and
+payload. Also, unless otherwise mentioned we use 8 physical logs (and
+associated RAFT instances) each mapped to a dedicated core. The
+remaining cores are dedicated to the stub server or Rocksdb, as the
+case may be.
 
-We begin by systematically evaluating network stack related optimizations
-applied in Cyclone to replicate the NVM log in Figure~\ref{fig:network_opts} -
-with no payload. The y-axis reports latency seen at the client (which means two
-network round trips with replication). Using TCP/IP to replicate a RAFT log tops
-out at around 30K entries/s.  Switching to DPDK (the line marked +DPDK) improves
-the throughput by an order of magnitude to around 500K entries/s. Using batching
-(the line marked +batching) improves the performance further bringing us close
-to a million entries/s. Scaling to 8 physical logs (+8 phy logs) improves
-performance to close to 2M entries/s. Finally using all 4 ethernet ports on the
-machine to replicate entries improves performance considerably to 6M
-entries/s. In all, performance improves by 200X over the TCP/IP single log
-baseline. Cyclone also considerably improves the latency for replication, from
-close to 100us with TCP/IP to around 30us at peak throughput. 
+We begin by systematically evaluating network stack related
+optimizations applied in Cyclone to replicate the NVM log in
+Figure~\ref{fig:network_opts} - with no payload. The y-axis reports
+latency seen at the client (which means two network round trips with
+replication). Using TCP/IP to replicate a RAFT log tops out at around
+30K entries/s.  Switching to DPDK (the line marked +DPDK) improves the
+throughput by an order of magnitude to around 500K entries/s. Using
+batching (the line marked +batching) improves the performance further
+bringing us close to a million entries/s. Scaling to 8 physical logs
+(+8 phy logs) improves performance to close to 2M entries/s. Finally
+using all 4 ethernet ports on the machine to replicate entries
+improves performance considerably to 6M entries/s. In all, performance
+improves by 200X over the TCP/IP single log baseline. Cyclone also
+considerably improves the latency for replication, from close to 100us
+with TCP/IP to around 30us at peak throughput.
 
 One can draw three important conclusions from
-Figure~\ref{fig:network_opts}. First, one can indeed treat log replication as a
-software packet switching problem \emph{provided} the persistent log can be held
-in directly attached memory eliminating the block interface from the critical
-path. Second, relieving the CPU from the overhead of data copies has a
-significant positive effect on performance. Second, using multiple physical
-logs is essential to exploiting the concurrency available at the level of the
-NIC (even a single one!) that would otherwise go wasted due
-to the serializing abstraction of a single log. Finally, we note that Cyclone
-achieves about 50\% of the line rate across the four ethernet
-ports. This is essentially the cost of running a consensus protocol in
-software.
+Figure~\ref{fig:network_opts}. First, one can indeed treat log
+replication as a software packet switching problem \emph{provided} the
+persistent log can be held in directly attached memory eliminating the
+block interface from the critical path. Second, relieving the CPU from
+the overhead of data copies has a significant positive effect on
+performance. Second, using multiple physical logs is essential to
+exploiting the concurrency available at the level of the NIC (even a
+single one!) that would otherwise go wasted due to the serializing
+abstraction of a single log. Finally, we note that Cyclone achieves
+about 50\% of the line rate across the four ethernet ports. This is
+essentially the cost of running a consensus protocol in software.
 
 \begin{figure}
 \includegraphics[scale=0.6]{results2/network_opts.pdf}
@@ -653,24 +675,27 @@ software.
 \label{fig:network_opts}
 \end{figure}
 
-Both the replica count and payload size can have significant impact on Cyclone's
-network performance. First, the number of replicas dictates the outgoing message
-rate from the leader replica and therefore increasing the replication factor can
-decrease Cyclone's performance. Figure~\ref{fig:replicas} shows the impact of
-varying replica count. Using only a single replica cuts out a network round trip
-and shows the best unloaded latency (10 us) and peak throughput (near 10M
-entries/s). Adding replicas decreases the peak throughput down to around 2M
-entries/s with 5 replicas. We note that a number of previous pieces of
-work~\cite{faast, farm} use three replicas and therefore we focus on three
-replicas for the replicated cases we consider below. The second factor that
-dictates Cyclone's performance is the size of the log entry being
-replicated. Figure~\ref{fig:payload} shows the effect of increasing the payload
-size from zero to 512 bytes. Peak throughput drops from 6M entries/s to
-approximately 2M entries/s. At this replication rate, the leader replica needs
-to transmit data at approximately 30 Gbit/s. Coupled with the cost of network
-headers all four 10 GigE ports are now saturated and therefore Cyclone hits the
-network line rate bottleneck at this point. It is worthwhile to compare this to
-the case with small updates, where running the consensus protocol was a
+Both the replica count and payload size can have significant impact on
+Cyclone's network performance. First, the number of replicas dictates
+the outgoing message rate from the leader replica and therefore
+increasing the replication factor can decrease Cyclone's
+performance. Figure~\ref{fig:replicas} shows the impact of varying
+replica count. Using only a single replica cuts out a network round
+trip and shows the best unloaded latency (10 us) and peak throughput
+(near 10M entries/s). Adding replicas decreases the peak throughput
+down to around 2M entries/s with 5 replicas. We note that a number of
+previous pieces of work~\cite{faast, farm} use three replicas and
+therefore we focus on three replicas for the replicated cases we
+consider below. The second factor that dictates Cyclone's performance
+is the size of the log entry being
+replicated. Figure~\ref{fig:payload} shows the effect of increasing
+the payload size from zero to 512 bytes. Peak throughput drops from 6M
+entries/s to approximately 2M entries/s. At this replication rate, the
+leader replica needs to transmit data at approximately 30
+Gbit/s. Coupled with the cost of network headers all four 10 GigE
+ports are now saturated and therefore Cyclone hits the network line
+rate bottleneck at this point. It is worthwhile to compare this to the
+case with small updates, where running the consensus protocol was a
 bottleneck to reaching line rate.
 \begin{figure*}
 \begin{minipage}{0.33\textwidth}
@@ -690,60 +715,65 @@ bottleneck to reaching line rate.
 \end{minipage}
 \end{figure*}
 
-We now turn our attention from the network component of Cyclone to the storage
-one by adding the second level flashlog. We evaluate the impact of adding the
-flashlog in Figures~\ref{fig:flashlog} and \ref{fig:flashlog_512}. The benefit
-of the second level flashlog is that it lets us keep the same amount of log
-space as with the flash based implementation, and not limit it to the amount of
-NVM available in the system.
-The hypothesis was that batching the movement of data from the
-NVM log to the flashlog would be sufficient to hide the latency of the block IO
-device from network speed replication. The results confirm that in terms of
-latency for the low to moderate load cases, our two level log arrangement is
-effective at hiding the latency of the NVMe SSD. The picture however is
-different for peak throughput. For small updates there is no impact on
-throughput when we add the SSD. On the other hand 
-Figure~\ref{fig:flashlog_512} shows that using a 512 byte payload has a
-significant impact on peak throughput - it drops to approximately 350K
-ops/sec. This corresponds to around 50K 4KB IOPS to the SSD to write out the
-flashlog pages. This is in fact the expected IOPS limit with the 32 outstanding
-requests to the drive that we maintain (Section~\ref{sec:storage}).
-A final observation on Figure~\ref{fig:flashlog_512} is that once we are past
-the storage bottleneck the latency spike is dramatic and large enough to trigger
-Cyclone's failure detector and repeated retries from the clients. There are
-therefore no points on the ``knee'' of the curve as in the pure packet
-switched one-level log case.
+We now turn our attention from the network component of Cyclone to the
+storage one by adding the second level flashlog. We evaluate the
+impact of adding the flashlog in Figures~\ref{fig:flashlog} and
+\ref{fig:flashlog_512}. The benefit of the second level flashlog is
+that it lets us keep the same amount of log space as with the flash
+based implementation, and not limit it to the amount of NVM available
+in the system.  The hypothesis was that batching the movement of data
+from the NVM log to the flashlog would be sufficient to hide the
+latency of the block IO device from network speed replication. The
+results confirm that in terms of latency for the low to moderate load
+cases, our two level log arrangement is effective at hiding the
+latency of the NVMe SSD. The picture however is different for peak
+throughput. For small updates there is no impact on throughput when we
+add the SSD. On the other hand Figure~\ref{fig:flashlog_512} shows
+that using a 512 byte payload has a significant impact on peak
+throughput - it drops to approximately 350K ops/sec. This corresponds
+to around 50K 4KB IOPS to the SSD to write out the flashlog
+pages. This is in fact the expected IOPS limit with the 32 outstanding
+requests to the drive that we maintain (Section~\ref{sec:storage}).  A
+final observation on Figure~\ref{fig:flashlog_512} is that once we are
+past the storage bottleneck the latency spike is dramatic and large
+enough to trigger Cyclone's failure detector and repeated retries from
+the clients. There are therefore no points on the ``knee'' of the
+curve as in the pure packet switched one-level log case.
 
-One can therefore conclude that using a small amount of directly attached NVM is
-effective at hiding the latency of a background block storage device from the
-critical path of replication. Further, for small updates the
-bottleneck is the capability of the software to run the consensus protocol, but
-the bottleneck shifts to the secondary storage device for larger request sizes.
+One can therefore conclude that using a small amount of directly
+attached NVM is effective at hiding the latency of a background block
+storage device from the critical path of replication. Further, for
+small updates the bottleneck is the capability of the software to run
+the consensus protocol, but the bottleneck shifts to the secondary
+storage device for larger request sizes.
 
-We now evaluate ganged operations. The primary purpose of
-ganged operations is to avoid the need for distributed transactions to
-manipulate what is a single shared memory image and therefore we were most
-concerned about unloaded latency given the complexity of synchronizing different
-replication quorums as well executing our rendezvous protocol on multiple
-cores. We therefore setup an experiment where a single client -- reflecting the
-unloaded case -- made ganged requests to the replicas. We varied the number of
-physical logs participating in the request from one to the full complement of 8.
-Figure~\ref{fig:ganged} shows the results. Unloaded
-latency increases slowly as we increase the number of active physical logs - to
-around 32 us from the baseline of 21 us. The reason for this increase is that
-the DPDK userspace NIC driver pipelines request processing for communication
-between the CPU core and the NIC. Simultaneous replication on multiple physical
-logs represents a worst case for this arrangement as all eight cores try to
-send replication messages to their replicas, adding about a microsecond of
-serial latency each, to dispatch requests to the NIC. Regardless, the experiment
-underlines the value of our ganged operation design over a distributed
-transaction that would need 8 network hops for the two phase commit (and
-replication) using an external co-ordinator, a minimum of 80us.
+We now evaluate ganged operations. The primary purpose of ganged
+operations is to avoid the need for distributed transactions to
+manipulate what is a single shared memory image and therefore we were
+most concerned about unloaded latency given the complexity of
+synchronizing different replication quorums as well executing our
+rendezvous protocol on multiple cores. We therefore setup an
+experiment where a single client -- reflecting the unloaded case --
+made ganged requests to the replicas. We varied the number of physical
+logs participating in the request from one to the full complement of
+8.  Figure~\ref{fig:ganged} shows the results. Unloaded latency
+increases slowly as we increase the number of active physical logs -
+to around 32 us from the baseline of 21 us. The reason for this
+increase is that the DPDK userspace NIC driver pipelines request
+processing for communication between the CPU core and the
+NIC. Simultaneous replication on multiple physical logs represents a
+worst case for this arrangement as all eight cores try to send
+replication messages to their replicas, adding about a microsecond of
+serial latency each, to dispatch requests to the NIC. Regardless, the
+experiment underlines the value of our ganged operation design over a
+distributed transaction that would need 8 network hops for the two
+phase commit (and replication) using an external co-ordinator, a
+minimum of 80us.
 
 \begin{figure*}
 \begin{minipage}{.33\textwidth}
   \includegraphics[scale=0.45]{results2/flashlog_512.pdf}
-  \caption{Second level log - 512 bytes payload}
+  \caption{Two level: 512B payload}
   \label{fig:flashlog_512}
 \end{minipage}
 \begin{minipage}{.33\textwidth}
@@ -758,114 +788,120 @@ replication) using an external co-ordinator, a minimum of 80us.
 \end{minipage}
 \end{figure*}
 
-Next, we evaluate Cyclone integrated with the Rocksdb persistent key value
-store. Rocksdb is a complex commercial grade persistent key value store and
-an important target for practical use of Cyclone.  Rocksdb is accompanied by a
-complex array of performance tuning knobs to get the best performance from
-flash. Designing LSM tree based key value stores to extract good performance
-from flash and make best use of DRAM on the machine is an area of active
-research~\cite{flodb, triad}. One of our main goals is to demonstrate that
-our conclusions will apply even as Rocksdb performance continues to improve
-with the integration of new ideas and better SSDs. Keeping this in mind, we
-configured RocksDB to place all files for the
-key value store (SSTables) on a RAMdisk, which presumably represents the limit
-in performance for both software enhancements as well as improvements to
+Next, we evaluate Cyclone integrated with the Rocksdb persistent key
+value store. Rocksdb is a complex commercial grade persistent key
+value store and an important target for practical use of Cyclone.
+Rocksdb is accompanied by a complex array of performance tuning knobs
+to get the best performance from flash. Designing LSM tree based key
+value stores to extract good performance from flash and make best use
+of DRAM on the machine is an area of active research~\cite{flodb,
+  triad}. One of our main goals is to demonstrate that our conclusions
+will apply even as Rocksdb performance continues to improve with the
+integration of new ideas and better SSDs. Keeping this in mind, we
+configured RocksDB to place all files for the key value store
+(SSTables) on a RAMdisk, which presumably represents the limit in
+performance for both software enhancements as well as improvements to
 flash-based SSDs. However, both Rocksdb's own write ahead log and the
-alternative of Cyclone's second level flashlog are placed on the SSDs. In
-effect we make availability a harder problem in this setting to ensure that our
-design is future-proof.
+alternative of Cyclone's second level flashlog are placed on the
+SSDs. In effect we make availability a harder problem in this setting
+to ensure that our design is future-proof.
 
-For the first experiment with Rocksdb we use 8 byte keys with either
-8 byte values or 256 byte values.  Since our
-focus is replication and only update requests are replicated, we use a 100\%
-update workload to test the capability of the system. This involves loading 100
-million key value pairs and during the test updating the value associated with a
-key picked at random.
+For the first experiment with Rocksdb we use 8 byte keys with either 8
+byte values or 256 byte values.  Since our focus is replication and
+only update requests are replicated, we use a 100\% update workload to
+test the capability of the system. This involves loading 100 million
+key value pairs and during the test updating the value associated with
+a key picked at random.
 
 Before evaluating with Rocksdb, we measure the baseline performance of
-replicating the log with Cyclone for the given request sizes - Rocksdb performs
-a no-op. We note that in addition to the key and value, we are also logging
-RocksDB specific request data such as operation type and the request header,
-making this different from the previous experiments.
-Figure~\ref{fig:kv_baseline} shows the baseline performance for the chosen
-request sizes. With the smaller request size, Cyclone can conservatively sustain
-close to a million requests a second at a latency of just under 25us. With the
-larger request size, Cyclone can sustain around 350K requests a second, again at
-a latency of just under 25 us. Armed with these baseline numbers we now examine
+replicating the log with Cyclone for the given request sizes - Rocksdb
+performs a no-op. We note that in addition to the key and value, we
+are also logging RocksDB specific request data such as operation type
+and the request header, making this different from the previous
+experiments.  Figure~\ref{fig:kv_baseline} shows the baseline
+performance for the chosen request sizes. With the smaller request
+size, Cyclone can conservatively sustain close to a million requests a
+second at a latency of just under 25us. With the larger request size,
+Cyclone can sustain around 350K requests a second, again at a latency
+of just under 25 us. Armed with these baseline numbers we now examine
 how well Cyclone performs with Rocksdb.
 
-The performance of Rocksdb with Cyclone for the small update workload is shown
-in Figure~\ref{fig:rocksdb} - essentially presenting the solution to the problem
-demonstrated in Figure~\ref{fig:problem}.  We consider four different
-setups. The line labeled 'rocksdb' is the key value store running with no
-logging whatsoever - a system crash would lead to data loss. The line labeled
-'rocksdb/wal' is for Rocksdb running with its write ahead logging turned on. The
-large gap between these two is the overhead of the existing Rocksdb WAL
-solution. The line labeled 'rocksdb/Cyclone 1 way' is a two level Cyclone log
-but without any replication. The line almost exactly tracks the performance of
-Rocksdb. Cyclone is able to provide a write ahead log with no overhead to
-Rocksdb. The line labeled 'rocksdb/Cyclone 3 way' is with 3-way replication
-turned on. Other than a 20us delta due to the extra network round trip, the line
-almost exactly tracks Rocksdb performance with no logging. Cyclone therefore
-provides high availability to Rocksdb at a fraction of the cost of its existing
-single machine write ahead log. We also repeat the experiment for the larger
-update size in Figure~\ref{fig:rocksdb_256}. The conclusions are identical:
-Cyclone solves Rocksdb's write ahead logging problem.
+The performance of Rocksdb with Cyclone for the small update workload
+is shown in Figure~\ref{fig:rocksdb} - essentially presenting the
+solution to the problem demonstrated in Figure~\ref{fig:problem}.  We
+consider four different setups. The line labeled 'rocksdb' is the key
+value store running with no logging whatsoever - a system crash would
+lead to data loss. The line labeled 'rocksdb/wal' is for Rocksdb
+running with its write ahead logging turned on. The large gap between
+these two is the overhead of the existing Rocksdb WAL solution. The
+line labeled 'rocksdb/Cyclone 1 way' is a two level Cyclone log but
+without any replication. The line almost exactly tracks the
+performance of Rocksdb. Cyclone is able to provide a write ahead log
+with no overhead to Rocksdb. The line labeled 'rocksdb/Cyclone 3 way'
+is with 3-way replication turned on. Other than a 20us delta due to
+the extra network round trip, the line almost exactly tracks Rocksdb
+performance with no logging. Cyclone therefore provides high
+availability to Rocksdb at a fraction of the cost of its existing
+single machine write ahead log. We also repeat the experiment for the
+larger update size in Figure~\ref{fig:rocksdb_256}. The conclusions
+are identical: Cyclone solves Rocksdb's write ahead logging problem.
 
-\begin{figure*}
-\begin{minipage}{.33\textwidth}
-    \centering
-    \includegraphics[scale=0.45]{results2/rocksdb.pdf}
-    \caption{Rocksdb - small updates}
-    \label{fig:rocksdb}
-  \end{minipage}
-  \begin{minipage}{.33\textwidth}
-    \includegraphics[scale=0.45]{results2/rocksdb_256.pdf}
+\begin{figure}
+  \centering
+  \includegraphics[scale=0.6]{results2/rocksdb.pdf}
+  \caption{Rocksdb - small updates}
+  \label{fig:rocksdb}
+\end{figure}
+\begin{figure}
+    \includegraphics[scale=0.6]{results2/rocksdb_256.pdf}
     \caption{Rocksdb - large updates}
     \label{fig:rocksdb_256}
-  \end{minipage}
-  \begin{minipage}{.33\textwidth}
-    \includegraphics[scale=0.45]{results2/rocksdb_multi.pdf}
+\end{figure}
+\begin{figure}
+    \includegraphics[scale=0.6]{results2/rocksdb_multi.pdf}
     \caption{Rocksdb - batched writes}
     \label{fig:rocksdb_multi}
-\end{minipage}
-\end{figure*}
+\end{figure}
 
-Next, we consider the problem of supporting Rocksdb's write-batch operation that
-atomically writes a set of key-value pairs into the KV store. This is a
-practical application of ganged operations in Cyclone. In order to
-perform the operation with Cyclone managing the log, the client must issue a
-ganged operation across physical logs owning the keys in the write batch.
-A key concern here was whether Cyclone would add any latency to the
-operation due to the extra synchronization needed across replication quorums (
-shown in a previous experiment).
-We examine the problem for the unloaded case
-and small updates in Figure~\ref{fig:rocksdb_multi}, for a single client with
-increasing number of keys in the batch (up to 32 keys).
-The line labeled Rocksdb is with no write ahead logging. We note an increasing
-latency for this baseline indicating Rocksdb itself takes longer
-with larger key batches. The existing option of Rocksdb/wal has considerably
-larger latency. Cyclone does an effective job of cutting down on this latency
-even as it needs to pay a price for synchronizing multiple physical
-logs. Cyclone therefore provides effective replicated logging for batched
-operations using the idea of ganged operations, while scaling the performance of
-single operations using its multiple physical logs.
+Next, we consider the problem of supporting Rocksdb's write-batch
+operation that atomically writes a set of key-value pairs into the KV
+store. This is a practical application of ganged operations in
+Cyclone. In order to perform the operation with Cyclone managing the
+log, the client must issue a ganged operation across physical logs
+owning the keys in the write batch.  A key concern here was whether
+Cyclone would add any latency to the operation due to the extra
+synchronization needed across replication quorums ( shown in a
+previous experiment).  We examine the problem for the unloaded case
+and small updates in Figure~\ref{fig:rocksdb_multi}, for a single
+client with increasing number of keys in the batch (up to 32 keys).
+The line labeled Rocksdb is with no write ahead logging. We note an
+increasing latency for this baseline indicating Rocksdb itself takes
+longer with larger key batches. The existing option of Rocksdb/wal has
+considerably larger latency. Cyclone does an effective job of cutting
+down on this latency even as it needs to pay a price for synchronizing
+multiple physical logs. Cyclone therefore provides effective
+replicated logging for batched operations using the idea of ganged
+operations, while scaling the performance of single operations using
+its multiple physical logs.
 
-Our evaluation has, thus far, focused on synthetic write heavy workloads. To
-illustrate that Cyclone can also be useful for real-world read-heavy workloads, 
-we configured our clients to generate key value requests that mimic the
-distribution of value sizes in Facebook's ETCD
-trace~\cite{fb_workload_analysis,fb_scaling_memcache} and are read heavy (95\%
-reads). We use weak reads in Cyclone to avoid the extra round trip for quorum reads.
-Figure~\ref{fig:fb} illustrates that even with a read dominated
-workload, Cyclone is effective at providing a write ahead log with 3 way
-replication with a lower performance overhead than Rocksdb's own write ahead
-logging. We consider the case of another real-world workload that is more write 
-intensive (at 80\%) and with a smaller range of value sizes -- derived from
-Facebook's VAR trace~~\cite{fb_workload_analysis,fb_scaling_memcache}, in
-Figure~\ref{fig:fb2}. One can similarly conclude that Cyclone provides more
-functionality (replicated write ahead log) at a far lower performance penalty
-that Rocksdb's existing single machine write ahead log solution.
+Our evaluation has, thus far, focused on synthetic write heavy
+workloads. To illustrate that Cyclone can also be useful for
+real-world read-heavy workloads, we configured our clients to generate
+key value requests that mimic the distribution of value sizes in
+Facebook's ETCD trace~\cite{fb_workload_analysis,fb_scaling_memcache}
+and are read heavy (95\% reads). We use weak reads in Cyclone to avoid
+the extra round trip for quorum reads.  Figure~\ref{fig:fb}
+illustrates that even with a read dominated workload, Cyclone is
+effective at providing a write ahead log with 3 way replication with a
+lower performance overhead than Rocksdb's own write ahead logging. We
+consider the case of another real-world workload that is more write
+intensive (at 80\%) and with a smaller range of value sizes -- derived
+from Facebook's VAR
+trace~~\cite{fb_workload_analysis,fb_scaling_memcache}, in
+Figure~\ref{fig:fb2}. One can similarly conclude that Cyclone provides
+more functionality (replicated write ahead log) at a far lower
+performance penalty that Rocksdb's existing single machine write ahead
+log solution.
 
 \begin{figure*}
 \begin{minipage}{.33\textwidth}
@@ -885,82 +921,91 @@ that Rocksdb's existing single machine write ahead log solution.
 \end{minipage}
 \end{figure*}
 
-Finally, we showcase the benefit of using Cyclone beyond pure performance as
-compared to the existing single machine Rocksdb write ahead log. Cyclone brings
-multi-machine availability with the ability to automatically failover. We
-demonstrate this in Figure ~\ref{fig:timeline} that shows the timeline of a run
-where we kill the server process on the leader replica. Cyclone is configured 
-with a 30ms failure detection timeout after which the client library tries
-replicas in turn to locate the leader. In this case it fails over in about
-60ms.
+Finally, we showcase the benefit of using Cyclone beyond pure
+performance as compared to the existing single machine Rocksdb write
+ahead log. Cyclone brings multi-machine availability with the ability
+to automatically failover. We demonstrate this in Figure
+~\ref{fig:timeline} that shows the timeline of a run where we kill the
+server process on the leader replica. Cyclone is configured with a
+30ms failure detection timeout after which the client library tries
+replicas in turn to locate the leader. In this case it fails over in
+about 60ms.
 
 \section{Related Work}
 
-Cyclone takes a software only approach to improving replication performance
-using commodity network hardware. In contrast, Mojim~\cite{mojim} pairs directly
-attached persistent memory with RDMA to replicate persistent data
-structures. None of the \emph{evaluated} modes of Mojim provide any means to
-keep more than two replicas in strong synchronization and therefore its
-guarantees are weak compared to Cyclone.  Further, Mojim's claim that
-``Paxos-like protocols'' require two networking round trips and are therefore
-somehow inefficient compared to mirroring is not true. For instance, we have
-demonstrated with Cyclone, where the leader responds as soon as it hears back
-from a majority quorum, that the critical path to replication is just one
-network round trip. We can compare Mojim's replication performance to Cyclone
-for the case where we use only the NVM log in Cyclone. On 40Gbps Infiniband,
-Mojim reported being able to mirror data at 4GB/s. In contrast, Cyclone can
-replicate data three ways using 4*10 Gbps commodity ethernet NICs at roughly 3.7
-GB/s. Note that this result is with Cyclone running the provable RAFT consensus
-protocol, while Mojim is doing simple mirroring of main memory.  One can
-conclude that network offload via RDMA and Infiniband is not an a-priori
-requirement for high throughput replication. This is made possible by Cyclone's
-approach that relieves the CPU from the burden of data copies. On the other
-hand, the latency of a hop on commodity ethernet at 5 us with our DPDK stack is
-larger than the close to 2us latency with Infiniband. Depending on the use case
-for the key value store application the extra 6us with ethernet for the round
-trip to the replica might be a concern for some. We note that mapping the
-commutativity of key value store interfaces to multiple logs in Cyclone is a
-technique that can also be applied to RDMA. Mojim confirms that concurrency is a
-significant determinant of performance when replicating over RDMA.
+Cyclone takes a software only approach to improving replication
+performance using commodity network hardware. In contrast,
+Mojim~\cite{mojim} pairs directly attached persistent memory with RDMA
+to replicate persistent data structures. None of the \emph{evaluated}
+modes of Mojim provide any means to keep more than two replicas in
+strong synchronization and therefore its guarantees are weak compared
+to Cyclone.  Further, Mojim's claim that ``Paxos-like protocols''
+require two networking round trips and are therefore somehow
+inefficient compared to mirroring is not true. For instance, we have
+demonstrated with Cyclone, where the leader responds as soon as it
+hears back from a majority quorum, that the critical path to
+replication is just one network round trip. We can compare Mojim's
+replication performance to Cyclone for the case where we use only the
+NVM log in Cyclone. On 40Gbps Infiniband, Mojim reported being able to
+mirror data at 4GB/s. In contrast, Cyclone can replicate data three
+ways using 4*10 Gbps commodity ethernet NICs at roughly 3.7 GB/s. Note
+that this result is with Cyclone running the provable RAFT consensus
+protocol, while Mojim is doing simple mirroring of main memory.  One
+can conclude that network offload via RDMA and Infiniband is not an
+a-priori requirement for high throughput replication. This is made
+possible by Cyclone's approach that relieves the CPU from the burden
+of data copies. On the other hand, the latency of a hop on commodity
+ethernet at 5 us with our DPDK stack is larger than the close to 2us
+latency with Infiniband. Depending on the use case for the key value
+store application the extra 6us with ethernet for the round trip to
+the replica might be a concern for some. We note that mapping the
+commutativity of key value store interfaces to multiple logs in
+Cyclone is a technique that can also be applied to RDMA. Mojim
+confirms that concurrency is a significant determinant of performance
+when replicating over RDMA.
 
-Consensus in a box~\cite{consensus_box} implements the Zookeeper atomic
-broadcast protocol together with a NIC on an FPGA. That work ignored durability,
-focusing purely on network performance for replication. Latency is excellent due
-to the fact that FPGA cuts out the path from CPU caches to the NIC. The authors
-report latency as low as 3us for a round trip from leader to follower replica,
-compared to the 6us we observe with DPDK. Notably however they reported 7us when
-using TCP/IP from the FPGA rather than their own connection oriented network
-protocol. On the other hand their peak replication throughput is 4M
-replications/sec on 66 Gbps of aggregate network bandwidth for small messages,
-comparable to the 6M replications/sec mark obtained by Cyclone on an aggregate
-40 Gbps of network bandwidth when \emph{also persisting the log on the SSD}. We
-believe the general applicability afforded by our software only approach
-together with the fact that we provide persistence by design makes it a
-compelling alternative to an FPGA based solution, even given the larger
-latency. Also, these results demonstrate that a general purpose CPU core can be
-as efficient as an FPGA in running a consensus protocol using the techniques
-described in this paper.
+Consensus in a box~\cite{consensus_box} implements the Zookeeper
+atomic broadcast protocol together with a NIC on an FPGA. That work
+ignored durability, focusing purely on network performance for
+replication. Latency is excellent due to the fact that FPGA cuts out
+the path from CPU caches to the NIC. The authors report latency as low
+as 3us for a round trip from leader to follower replica, compared to
+the 6us we observe with DPDK. Notably however they reported 7us when
+using TCP/IP from the FPGA rather than their own connection oriented
+network protocol. On the other hand their peak replication throughput
+is 4M replications/sec on 66 Gbps of aggregate network bandwidth for
+small messages, comparable to the 6M replications/sec mark obtained by
+Cyclone on an aggregate 40 Gbps of network bandwidth when \emph{also
+  persisting the log on the SSD}. We believe the general applicability
+afforded by our software only approach together with the fact that we
+provide persistence by design makes it a compelling alternative to an
+FPGA based solution, even given the larger latency. Also, these
+results demonstrate that a general purpose CPU core can be as
+efficient as an FPGA in running a consensus protocol using the
+techniques described in this paper.
 
-DARE~\cite{dare} implements state machine replication over RDMA, using a custom
-replication protocol. DARE does not consider persistence in its design. It is
-worthwhile to point out that since DARE allows any replica to become the leader
-it requires a log adjustment protocol for the leader to bring its logs up to
-date, a situation we avoid by using RAFT as described in
-Section~\ref{sec:dm}. Using 40 Gb/s speeds, and 3-way replication DARE reported
-being able to replicate 500K requests/sec. This is without persisting the log of
-updates. In contrast, Cyclone replicates upwards of 6 million similarly sized
+DARE~\cite{dare} implements state machine replication over RDMA, using
+a custom replication protocol. DARE does not consider persistence in
+its design. It is worthwhile to point out that since DARE allows any
+replica to become the leader it requires a log adjustment protocol for
+the leader to bring its logs up to date, a situation we avoid by using
+RAFT as described in Section~\ref{sec:dm}. Using 40 Gb/s speeds, and
+3-way replication DARE reported being able to replicate 500K
+requests/sec. This is without persisting the log of updates. In
+contrast, Cyclone replicates upwards of 6 million similarly sized
 requests per second with 4*10 Gbps ethernet (without the second level
-flashlog). DARE reports an unloaded write latency of 15us, which is lower than
-the unloaded write latency of Cyclone at 20us, thanks to Infiniband. The
-conclusions we can draw are similar to the comparison with Mojim: a carefully
-implemented log replication system obviates the need for network offload when
-doing replication.
+flashlog). DARE reports an unloaded write latency of 15us, which is
+lower than the unloaded write latency of Cyclone at 20us, thanks to
+Infiniband. The conclusions we can draw are similar to the comparison
+with Mojim: a carefully implemented log replication system obviates
+the need for network offload when doing replication.
 
-{CRANE}~\cite{crane} is a system for replicating multithreaded programs using
-Paxos. It uses deterministic multi-threading to ensure replicas converge to the
-same state as opposed to semantic equivalence in Cyclone using API
-commutativity.  CRANE reports around a 2X slowdown for MySQL, likely rendering
-it unsuitable as a replacement for the write ahead log in key value stores.
+{CRANE}~\cite{crane} is a system for replicating multithreaded
+programs using Paxos. It uses deterministic multi-threading to ensure
+replicas converge to the same state as opposed to semantic equivalence
+in Cyclone using API commutativity.  CRANE reports around a 2X
+slowdown for MySQL, likely rendering it unsuitable as a replacement
+for the write ahead log in key value stores.
 
 %The scalable commutativity rule~\cite{scalable_commutativity} states that for a
 %shared memory program to scale in performance with concurrency it must also have
@@ -971,31 +1016,29 @@ it unsuitable as a replacement for the write ahead log in key value stores.
 
 Database practitioners have considered the utility of byte addressable
 non-volatile memory in improving logging for
-databases~\cite{nvram_log}. However, that work proposes placing the entire log
-in NVM, presuming sufficient availability of such memory. It also does not
-consider replication.
+databases~\cite{nvram_log}. However, that work proposes placing the
+entire log in NVM, presuming sufficient availability of such
+memory. It also does not consider replication.
 
-Cyclone does not provide exactly once semantics as we
-believe that exactly once semantics are better provided by the key value store
-itself by persisting necessary request markers - as done in systems such as
-Kafka~\cite{kafka}. A possible direction of future work however is to add
-exactly once semantics to Cyclone's client-server protocol to serve as a
-building block for distributed transactions across key-value shards, each
-running Cyclone, in a manner similar to other systems~\cite{raft_lin}.
+Cyclone does not provide exactly once semantics as we believe that
+exactly once semantics are better provided by the key value store
+itself by persisting necessary request markers - as done in systems
+such as Kafka~\cite{kafka}. A possible direction of future work
+however is to add exactly once semantics to Cyclone's client-server
+protocol to serve as a building block for distributed transactions
+across key-value shards, each running Cyclone, in a manner similar to
+other systems~\cite{raft_lin}.
 
 \section{Conclusion}
-Cyclone shows how one can leverage a small amount of non-volatile memory to
-address two fundamental difficulties in adding high availability to persistent
-key value stores. First, Cyclone avoids
-paying the cost of the block IO interface for every update operation. This
-removes block IO latency from the task of appending updates to the log as well
-as sending it out over the network for replication. In turn, this enables us to
-apply software packet switching techniques and concurrency to improve the
-performance of replication, and making full use of available resources when
-replicating log entries over the network. By optimizing the storage and network
-components simultaneously, Cyclone enables high availability to persistent key
-value stores without compromising on their performance.
-
+Cyclone shows how one can leverage a small amount of non-volatile
+memory to address two fundamental difficulties in adding high
+availability to persistent key value stores. First, Cyclone avoids
+paying the cost of the block IO interface for every update
+operation. In turn, this enables us to apply software packet
+switching techniques and concurrency to improve the performance of
+replication, and making full use of available resources when
+replicating log entries over the network. It enables deployments of
+Rocksdb with native performance without any compromise on availability.
 Cyclone is available as open source software at:\\
 \url{https://github.com/sdulloor/cyclone/}
 \newcommand\myurl[2]{\url{#1}}
