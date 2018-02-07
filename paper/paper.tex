@@ -183,8 +183,8 @@ itself but rather the interface (i.e block IO). This is a particular
 pain point for small writes.  For example,
 Facebook~\cite{fb_workload_analysis} reports that 90\% of the space
 allocated in key value stores is for data items under 500 bytes in
-size.  The SSD used in Figure~\ref{fig:problem}, we achieve 50
-Kops/sec to the SSD being limited to a 20us latency on the PCIe
+size. For the SSD used in Figure~\ref{fig:problem}, we achieve 50
+Kops/sec to the SSD due to being limited by the 20us latency on the PCIe
 interface. This translates to 25 MB/s for 500 byte key-value
 pairs. The SSD is capable of achieving over 1 GB/s of sequential write
 bandwidth to an append only log. Clearly the SSDs performance is not
@@ -409,8 +409,8 @@ batching - treating a whole sequence of client commands as a single
 RAFT log entry, while avoiding any copies to group these packets
 together. We do this by making use of a DPDK feature that allows
 chaining received packet mbufs together and treating the chain as a
-single packet.  Finally, we pipline the RAFT protocol state machine by
-contnuing to transmit log entries to follower replicas without waiting
+single packet.  Finally, we pipeline the RAFT protocol state machine by
+continuing to transmit log entries to follower replicas without waiting
 for acknowledgments. The RAFT protocol allows tracking multiple log
 entries in flight via their entry index in the log and this allows us
 to keep the link busy without being limited by the round trip time.
@@ -475,7 +475,7 @@ mini-batch for each of the physical logs. There is no guarantee that
 the request for a mini-batch will succeed breaking the atomicity
 requirement for batched updates. The obvious and simple solution is to
 do two phase commit across the logs, ensuring all or nothing
-semantics. However this was unacceptable to some use-cases of Cyclone
+semantics. However this was unacceptable for some use-cases of Cyclone
 as it requires ensuring that an external co-ordinator implementing two
 phase commit does not itself fail. This requires running a separate
 replicated service - with its attendant resource and reliability
@@ -1031,12 +1031,12 @@ other systems~\cite{raft_lin}.
 
 \section{Conclusion}
 Cyclone shows how one can leverage a small amount of non-volatile
-memory to address two fundamental difficulties in adding high
-availability to persistent key value stores. First, Cyclone avoids
+memory to address fundamental difficulties in adding high
+availability to persistent key value stores. Cyclone avoids
 paying the cost of the block IO interface for every update
 operation. In turn, this enables us to apply software packet
 switching techniques and concurrency to improve the performance of
-replication, and making full use of available resources when
+replication, and make full use of available resources when
 replicating log entries over the network. It enables deployments of
 Rocksdb with native performance without any compromise on availability.
 Cyclone is available as open source software at:\\
